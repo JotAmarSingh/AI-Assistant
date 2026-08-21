@@ -52,6 +52,13 @@ jobs:
 
       - name: Configure Gradle & JVM Environment
         run: |
+          # Detect actual Java 21 directory
+          JDK_21="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          if [ -z "$JDK_21" ] || [ ! -d "$JDK_21" ]; then
+            JDK_21=$(dirname $(dirname $(which javac)))
+          fi
+          echo "Identified JDK 21 location: $JDK_21"
+
           # 1. Update android/gradle.properties
           PROPS_FILE="android/gradle.properties"
           if [ -f "$PROPS_FILE" ]; then
@@ -59,6 +66,7 @@ jobs:
             echo "android.useAndroidX=true" >> "$PROPS_FILE"
             echo "android.enableJetifier=true" >> "$PROPS_FILE"
             echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8" >> "$PROPS_FILE"
+            echo "org.gradle.java.home=$JDK_21" >> "$PROPS_FILE"
           fi
 
           # 2. Patch root android/build.gradle to force uniform Kotlin dependencies and toolchain
@@ -76,6 +84,19 @@ allprojects {
         }
     }
 }
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_21
+                    targetCompatibility JavaVersion.VERSION_21
+                }
+            }
+        }
+    }
+}
 EOF
           fi
 
@@ -90,6 +111,10 @@ configurations.all {
 }
 
 android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
     packagingOptions {
         resources {
             excludes += ['META-INF/INDEX.LIST', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE', 'META-INF/LICENSE', 'META-INF/*.kotlin_module']
@@ -108,9 +133,27 @@ EOF
 
       - name: Build Android Debug APK with Gradle
         run: |
+          # 1. Resolve JDK 21 Home
+          JDK_21="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          if [ -z "$JDK_21" ] || [ ! -d "$JDK_21" ]; then
+            JDK_21=$(dirname $(dirname $(which javac)))
+          fi
+
+          export JAVA_HOME="$JDK_21"
+          export PATH="$JDK_21/bin:$PATH"
+
+          echo "=== JAVA 21 VERIFICATION ==="
+          java -version
+          javac -version
+
+          # 2. Build Debug APK with explicit Java 21 Home
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug \
+            -Dorg.gradle.java.home="$JDK_21" \
+            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m" \
+            --no-daemon \
+            --stacktrace
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4

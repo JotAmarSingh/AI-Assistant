@@ -6,7 +6,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,17 +16,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Node.js 22 (LTS)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install Node Dependencies
-        run: npm install
-
-      - name: Build Web Application (Vite -> dist)
-        run: npm run build
 
       - name: Set up Java JDK 21 (Temurin)
         uses: actions/setup-java@v4
@@ -39,37 +28,40 @@ jobs:
         with:
           cmdline-tools-version: '11076708'
 
-      - name: Accept Android SDK Licenses & Install Build Tools
+      - name: Accept Android SDK Licenses & Install Platforms
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platforms;android-35" "build-tools;35.0.0" || true
+          sdkmanager "platforms;android-34" "platforms;android-35" "build-tools;34.0.0" "build-tools;35.0.0" || true
 
-      - name: Verify Java 21 Environment
-        run: |
-          echo "Current JAVA_HOME is: $JAVA_HOME"
-          java -version
-          javac -version
-          which java
-          which javac
+      - name: Set up Node.js 22 (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Node Dependencies
+        run: npm ci || npm install
+
+      - name: Build Web Application (Vite -> dist)
+        run: npm run build
 
       - name: Initialize & Sync Capacitor Android Container
         run: |
           npx cap add android || true
           npx cap sync android
 
-      - name: Configure Gradle, Java 21 Toolchain & Resolve Kotlin Conflicts
+      - name: Configure Gradle & JVM Environment
         run: |
-          # 1. Update android/gradle.properties with explicit Java 21 and memory settings
+          # 1. Update android/gradle.properties
           PROPS_FILE="android/gradle.properties"
           if [ -f "$PROPS_FILE" ]; then
             echo "" >> "$PROPS_FILE"
             echo "android.useAndroidX=true" >> "$PROPS_FILE"
             echo "android.enableJetifier=true" >> "$PROPS_FILE"
-            echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8" >> "$PROPS_FILE"
-            echo "org.gradle.java.home=$JAVA_HOME" >> "$PROPS_FILE"
+            echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8" >> "$PROPS_FILE"
           fi
 
-          # 2. Patch root android/build.gradle to force uniform Kotlin stdlib across all subprojects
+          # 2. Patch root android/build.gradle to force uniform Kotlin dependencies and toolchain
           ROOT_GRADLE="android/build.gradle"
           if [ -f "$ROOT_GRADLE" ]; then
             cat << 'EOF' >> "$ROOT_GRADLE"
@@ -84,22 +76,10 @@ allprojects {
         }
     }
 }
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-            android {
-                compileOptions {
-                    sourceCompatibility JavaVersion.VERSION_21
-                    targetCompatibility JavaVersion.VERSION_21
-                }
-            }
-        }
-    }
-}
 EOF
           fi
 
-          # 3. Patch android/app/build.gradle to exclude duplicate kotlin-stdlib artifacts & merge conflicts
+          # 3. Patch android/app/build.gradle for packaging options
           APP_GRADLE="android/app/build.gradle"
           if [ -f "$APP_GRADLE" ]; then
             cat << 'EOF' >> "$APP_GRADLE"
@@ -110,10 +90,6 @@ configurations.all {
 }
 
 android {
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
-    }
     packagingOptions {
         resources {
             excludes += ['META-INF/INDEX.LIST', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE', 'META-INF/LICENSE', 'META-INF/*.kotlin_module']
@@ -127,7 +103,6 @@ EOF
         run: |
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
-            # Ensure native permissions are added for Audio, Location, Alarms & Notifications
             sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST_PATH"
           fi
 
@@ -135,12 +110,7 @@ EOF
         run: |
           cd android
           chmod +x gradlew
-          export JAVA_HOME="$JAVA_HOME_21_X64"
-          if [ -z "$JAVA_HOME" ]; then
-            export JAVA_HOME=$(dirname $(dirname $(which javac)))
-          fi
-          echo "Building with JAVA_HOME=$JAVA_HOME"
-          ./gradlew assembleDebug -Dorg.gradle.java.home="$JAVA_HOME" --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
@@ -149,5 +119,3 @@ EOF
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-
-

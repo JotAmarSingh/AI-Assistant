@@ -9,7 +9,7 @@ interface PeriodicPromptModalProps {
 }
 
 export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen, onClose }) => {
-  const { state, processUserInput, isProcessing, updateUserSettings, snoozePrompts, currentTimeString } = useDay();
+  const { state, processUserInput, isProcessing, updateUserSettings, snoozePrompts, currentTimeString, recordPeriodicPromptCompletion } = useDay();
   const [logText, setLogText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -25,6 +25,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
     setIsSubmitting(true);
     try {
       await processUserInput(logText.trim());
+      recordPeriodicPromptCompletion();
       setLogText('');
       onClose();
     } catch (err) {
@@ -38,6 +39,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
     setIsSubmitting(true);
     try {
       await processUserInput(text);
+      recordPeriodicPromptCompletion();
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -64,7 +66,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
                 <Sparkles className="w-5 h-5 text-[#D1E1FF]" />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-[#E2E2E6]">30-Min Accountability Check</h3>
+                <h3 className="font-bold text-sm text-[#E2E2E6]">{state.userSettings?.periodicPromptIntervalMinutes || 30}-Min Accountability Check</h3>
                 <span className="text-[11px] text-[#C4C6D0]/70 font-mono">{currentTimeString} • Activity Pulse</span>
               </div>
             </div>
@@ -84,7 +86,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
               What task are you working on right now?
             </p>
             <p className="text-xs text-[#C4C6D0]/70 leading-relaxed">
-              Log your current activity to maintain an accurate timeline. This prompt will recur every 30 minutes until sleep time.
+              Log your current activity to maintain an accurate timeline. This prompt recurs every {state.userSettings?.periodicPromptIntervalMinutes || 30} minutes until sleep time.
             </p>
           </div>
 

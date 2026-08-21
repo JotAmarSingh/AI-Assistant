@@ -23,12 +23,14 @@ import { createFreshDailyState, SAMPLE_TEMPLATE_STATE, INITIAL_DAILY_STATE, DEFA
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
 import { parseVoiceAutomations } from '../utils/localAutomationParser';
-import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, persistNativeSyncQueue, markNativeSyncCompleted } from '../services/nativeBridge';
+import { classifyUserIntent, executeDayTraceQuery, speakQueryResponse } from '../utils/intentClassifier';
+import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, persistNativeSyncQueue, markNativeSyncCompleted, syncNativePeriodicPromptConfig, triggerNativeTestPrompt } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
 import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets } from '../services/googleSheetsSync';
 import { speechService } from '../services/speechRecognition';
 import { DEFAULT_REWARDS, INITIAL_GAMIFICATION_STATE, updateStreak } from '../services/rewardsCatalog';
+import { reconcileNativeAccountabilityEvents, selectNativeSuggestedTasks } from '../utils/nativeAccountability';
 
 const STORAGE_KEY = 'daytrace_state_v2';
 
@@ -71,6 +73,8 @@ interface DayContextType {
   isPeriodicPromptOpen: boolean;
   setIsPeriodicPromptOpen: (open: boolean) => void;
   triggerManualPromptCheck: () => void;
+  recordPeriodicPromptCompletion: () => void;
+  triggerNativePromptTest: (delaySeconds?: number) => Promise<{ scheduled: boolean; delaySeconds: number }>;
   syncToGoogleSheets: () => Promise<{ success: boolean; url?: string; error?: string }>;
   isSyncingSheets: boolean;
   restoreFromGoogleSheetsBackup: (spreadsheetId?: string) => Promise<{ success: boolean; message?: string }>;
@@ -138,6 +142,11 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return createFreshDailyState();
   });
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const [mode, setMode] = useState<AppMode>('ACCOUNTABILITY');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -181,6 +190,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const lastPromptTimeRef = useRef<number>(Date.now());
   const triggeredAlarmsRef = useRef<Set<string>>(new Set());
+  const lastQueryContextRef = useRef<{ targetLocation?: { name: string; id?: string }; triggerType?: 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT' | 'ANY' } | undefined>(undefined);
 
   const dismissToast = useCallback(() => setNotificationToast(null), []);
 
@@ -290,6 +300,16 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsPeriodicPromptOpen(true);
   }, []);
 
+  const recordPeriodicPromptCompletion = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      nativeAccountability: {
+        processedEventIds: prev.nativeAccountability?.processedEventIds || [],
+        lastCompletedAtMillis: Date.now(),
+      },
+    }));
+  }, []);
+
   // Save state to localStorage whenever modified
   useEffect(() => {
     try {
@@ -319,66 +339,76 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [state.automations, state.timeline, state.tasks, state.reminders, state.date, state.current]);
 
-  // 2. Reconcile background native pending logs and automation states
+  // 1b. Sync periodic accountability prompt configuration with native Android AlarmManager
   useEffect(() => {
-    const reconcileBackgroundActivity = async () => {
-      const pendingState = await fetchNativePendingState();
-      if (pendingState) {
-        const { pendingLogs, automations: nativeAutos } = pendingState;
-        if ((pendingLogs && pendingLogs.length > 0) || (nativeAutos && nativeAutos.length > 0)) {
-          setState((prev) => {
-            let updatedAutos = prev.automations || [];
-            if (nativeAutos && nativeAutos.length > 0) {
-              const nativeMap = new Map(nativeAutos.map((a: any) => [a.id, a]));
-              updatedAutos = updatedAutos.map((a) => {
-                const match: any = nativeMap.get(a.id);
-                if (match && match.status !== a.status) {
-                  return { ...a, ...match };
-                }
-                return a;
-              });
-            }
+    const settings = state.userSettings || DEFAULT_USER_SETTINGS;
+    const suggestedTasks = selectNativeSuggestedTasks(state.tasks || [], state.current.focusTaskId);
 
-            let updatedTimeline = prev.timeline;
-            if (pendingLogs && pendingLogs.length > 0) {
-              const existingIds = new Set(prev.timeline.map((t) => t.id));
-              const newItems = pendingLogs
-                .filter((log: any) => !existingIds.has(log.id))
-                .map((log: any) => ({
-                  id: log.id,
-                  time: log.time,
-                  date: log.date,
-                  type: log.type,
-                  description: log.description,
-                  location: log.location,
-                  source: log.source,
-                  syncStatus: log.syncStatus || 'PENDING',
-                }));
+    syncNativePeriodicPromptConfig({
+      enabled: !!settings.periodicPromptEnabled,
+      intervalMinutes: settings.periodicPromptIntervalMinutes || 30,
+      wakeUpTime: settings.wakeUpTime || '07:00',
+      bedTime: settings.bedTime || '23:30',
+      gamingModeActive: !!settings.gamingModeActive,
+      snoozedUntil: settings.snoozedUntil || null,
+      suggestedTasks,
+      lastActivityTimestampMillis: state.nativeAccountability?.lastCompletedAtMillis,
+    });
+  }, [
+    state.userSettings?.periodicPromptEnabled,
+    state.userSettings?.periodicPromptIntervalMinutes,
+    state.userSettings?.wakeUpTime,
+    state.userSettings?.bedTime,
+    state.userSettings?.gamingModeActive,
+    state.userSettings?.snoozedUntil,
+    state.tasks,
+    state.current.focusTaskId,
+    state.nativeAccountability?.lastCompletedAtMillis,
+  ]);
 
-              if (newItems.length > 0) {
-                updatedTimeline = [...prev.timeline, ...newItems];
-              }
-            }
+  const reconcileBackgroundActivity = useCallback(async () => {
+    const pendingState = await fetchNativePendingState();
+    if (!pendingState) return;
+    const nativeEvents = pendingState.pendingEvents || [];
+    const nativeAutos = pendingState.automations || [];
+    let baseState = stateRef.current;
+    if (nativeAutos.length > 0) {
+      const nativeMap = new Map(nativeAutos.map((automation: any) => [automation.id, automation]));
+      baseState = {
+        ...baseState,
+        automations: (baseState.automations || []).map((automation) => {
+          const match: any = nativeMap.get(automation.id);
+          return match && match.status !== automation.status ? { ...automation, ...match } : automation;
+        }),
+      };
+    }
+    const result = reconcileNativeAccountabilityEvents(baseState, nativeEvents);
+    if (result.state !== stateRef.current) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.state));
+      stateRef.current = result.state;
+      setState(result.state);
+    }
+    if (result.shouldOpenPrompt) setIsPeriodicPromptOpen(true);
+    await acknowledgeNativeEvents(result.acknowledgedEventIds);
+  }, []);
 
-            return {
-              ...prev,
-              automations: updatedAutos,
-              timeline: updatedTimeline,
-            };
-          });
-        }
-      }
-    };
-
+  useEffect(() => {
     reconcileBackgroundActivity();
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         reconcileBackgroundActivity();
       }
     };
+    const handleNativeReconcile = () => reconcileBackgroundActivity();
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+    window.addEventListener('focus', handleNativeReconcile);
+    window.addEventListener('daytrace-native-reconcile', handleNativeReconcile);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleNativeReconcile);
+      window.removeEventListener('daytrace-native-reconcile', handleNativeReconcile);
+    };
+  }, [reconcileBackgroundActivity]);
 
   // Live time ticker & Periodic 30-min prompt evaluation & Alarm triggers
   useEffect(() => {
@@ -423,7 +453,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. Evaluate 30-Minute Recurring Accountability Check
       // Only pop up if enabled, not in gaming mode, not snoozed, and within waking hours
-      if (settings.periodicPromptEnabled && !settings.gamingModeActive) {
+      if (!isNativeAndroid() && settings.periodicPromptEnabled && !settings.gamingModeActive) {
         // Check snooze
         if (settings.snoozedUntil) {
           const snoozeEnd = new Date(settings.snoozedUntil).getTime();
@@ -727,6 +757,44 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const executeVoiceTranscript = useCallback((rawTranscript: string) => {
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
+    // 0. TOP PRIORITY: Intent Router & Question Classifier (ZERO SIDE EFFECTS FOR QUERIES)
+    const classified = classifyUserIntent(rawTranscript, state, lastQueryContextRef.current);
+    if (classified.type === 'QUERY' || classified.isQuestion) {
+      if (classified.queryDetails?.targetLocation || classified.queryDetails?.triggerType) {
+        lastQueryContextRef.current = {
+          targetLocation: classified.queryDetails.targetLocation,
+          triggerType: classified.queryDetails.triggerType,
+        };
+      }
+      const queryResult = executeDayTraceQuery(rawTranscript, state, nowStr, lastQueryContextRef.current);
+
+      soundEffects.playTaskDone();
+      triggerPixelHaptic('light');
+      speakQueryResponse(queryResult.spokenText || queryResult.answerText);
+      setNotificationToast(queryResult.answerText.replace(/\n+/g, ' · '));
+
+      // Append purely to conversation history for user visibility (ZERO data/task/automation side effects)
+      setState((prev) => ({
+        ...prev,
+        conversationHistory: [
+          ...prev.conversationHistory,
+          {
+            id: `msg-${Date.now()}-user`,
+            sender: 'user',
+            text: rawTranscript,
+            timestamp: nowStr,
+          },
+          {
+            id: `msg-${Date.now()}-ai`,
+            sender: 'assistant',
+            text: queryResult.answerText,
+            timestamp: nowStr,
+          },
+        ],
+      }));
+      return;
+    }
+
     // 1. High priority: Fast local automation & multi-activity parser
     const autoParse = parseVoiceAutomations(rawTranscript, state, nowStr);
     if (autoParse.isAutomation && autoParse.automations.length > 0) {
@@ -1007,7 +1075,40 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     try {
-      // 0. Instant deterministic local automation & activity parser (0ms, 100% offline, privacy first)
+      // 0. TOP PRIORITY: Intent Router & Question Classifier (ZERO SIDE EFFECTS FOR QUERIES)
+      const classified = classifyUserIntent(userInput, state, lastQueryContextRef.current);
+      if (classified.type === 'QUERY' || classified.isQuestion) {
+        if (classified.queryDetails?.targetLocation || classified.queryDetails?.triggerType) {
+          lastQueryContextRef.current = {
+            targetLocation: classified.queryDetails.targetLocation,
+            triggerType: classified.queryDetails.triggerType,
+          };
+        }
+        const queryResult = executeDayTraceQuery(userInput, state, userTimestamp, lastQueryContextRef.current);
+
+        soundEffects.playTaskDone();
+        triggerPixelHaptic('light');
+        speakQueryResponse(queryResult.spokenText || queryResult.answerText);
+
+        // Append assistant response to conversation history (ZERO data/task/automation side effects)
+        setState((prev) => ({
+          ...prev,
+          conversationHistory: [
+            ...prev.conversationHistory,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'assistant',
+              text: queryResult.answerText,
+              timestamp: userTimestamp,
+            },
+          ],
+        }));
+
+        setNotificationToast(queryResult.answerText.replace(/\n+/g, ' · '));
+        return queryResult.answerText;
+      }
+
+      // 1. Instant deterministic local automation & activity parser (0ms, 100% offline, privacy first)
       const autoParse = parseVoiceAutomations(userInput, state, userTimestamp);
       if (autoParse.isAutomation && autoParse.automations.length > 0) {
         soundEffects.playTaskDone();
@@ -1721,6 +1822,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (reminderId) {
               snoozeAutomation(reminderId, 10);
             }
+          } else if (action === 'OPEN_PERIODIC_PROMPT' || action === 'ACCOUNTABILITY_EVENT') {
+            window.dispatchEvent(new Event('daytrace-native-reconcile'));
           }
         });
       } catch (err) {
@@ -2189,6 +2292,21 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [state, updateUserSettings]);
 
+  const triggerNativePromptTest = useCallback(async (delaySeconds: number = 10) => {
+    if (isNativeAndroid()) {
+      const res = await triggerNativeTestPrompt(delaySeconds);
+      setNotificationToast(`📱 Lock phone now! Test prompt arrives in ${delaySeconds}s.`);
+      return res;
+    } else {
+      setNotificationToast(`📱 Simulating lock-screen check in ${delaySeconds}s...`);
+      setTimeout(() => {
+        soundEffects.playPromptChime();
+        setIsPeriodicPromptOpen(true);
+      }, delaySeconds * 1000);
+      return { scheduled: true, delaySeconds };
+    }
+  }, []);
+
   return (
     <DayContext.Provider
       value={{
@@ -2222,6 +2340,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isPeriodicPromptOpen,
         setIsPeriodicPromptOpen,
         triggerManualPromptCheck,
+        recordPeriodicPromptCompletion,
+        triggerNativePromptTest,
         syncToGoogleSheets,
         isSyncingSheets,
         restoreFromGoogleSheetsBackup,

@@ -1,5 +1,6 @@
 import { Automation, DailyState, GeofenceLocation, TimelineEvent, EventSource } from '../types';
 import { extractExplicitTime } from './offlineParser';
+import { classifyUserIntent } from './intentClassifier';
 
 export interface ParsedAutomationResult {
   isAutomation: boolean;
@@ -76,6 +77,17 @@ export function parseVoiceAutomations(
   const lower = rawInput.toLowerCase();
   const now = currentTimeStr || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   const savedLocations = currentState?.geofenceLocations;
+
+  // 0. QUERY INTENT INTERCEPTION: If the user is asking a question, NEVER create or parse an automation!
+  const classified = classifyUserIntent(rawInput, currentState);
+  if (classified.type === 'QUERY' || classified.isQuestion) {
+    return {
+      isAutomation: false,
+      automations: [],
+      timelineLogs: [],
+      summaryText: '',
+    };
+  }
 
   // Split compound commands by connectors
   // E.g.: "Remind me when I leave office to get medicines and on reaching home I have to hand over the medicines to my wife."

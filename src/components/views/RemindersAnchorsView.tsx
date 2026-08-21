@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { 
   Calendar, 
   Bell, 
@@ -15,10 +15,13 @@ import {
   VolumeX,
   FileSpreadsheet,
   ExternalLink,
-  Loader2
+  Loader2,
+  Smartphone,
+  BellRing
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
+import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -32,6 +35,7 @@ export const RemindersAnchorsView: React.FC = () => {
     updateUserSettings,
     snoozePrompts,
     triggerManualPromptCheck,
+    triggerNativePromptTest,
     syncToGoogleSheets,
     isSyncingSheets,
     markAutomationComplete,
@@ -40,6 +44,26 @@ export const RemindersAnchorsView: React.FC = () => {
   } = useDay();
   const [isAddAnchorModalOpen, setIsAddAnchorModalOpen] = useState(false);
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
+  const [isTestingLockscreen, setIsTestingLockscreen] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NativeNotificationPermissionStatus | null>(null);
+
+  const refreshNotificationPermission = useCallback(async () => {
+    if (!isNativeAndroid()) return;
+    setNotificationPermission(await checkNativeNotificationPermission());
+  }, []);
+
+  useEffect(() => {
+    refreshNotificationPermission();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshNotificationPermission();
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshNotificationPermission);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshNotificationPermission);
+    };
+  }, [refreshNotificationPermission]);
 
   const settings = state.userSettings || {
     officeStartTime: '09:30',
@@ -103,33 +127,112 @@ export const RemindersAnchorsView: React.FC = () => {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         
-        {/* Section 0: Office Hours & 30-Min Accountability Settings */}
+        {/* Section 0: Office Hours & Native Lock-Screen Accountability Settings */}
         <section className="bg-[#1D2026] border border-[#D1E1FF]/30 rounded-[32px] p-4 shadow-lg space-y-3.5">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center space-x-2">
               <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
                 <Clock className="w-4 h-4" />
               </div>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#E2E2E6]">
-                  Schedule & Accountability Settings
+                  Schedule & Accountability Checks
                 </h3>
-                <span className="text-[10px] text-[#C4C6D0]/70">Office hours & 30-min dialog triggers</span>
+                <span className="text-[10px] text-[#C4C6D0]/70">Native lock-screen prompt & schedule rules</span>
               </div>
             </div>
 
-            <button
-              onClick={triggerManualPromptCheck}
-              className="py-1 px-2.5 rounded-xl bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] text-[11px] font-semibold flex items-center space-x-1 transition shadow-sm"
-              title="Test the 30-minute accountability dialogue"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Test Dialog</span>
-            </button>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={triggerManualPromptCheck}
+                className="py-1 px-2.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#C4C6D0] hover:text-[#E2E2E6] text-[11px] font-semibold flex items-center space-x-1 transition shadow-sm"
+                title="Test the in-app accountability dialogue"
+              >
+                <Sparkles className="w-3 h-3 text-[#D1E1FF]" />
+                <span>Test In-App</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsTestingLockscreen(true);
+                  await triggerNativePromptTest(10);
+                  setTimeout(() => setIsTestingLockscreen(false), 12000);
+                }}
+                disabled={isTestingLockscreen}
+                className="py-1 px-2.5 rounded-xl bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] text-[11px] font-semibold flex items-center space-x-1 transition shadow-sm disabled:opacity-50"
+                title="Schedules a native interactive notification in 10s so you can lock your screen and test RemoteInput"
+              >
+                <Smartphone className="w-3 h-3" />
+                <span>{isTestingLockscreen ? 'Scheduled in 10s...' : 'Test Lock-Screen (10s)'}</span>
+              </button>
+            </div>
           </div>
 
+          {/* Accountability Interval Selector */}
+          <div className="p-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1.5">
+                <BellRing className="w-3.5 h-3.5 text-[#D1E1FF]" />
+                <span className="text-xs font-bold text-[#E2E2E6]">Check-In Prompt Frequency</span>
+              </div>
+              <span className="text-[11px] font-mono text-[#D1E1FF] font-semibold">
+                Every {settings.periodicPromptIntervalMinutes || 30} mins
+              </span>
+            </div>
+            <p className="text-[10px] text-[#C4C6D0]/70">
+              Android AlarmManager triggers interactive lock-screen notifications even in Doze mode or when the phone is locked.
+            </p>
+            <div className="grid grid-cols-6 gap-1.5 pt-1">
+              {[15, 30, 45, 60, 90, 120].map((mins) => {
+                const isSelected = (settings.periodicPromptIntervalMinutes || 30) === mins;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => updateUserSettings({ periodicPromptIntervalMinutes: mins })}
+                    className={`py-1.5 px-1 rounded-xl text-[11px] font-semibold text-center transition ${
+                      isSelected
+                        ? 'bg-[#D1E1FF] text-[#003062] shadow-md font-bold'
+                        : 'bg-[#2E3036] text-[#C4C6D0] hover:bg-[#334867] hover:text-[#E2E2E6]'
+                    }`}
+                  >
+                    {mins}m
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Android Notification Permission banner (if native Android) */}
+          {isNativeAndroid() && (
+            <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#D1E1FF]/20 flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <Shield className={`w-3.5 h-3.5 ${notificationPermission?.granted ? 'text-[#86EFAC]' : 'text-[#FCA5A5]'}`} />
+                <div>
+                  <span className="text-[11px] text-[#C4C6D0] block">Android notification permission</span>
+                  <span className={`text-[10px] font-semibold ${notificationPermission?.granted ? 'text-[#86EFAC]' : 'text-[#FCA5A5]'}`}>
+                    {notificationPermission?.status === 'GRANTED' ? 'Enabled' : notificationPermission?.status === 'NOT_REQUESTED' ? 'Not requested' : notificationPermission ? 'Denied or disabled in Android settings' : 'Checking…'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (notificationPermission?.status === 'NOT_REQUESTED') await requestNativeNotificationPermission();
+                  else await openNativeNotificationSettings();
+                  await refreshNotificationPermission();
+                }}
+                className="py-1 px-2.5 rounded-xl bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] text-[10px] font-semibold transition"
+              >
+                {notificationPermission?.status === 'NOT_REQUESTED' ? 'Allow' : 'Android settings'}
+              </button>
+            </div>
+          )}
+
           {/* Office Departure & Sleep Times */}
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#44474E]/40 space-y-1">
               <label className="block text-[10px] font-bold text-[#D1E1FF] uppercase">Office Leaving Time</label>
               <div className="flex items-center space-x-1.5">
@@ -146,6 +249,17 @@ export const RemindersAnchorsView: React.FC = () => {
             </div>
 
             <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#44474E]/40 space-y-1">
+              <label className="block text-[10px] font-bold text-[#D1E1FF] uppercase">Wake Time</label>
+              <input
+                type="time"
+                value={settings.wakeUpTime}
+                onChange={(e) => updateUserSettings({ wakeUpTime: e.target.value })}
+                className="w-full bg-transparent text-xs font-mono font-bold text-[#E2E2E6] focus:outline-none"
+              />
+              <span className="text-[9px] text-[#C4C6D0]/60 block leading-tight">Accountability checks resume at this time</span>
+            </div>
+
+            <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#44474E]/40 space-y-1">
               <label className="block text-[10px] font-bold text-[#D1E1FF] uppercase">Bed Time (Sleep)</label>
               <div className="flex items-center space-x-1.5">
                 <input
@@ -156,20 +270,24 @@ export const RemindersAnchorsView: React.FC = () => {
                 />
               </div>
               <span className="text-[9px] text-[#C4C6D0]/60 block leading-tight">
-                30-min checks pause automatically while you sleep
+                Accountability checks pause automatically while you sleep
               </span>
             </div>
           </div>
 
           {/* Toggles: Periodic Prompt & Gaming Mode */}
           <div className="space-y-2 pt-1 border-t border-[#44474E]/30">
-            {/* 30-Min Dialog Toggle */}
+            {/* Periodic Accountability Prompt Toggle */}
             <div className="flex items-center justify-between p-2 rounded-2xl bg-[#111318] border border-[#44474E]/30">
               <div className="flex items-center space-x-2">
                 <Sparkles className={`w-4 h-4 ${settings.periodicPromptEnabled ? 'text-[#D1E1FF]' : 'text-[#C4C6D0]/40'}`} />
                 <div>
-                  <span className="text-xs font-semibold text-[#E2E2E6] block">30-Minute Task Prompt</span>
-                  <span className="text-[10px] text-[#C4C6D0]/60 block">Pops dialogue asking current task until sleep</span>
+                  <span className="text-xs font-semibold text-[#E2E2E6] block">
+                    Accountability Check-In Prompt ({settings.periodicPromptIntervalMinutes || 30}m)
+                  </span>
+                  <span className="text-[10px] text-[#C4C6D0]/60 block">
+                    Interactive lock-screen notification asking "What are you doing?"
+                  </span>
                 </div>
               </div>
               <button
@@ -706,4 +824,3 @@ export const RemindersAnchorsView: React.FC = () => {
     </div>
   );
 };
-

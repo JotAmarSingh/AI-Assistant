@@ -7,7 +7,7 @@
 import { DayTraceNative, isNativeAndroid } from './nativeBridge';
 import { PluginListenerHandle } from '@capacitor/core';
 
-export type VoiceIntentType = 'TIMELINE_UPDATE' | 'TASK_DONE' | 'NEW_TASK' | 'NEW_REMINDER';
+export type VoiceIntentType = 'QUERY' | 'TIMELINE_UPDATE' | 'TASK_DONE' | 'NEW_TASK' | 'NEW_REMINDER';
 
 export interface ParsedVoiceIntent {
   rawTranscript: string;
@@ -194,8 +194,40 @@ export class SpeechRecognitionService {
   public parseVoiceTranscript(text: string): ParsedVoiceIntent {
     const lower = text.toLowerCase().trim();
 
-    // 1. Reminder Intent
-    if (lower.startsWith('remind me') || lower.startsWith('set a reminder') || lower.startsWith("don't forget") || lower.includes('alarm at')) {
+    // 0. Query Intent (Question detection)
+    if (
+      lower.startsWith("what's") ||
+      lower.startsWith('what is') ||
+      lower.startsWith('what are') ||
+      lower.startsWith('which') ||
+      lower.startsWith('do i have') ||
+      lower.startsWith('anything pending') ||
+      lower.startsWith('what do i') ||
+      lower.startsWith('what should i') ||
+      lower.startsWith('what reminder') ||
+      lower.startsWith('what task') ||
+      lower.startsWith('tell me what') ||
+      lower.startsWith('remind me what') ||
+      lower.startsWith('remind me which') ||
+      lower.startsWith("what's next") ||
+      lower.startsWith('what have i') ||
+      lower.startsWith('what did i') ||
+      lower.endsWith('?')
+    ) {
+      return {
+        rawTranscript: text,
+        type: 'QUERY',
+        titleOrText: text,
+      };
+    }
+
+    // 1. Reminder Intent (Only if not a query like "remind me what")
+    if (
+      (lower.startsWith('remind me') && !lower.startsWith('remind me what') && !lower.startsWith('remind me which')) ||
+      lower.startsWith('set a reminder') ||
+      lower.startsWith("don't forget") ||
+      lower.includes('alarm at')
+    ) {
       let clean = text
         .replace(/^remind me (to |that )?/i, '')
         .replace(/^set a reminder (to |for )?/i, '')

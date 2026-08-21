@@ -48,7 +48,7 @@
             android:enabled="true"
             android:exported="false" />
 
-        <!-- Boot Completed Receiver to restore alarms after reboot -->
+        <!-- Boot Completed Receiver to restore alarms after reboot, time changes, and updates -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -56,6 +56,11 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
@@ -71,6 +76,18 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- Periodic Accountability Prompt Alarm Receiver -->
+        <receiver
+            android:name=".PeriodicPromptReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Periodic Accountability Prompt Inline Reply & Action Receiver -->
+        <receiver
+            android:name=".PeriodicPromptActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -83,4 +100,3 @@
     </application>
 
 </manifest>
-

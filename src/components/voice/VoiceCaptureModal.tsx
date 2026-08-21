@@ -163,12 +163,14 @@ export const VoiceCaptureModal: React.FC<VoiceCaptureModalProps> = ({ isOpen, on
             <label className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider">Voice Memo Transcript</label>
             {parsedIntent && (
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                parsedIntent.type === 'QUERY' ? 'bg-[#0284C7]/20 text-[#7DD3FC] border-[#0284C7]/40' :
                 parsedIntent.type === 'NEW_REMINDER' ? 'bg-[#9333EA]/20 text-[#D8B4FE] border-[#9333EA]/40' :
                 parsedIntent.type === 'TASK_DONE' ? 'bg-[#064E3B]/20 text-[#86EFAC] border-[#059669]/40' :
                 parsedIntent.type === 'NEW_TASK' ? 'bg-[#1E3A8A]/20 text-[#93C5FD] border-[#2563EB]/40' :
                 'bg-[#334867]/20 text-[#D1E1FF] border-[#334867]/40'
               }`}>
-                {parsedIntent.type === 'NEW_REMINDER' ? '🔔 Reminder' :
+                {parsedIntent.type === 'QUERY' ? '❓ Quick Query' :
+                 parsedIntent.type === 'NEW_REMINDER' ? '🔔 Reminder' :
                  parsedIntent.type === 'TASK_DONE' ? '✅ Task Completed' :
                  parsedIntent.type === 'NEW_TASK' ? '📝 New Task' : '⏱️ Timeline Log'}
               </span>

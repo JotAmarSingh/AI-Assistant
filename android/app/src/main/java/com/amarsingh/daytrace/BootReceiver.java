@@ -17,10 +17,20 @@ public class BootReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) ||
-            "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
-            
-            Log.d(TAG, "Device booted. Restoring scheduled DayTrace alarms...");
+        if (intent == null || intent.getAction() == null) return;
+
+        String action = intent.getAction();
+        boolean isRecoveryTrigger = 
+            Intent.ACTION_BOOT_COMPLETED.equals(action) ||
+            "android.intent.action.QUICKBOOT_POWERON".equals(action) ||
+            "com.htc.intent.action.QUICKBOOT_POWERON".equals(action) ||
+            Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
+            Intent.ACTION_TIME_CHANGED.equals(action) ||
+            Intent.ACTION_TIMEZONE_CHANGED.equals(action) ||
+            "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED".equals(action);
+
+        if (isRecoveryTrigger) {
+            Log.d(TAG, "Device recovery event (" + action + "). Restoring scheduled DayTrace alarms...");
             
             AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             if (alarmManager == null) return;
@@ -73,6 +83,14 @@ public class BootReceiver extends BroadcastReceiver {
                 } catch (Exception e) {
                     Log.e(TAG, "Error restoring alarm " + reminderId, e);
                 }
+            }
+
+            // Restore periodic accountability prompt alarm
+            try {
+                PeriodicPromptReceiver.restorePromptSchedule(context);
+                Log.d(TAG, "Restored periodic accountability prompt alarm on boot");
+            } catch (Exception e) {
+                Log.e(TAG, "Error restoring periodic prompt alarm", e);
             }
         }
     }

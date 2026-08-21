@@ -2,21 +2,26 @@ package com.amarsingh.daytrace;
 
 import android.Manifest;
 import android.app.AlarmManager;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.util.Log;
 
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSArray;
@@ -67,6 +72,7 @@ public class DayTraceNativePlugin extends Plugin {
     public static final String PREFS_PENDING_LOGS = "daytrace_pending_logs";
     public static final String PREFS_SYNC_QUEUE = "daytrace_sync_queue";
     private static DayTraceNativePlugin instance;
+    private static JSObject pendingInitialNotificationAction = null;
 
     private SpeechRecognizer speechRecognizer;
     private GeofencingClient geofencingClient;
@@ -78,6 +84,7 @@ public class DayTraceNativePlugin extends Plugin {
         instance = this;
         geofencingClient = LocationServices.getGeofencingClient(getContext());
         AlarmReceiver.createNotificationChannel(getContext());
+        PeriodicPromptReceiver.createNotificationChannel(getContext());
         NightlySyncWorker.scheduleNightlySync(getContext());
         Log.d(TAG, "DayTraceNativePlugin loaded on Pixel device");
     }
@@ -94,13 +101,17 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     public static void notifyNotificationAction(String action, String reminderId, String locationName) {
+        JSObject data = new JSObject();
+        data.put("action", action);
+        data.put("reminderId", reminderId != null ? reminderId : "");
+        data.put("locationName", locationName != null ? locationName : "");
+        data.put("timestamp", System.currentTimeMillis());
+
         if (instance != null) {
-            JSObject data = new JSObject();
-            data.put("action", action);
-            data.put("reminderId", reminderId != null ? reminderId : "");
-            data.put("locationName", locationName != null ? locationName : "");
-            data.put("timestamp", System.currentTimeMillis());
             instance.notifyListeners("notificationAction", data);
+        } else {
+            // Buffer for when plugin loads and React queries initial action
+            pendingInitialNotificationAction = data;
         }
     }
 
@@ -375,23 +386,30 @@ public class DayTraceNativePlugin extends Plugin {
     public void getNativePendingState(PluginCall call) {
         try {
             Context context = getContext();
-            SharedPreferences logsPrefs = context.getSharedPreferences(PREFS_PENDING_LOGS, Context.MODE_PRIVATE);
             SharedPreferences autoPrefs = context.getSharedPreferences(PREFS_AUTOMATIONS, Context.MODE_PRIVATE);
 
-            String pendingLogsJson = logsPrefs.getString("pending_logs", "[]");
+            JSONArray pendingEvents = NativeEventStore.getPending(context);
             String automationsJson = autoPrefs.getString("automations_list", "[]");
 
-            // Clear pending logs since we are handing them off to React
-            logsPrefs.edit().putString("pending_logs", "[]").apply();
-
             JSObject ret = new JSObject();
-            ret.put("pendingLogs", new JSArray(pendingLogsJson));
+            ret.put("pendingLogs", new JSArray(pendingEvents.toString()));
+            ret.put("pendingEvents", new JSArray(pendingEvents.toString()));
             ret.put("automations", new JSArray(automationsJson));
             call.resolve(ret);
         } catch (Exception e) {
             Log.e(TAG, "Error reading native pending state", e);
             call.reject("Error getting pending state: " + e.getMessage());
         }
+    }
+
+    @PluginMethod
+    public void acknowledgeNativeEvents(PluginCall call) {
+        JSArray eventIds = call.getArray("eventIds", new JSArray());
+        int acknowledged = NativeEventStore.acknowledge(getContext(), eventIds);
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("acknowledged", acknowledged);
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -694,6 +712,188 @@ public class DayTraceNativePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Haptic error: " + e.getMessage());
         }
+    }
+
+    // ==========================================
+    // 7. NATIVE ACCOUNTABILITY PROMPTS (Lock-Screen & AlarmManager)
+    // ==========================================
+
+    @PluginMethod
+    public void configurePeriodicPrompt(PluginCall call) {
+        try {
+            boolean enabled = call.getBoolean("enabled", true);
+            int intervalMinutes = Math.max(1, call.getInt("intervalMinutes", 30));
+            String wakeUpTime = call.getString("wakeUpTime", "07:00");
+            String bedTime = call.getString("bedTime", "23:30");
+            boolean gamingMode = call.getBoolean("gamingModeActive", false);
+            long incomingSnooze = call.getLong("snoozedUntilMillis", 0L);
+            JSArray suggestedTasks = call.getArray("suggestedTasks", new JSArray());
+            long lastActivityTimestampMillis = call.getLong("lastActivityTimestampMillis", 0L);
+
+            Context context = getContext();
+            SharedPreferences prefs = context.getSharedPreferences(PeriodicPromptReceiver.PREFS_PROMPT_CONFIG, Context.MODE_PRIVATE);
+            boolean wasConfigured = prefs.getBoolean("configured", false);
+            boolean previousEnabled = prefs.getBoolean("enabled", false);
+            boolean previousGamingMode = prefs.getBoolean("gaming_mode", false);
+            int previousInterval = prefs.getInt("interval_minutes", 30);
+            String previousWake = prefs.getString("wake_up_time", "07:00");
+            String previousBed = prefs.getString("bed_time", "23:30");
+            long previousSnooze = prefs.getLong("snoozed_until", 0L);
+            long prevActivityTime = prefs.getLong("last_activity_time", 0L);
+            long now = System.currentTimeMillis();
+            long effectiveSnooze = Math.max(incomingSnooze, previousSnooze > now ? previousSnooze : 0L);
+            boolean isActivityUpdated = lastActivityTimestampMillis > prevActivityTime;
+            boolean scheduleConfigChanged = !wasConfigured || enabled != previousEnabled
+                    || gamingMode != previousGamingMode || intervalMinutes != previousInterval
+                    || !wakeUpTime.equals(previousWake) || !bedTime.equals(previousBed)
+                    || effectiveSnooze != previousSnooze;
+
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putBoolean("configured", true)
+                    .putBoolean("enabled", enabled)
+                    .putInt("interval_minutes", intervalMinutes)
+                    .putString("wake_up_time", wakeUpTime)
+                    .putString("bed_time", bedTime)
+                    .putBoolean("gaming_mode", gamingMode)
+                    .putLong("snoozed_until", effectiveSnooze)
+                    .putString("suggested_tasks", suggestedTasks != null ? suggestedTasks.toString() : "[]");
+
+            if (lastActivityTimestampMillis > 0) {
+                editor.putLong("last_activity_time", lastActivityTimestampMillis);
+            }
+            editor.commit();
+
+            if (!enabled || gamingMode) {
+                PeriodicPromptReceiver.cancelPrompt(context);
+            } else if (effectiveSnooze > now) {
+                PeriodicPromptReceiver.scheduleAlarmAtTime(context, effectiveSnooze);
+            } else if (isActivityUpdated) {
+                PeriodicPromptReceiver.scheduleAlarmAtTime(context, Math.max(lastActivityTimestampMillis + intervalMinutes * 60_000L, now + 1_000L));
+            } else if (scheduleConfigChanged) {
+                PeriodicPromptReceiver.scheduleNextPrompt(context);
+            } else {
+                PeriodicPromptReceiver.ensurePromptScheduled(context);
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("enabled", enabled);
+            ret.put("intervalMinutes", intervalMinutes);
+            ret.put("nextTriggerAtMillis", prefs.getLong("next_scheduled_trigger", 0L));
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Error configuring periodic prompt", e);
+            call.reject("Failed to configure periodic prompt: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void triggerTestPeriodicPrompt(PluginCall call) {
+        int delaySeconds = call.getInt("delaySeconds", 10);
+        Context context = getContext();
+
+        try {
+            if (delaySeconds <= 0) {
+                PeriodicPromptReceiver.showAccountabilityNotification(context, PeriodicPromptReceiver.TEST_NOTIFICATION_ID, true);
+            } else {
+                long triggerAt = System.currentTimeMillis() + (delaySeconds * 1000L);
+                PeriodicPromptReceiver.scheduleTestAlarmAtTime(context, triggerAt);
+                Log.d(TAG, "Scheduled test accountability notification in " + delaySeconds + " seconds");
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("scheduled", true);
+            ret.put("delaySeconds", delaySeconds);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Error triggering test periodic prompt", e);
+            call.reject("Failed to trigger test prompt: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void checkNotificationPermission(PluginCall call) {
+        JSObject ret = new JSObject();
+        Context context = getContext();
+        boolean runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+        boolean notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled();
+        boolean channelEnabled = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationChannel channel = manager != null ? manager.getNotificationChannel(PeriodicPromptReceiver.CHANNEL_ID) : null;
+            channelEnabled = channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
+        }
+        String permissionState = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? getPermissionState("notifications").toString().toLowerCase(Locale.US) : "granted";
+        boolean granted = runtimeGranted && notificationsEnabled && channelEnabled;
+        String status = granted ? "GRANTED" : (permissionState.contains("prompt") ? "NOT_REQUESTED" : "DENIED");
+        ret.put("granted", granted);
+        ret.put("status", status);
+        ret.put("runtimeGranted", runtimeGranted);
+        ret.put("notificationsEnabled", notificationsEnabled);
+        ret.put("channelEnabled", channelEnabled);
+        ret.put("canRequest", "NOT_REQUESTED".equals(status));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (getPermissionState("notifications") != com.getcapacitor.PermissionState.GRANTED) {
+                requestPermissionForAlias("notifications", call, "notificationPermissionCallback");
+                return;
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("granted", true);
+        call.resolve(ret);
+    }
+
+    @PermissionCallback
+    private void notificationPermissionCallback(PluginCall call) {
+        boolean granted = getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED;
+        JSObject ret = new JSObject();
+        ret.put("granted", granted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        try {
+            Context context = getContext();
+            Intent intent = new Intent();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
+            } else {
+                intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.fromParts("package", context.getPackageName(), null));
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to open notification settings: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getPendingNotificationAction(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (pendingInitialNotificationAction != null) {
+            ret.put("hasAction", true);
+            ret.put("action", pendingInitialNotificationAction.getString("action"));
+            ret.put("reminderId", pendingInitialNotificationAction.getString("reminderId"));
+            ret.put("locationName", pendingInitialNotificationAction.getString("locationName"));
+            pendingInitialNotificationAction = null; // Clear once consumed
+        } else {
+            ret.put("hasAction", false);
+        }
+        call.resolve(ret);
     }
 
     @Override

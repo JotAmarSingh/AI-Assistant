@@ -28,7 +28,8 @@ export interface DayTraceNativePluginInterface {
 
   // Native Automation Persistence (Dead-Process Geofence Matching)
   syncNativeAutomations(options: { automations: Automation[] }): Promise<{ success: boolean; count: number }>;
-  getNativePendingState(): Promise<{ pendingLogs: any[]; automations: any[] }>;
+  getNativePendingState(): Promise<{ pendingEvents?: any[]; pendingLogs: any[]; automations: any[] }>;
+  acknowledgeNativeEvents(options: { eventIds: string[] }): Promise<{ success: boolean; acknowledged: number }>;
   syncPendingQueue(options: { queue: any }): Promise<{ success: boolean }>;
   getPendingQueue(): Promise<{ queue: any; syncStatus: string; lastQueuedAt: number }>;
   markNativeSyncCompleted(): Promise<{ success: boolean }>;
@@ -45,6 +46,23 @@ export interface DayTraceNativePluginInterface {
 
   // Pixel Haptics
   triggerHaptic(options: { type?: 'light' | 'impactHeavy' | 'taskDone' | 'tick' | 'notification' }): Promise<{ success: boolean }>;
+
+  // Native Accountability Prompts (Lock-Screen & AlarmManager)
+  configurePeriodicPrompt(options: {
+    enabled: boolean;
+    intervalMinutes: number;
+    wakeUpTime: string;
+    bedTime: string;
+    gamingModeActive: boolean;
+    snoozedUntilMillis?: number;
+    suggestedTasks: Array<{ id: string; title: string; status: string; priority: number }>;
+    lastActivityTimestampMillis?: number;
+  }): Promise<{ success: boolean; enabled: boolean; intervalMinutes: number; nextTriggerAtMillis?: number }>;
+
+  triggerTestPeriodicPrompt(options?: { delaySeconds?: number }): Promise<{ scheduled: boolean; delaySeconds: number }>;
+  requestNotificationPermission(): Promise<{ granted: boolean }>;
+  checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
+  openNotificationSettings(): Promise<{ success: boolean }>;
 
   // Event Listeners
   addListener(
@@ -74,6 +92,15 @@ export interface DayTraceNativePluginInterface {
 }
 
 export const DayTraceNative = registerPlugin<DayTraceNativePluginInterface>('DayTraceNative');
+
+export interface NativeNotificationPermissionStatus {
+  granted: boolean;
+  status: 'GRANTED' | 'DENIED' | 'NOT_REQUESTED';
+  runtimeGranted: boolean;
+  notificationsEnabled: boolean;
+  channelEnabled: boolean;
+  canRequest: boolean;
+}
 
 /**
  * Strict Native Platform Detection using Capacitor
@@ -226,14 +253,25 @@ export const persistNativeAutomations = async (automations: Automation[]) => {
 /**
  * Reconciles background geofence/alarm triggers and completion actions logged by native receivers
  */
-export const fetchNativePendingState = async (): Promise<{ pendingLogs: any[]; automations: any[] } | null> => {
+export const fetchNativePendingState = async (): Promise<{ pendingEvents: any[]; pendingLogs: any[]; automations: any[] } | null> => {
   if (!isNativeAndroid()) return null;
   try {
     const state = await DayTraceNative.getNativePendingState();
-    return state;
+    return { ...state, pendingEvents: state.pendingEvents || state.pendingLogs || [] };
   } catch (e) {
     console.warn('Failed to retrieve native pending state:', e);
     return null;
+  }
+};
+
+export const acknowledgeNativeEvents = async (eventIds: string[]): Promise<number> => {
+  if (!isNativeAndroid() || eventIds.length === 0) return 0;
+  try {
+    const result = await DayTraceNative.acknowledgeNativeEvents({ eventIds });
+    return result.acknowledged;
+  } catch (e) {
+    console.warn('Failed to acknowledge native accountability events:', e);
+    return 0;
   }
 };
 
@@ -278,6 +316,88 @@ export const markNativeSyncCompleted = async () => {
     await DayTraceNative.markNativeSyncCompleted();
   } catch (e) {
     console.warn('Failed to mark native sync completed:', e);
+  }
+};
+
+/**
+ * Synchronizes accountability prompt configuration with native Android AlarmManager
+ */
+export const syncNativePeriodicPromptConfig = async (config: {
+  enabled: boolean;
+  intervalMinutes: number;
+  wakeUpTime: string;
+  bedTime: string;
+  gamingModeActive: boolean;
+  snoozedUntil?: string | null;
+  suggestedTasks: Array<{ id: string; title: string; status: string; priority: number }>;
+  lastActivityTimestampMillis?: number;
+}) => {
+  if (!isNativeAndroid()) return;
+  try {
+    await DayTraceNative.configurePeriodicPrompt({
+      enabled: config.enabled,
+      intervalMinutes: config.intervalMinutes,
+      wakeUpTime: config.wakeUpTime,
+      bedTime: config.bedTime,
+      gamingModeActive: config.gamingModeActive,
+      snoozedUntilMillis: config.snoozedUntil ? Date.parse(config.snoozedUntil) || 0 : 0,
+      suggestedTasks: config.suggestedTasks,
+      lastActivityTimestampMillis: config.lastActivityTimestampMillis || 0,
+    });
+  } catch (e) {
+    console.warn('Failed to configure native periodic prompt:', e);
+  }
+};
+
+/**
+ * Triggers a test lock-screen accountability notification (e.g. in 10 seconds)
+ */
+export const triggerNativeTestPrompt = async (delaySeconds: number = 10): Promise<{ scheduled: boolean; delaySeconds: number }> => {
+  if (!isNativeAndroid()) {
+    return { scheduled: false, delaySeconds: 0 };
+  }
+  try {
+    return await DayTraceNative.triggerTestPeriodicPrompt({ delaySeconds });
+  } catch (e) {
+    console.warn('Failed to trigger test prompt:', e);
+    return { scheduled: false, delaySeconds: 0 };
+  }
+};
+
+/**
+ * Requests POST_NOTIFICATIONS permission on Android 13+ (API 33+)
+ */
+export const requestNativeNotificationPermission = async (): Promise<boolean> => {
+  if (!isNativeAndroid()) return true;
+  try {
+    const res = await DayTraceNative.requestNotificationPermission();
+    return res.granted;
+  } catch (e) {
+    console.warn('Failed to request notification permission:', e);
+    return false;
+  }
+};
+
+export const checkNativeNotificationPermission = async (): Promise<NativeNotificationPermissionStatus> => {
+  if (!isNativeAndroid()) {
+    return { granted: true, status: 'GRANTED', runtimeGranted: true, notificationsEnabled: true, channelEnabled: true, canRequest: false };
+  }
+  try {
+    return await DayTraceNative.checkNotificationPermission();
+  } catch (e) {
+    console.warn('Failed to check Android notification permission:', e);
+    return { granted: false, status: 'DENIED', runtimeGranted: false, notificationsEnabled: false, channelEnabled: false, canRequest: false };
+  }
+};
+
+export const openNativeNotificationSettings = async (): Promise<boolean> => {
+  if (!isNativeAndroid()) return false;
+  try {
+    const result = await DayTraceNative.openNotificationSettings();
+    return result.success;
+  } catch (e) {
+    console.warn('Failed to open Android notification settings:', e);
+    return false;
   }
 };
 

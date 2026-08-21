@@ -315,6 +315,11 @@ export interface DailyState {
       nextAction?: string;
     };
   }[];
+  /** Internal idempotency ledger for durable Android receiver events. */
+  nativeAccountability?: {
+    processedEventIds: string[];
+    lastCompletedAtMillis?: number;
+  };
 }
 
 export interface ParseResult {

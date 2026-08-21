@@ -25,8 +25,7 @@ import {
   Trophy,
   Moon,
   CloudDownload,
-  ShieldCheck,
-  FolderArchive
+  ShieldCheck
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
@@ -586,24 +585,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
               </div>
             </div>
 
-            {/* Source Code ZIP Exporter for GitHub / APK Building */}
-            <div className="space-y-2 pt-2 border-t border-[#44474E]/30">
-              <h4 className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider flex items-center justify-between">
-                <span>Download App Source (.ZIP)</span>
-                <span className="text-[10px] text-[#86EFAC] font-mono lowercase">github actions ready</span>
-              </h4>
-              <p className="text-[11px] text-[#C4C6D0]/80">
-                Downloads the complete codebase (including Android GitHub Actions CI/CD workflows) so you can directly upload it to GitHub.
-              </p>
-              <a
-                href="/api/export-project-zip"
-                download="DayTrace-Source.zip"
-                className="w-full py-3 px-4 rounded-2xl bg-[#D1E1FF] hover:bg-[#B6D4FE] text-[#003062] text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition"
-              >
-                <FolderArchive className="w-4 h-4 text-[#003062]" />
-                <span>Download Complete Project Code (.ZIP)</span>
-              </a>
-            </div>
+
 
             {/* JSON Download Backup */}
             <div className="space-y-2 pt-2 border-t border-[#44474E]/30">

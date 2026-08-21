@@ -3,9 +3,6 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import * as archiverPkg from "archiver";
-
-const archiver: any = (archiverPkg as any).default || archiverPkg;
 
 dotenv.config();
 
@@ -525,39 +522,7 @@ function generateLocalEndOfDayReview(dailyState: any) {
   };
 }
 
-// Endpoint: Export full project workspace as ZIP for GitHub / Android local build
-app.get("/api/export-project-zip", (req, res) => {
-  try {
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    res.attachment("DayTrace-App-Source.zip");
 
-    archive.on("error", (err) => {
-      console.error("Archive error:", err);
-      res.status(500).send({ error: err.message });
-    });
-
-    archive.pipe(res);
-
-    // Append workspace files excluding node_modules, dist, .git
-    archive.glob("**/*", {
-      cwd: process.cwd(),
-      ignore: [
-        "node_modules/**",
-        "dist/**",
-        ".git/**",
-        ".env",
-        "**/*.log",
-        ".DS_Store"
-      ],
-      dot: true, // Crucial: Includes .github/workflows/build-android.yml and .gitignore
-    });
-
-    archive.finalize();
-  } catch (e: any) {
-    console.error("Failed to build zip:", e);
-    res.status(500).send({ error: e.message });
-  }
-});
 
 // Vite middleware & Static server setup
 async function startServer() {

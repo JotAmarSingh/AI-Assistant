@@ -1,0 +1,67 @@
+name: Build DayTrace APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build & Release DayTrace APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Dependencies
+        run: |
+          npm ci || npm install
+          npm install -D @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Build Web Application
+        run: |
+          npm run build
+
+      - name: Initialize Capacitor Android Project
+        run: |
+          npx cap init "DayTrace" "com.amarsingh.daytrace" --web-dir "dist"
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Configure Android Version (v10 / 1.0.10)
+        run: |
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/versionCode 1/versionCode 10/g' android/app/build.gradle
+            sed -i 's/versionName "1.0"/versionName "1.0.10"/g' android/app/build.gradle
+          fi
+
+      - name: Build Debug APK with Gradle
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DayTrace-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

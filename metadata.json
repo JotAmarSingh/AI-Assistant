@@ -1,0 +1,7 @@
+{
+  "name": "DayTrace",
+  "description": "Personal AI accountability, productivity, and day-tracking assistant with on-device intelligence, routine timetable, and Android integration.",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

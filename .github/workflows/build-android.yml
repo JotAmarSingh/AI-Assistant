@@ -25,6 +25,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -39,16 +41,64 @@ jobs:
 
       - name: Install & Setup Capacitor Android Container
         run: |
-          npm install @capacitor/core
-          npm install -D @capacitor/cli @capacitor/android
           npx cap add android || true
           npx cap sync android
+
+      - name: Configure Gradle & Fix Kotlin Duplicate Class Conflicts
+        run: |
+          # 1. Update android/gradle.properties
+          PROPS_FILE="android/gradle.properties"
+          if [ -f "$PROPS_FILE" ]; then
+            echo "android.useAndroidX=true" >> "$PROPS_FILE"
+            echo "android.enableJetifier=true" >> "$PROPS_FILE"
+            echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> "$PROPS_FILE"
+          fi
+
+          # 2. Patch root android/build.gradle to force uniform Kotlin stdlib version across all subprojects
+          ROOT_GRADLE="android/build.gradle"
+          if [ -f "$ROOT_GRADLE" ]; then
+            cat << 'EOF' >> "$ROOT_GRADLE"
+
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            eachDependency { DependencyResolveDetails details ->
+                if (details.requested.group == 'org.jetbrains.kotlin' && 
+                    (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {
+                    details.useVersion '1.8.22'
+                }
+            }
+        }
+    }
+}
+EOF
+          fi
+
+          # 3. Patch android/app/build.gradle to exclude legacy separate jdk7/jdk8 modules and packaging conflicts
+          APP_GRADLE="android/app/build.gradle"
+          if [ -f "$APP_GRADLE" ]; then
+            cat << 'EOF' >> "$APP_GRADLE"
+
+configurations.all {
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+}
+
+android {
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/INDEX.LIST', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE', 'META-INF/LICENSE']
+        }
+    }
+}
+EOF
+          fi
 
       - name: Inject Android Permissions in AndroidManifest.xml
         run: |
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
-            # Ensure native permissions are added for Audio & Notifications (without duplicating INTERNET)
+            # Ensure native permissions are added for Audio, Location, Alarms & Notifications
             sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST_PATH"
           fi
 
@@ -56,7 +106,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
@@ -65,3 +115,4 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+

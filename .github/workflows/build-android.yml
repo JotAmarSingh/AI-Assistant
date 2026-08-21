@@ -1,5 +1,4 @@
-name: Build Android APK
-run-name: Build DayTrace Android APK by @${{ github.actor }}
+name: Build Android Debug APK
 
 on:
   push:
@@ -10,20 +9,27 @@ on:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java JDK 21 (Temurin)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK (API 36)
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: '11076708'
@@ -31,134 +37,43 @@ jobs:
       - name: Accept Android SDK Licenses & Install Platforms
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "platforms;android-35" "build-tools;34.0.0" "build-tools;35.0.0" || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
 
-      - name: Set up Node.js 22 (LTS)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
+      - name: Install Dependencies
+        run: npm ci
 
-      - name: Install Node Dependencies
-        run: npm ci || npm install
+      - name: Run Linter
+        run: npm run lint
 
-      - name: Build Web Application (Vite -> dist)
+      - name: Build Web Application
         run: npm run build
 
-      - name: Initialize & Sync Capacitor Android Container
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Verify Toolchain Versions
         run: |
-          npx cap add android || true
-          npx cap sync android
-
-      - name: Configure Gradle & JVM Environment
-        run: |
-          # Detect actual Java 21 directory
-          JDK_21="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          if [ -z "$JDK_21" ] || [ ! -d "$JDK_21" ]; then
-            JDK_21=$(dirname $(dirname $(which javac)))
-          fi
-          echo "Identified JDK 21 location: $JDK_21"
-
-          # 1. Update android/gradle.properties
-          PROPS_FILE="android/gradle.properties"
-          if [ -f "$PROPS_FILE" ]; then
-            echo "" >> "$PROPS_FILE"
-            echo "android.useAndroidX=true" >> "$PROPS_FILE"
-            echo "android.enableJetifier=true" >> "$PROPS_FILE"
-            echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8" >> "$PROPS_FILE"
-            echo "org.gradle.java.home=$JDK_21" >> "$PROPS_FILE"
-          fi
-
-          # 2. Patch root android/build.gradle to force uniform Kotlin dependencies and toolchain
-          ROOT_GRADLE="android/build.gradle"
-          if [ -f "$ROOT_GRADLE" ]; then
-            cat << 'EOF' >> "$ROOT_GRADLE"
-
-allprojects {
-    configurations.all {
-        resolutionStrategy {
-            force 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
-            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.24'
-            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24'
-            force 'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.24'
-        }
-    }
-}
-
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-            android {
-                compileOptions {
-                    sourceCompatibility JavaVersion.VERSION_21
-                    targetCompatibility JavaVersion.VERSION_21
-                }
-            }
-        }
-    }
-}
-EOF
-          fi
-
-          # 3. Patch android/app/build.gradle for packaging options
-          APP_GRADLE="android/app/build.gradle"
-          if [ -f "$APP_GRADLE" ]; then
-            cat << 'EOF' >> "$APP_GRADLE"
-
-configurations.all {
-    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-}
-
-android {
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
-    }
-    packagingOptions {
-        resources {
-            excludes += ['META-INF/INDEX.LIST', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE', 'META-INF/LICENSE', 'META-INF/*.kotlin_module']
-        }
-    }
-}
-EOF
-          fi
-
-      - name: Inject Android Permissions in AndroidManifest.xml
-        run: |
-          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST_PATH" ]; then
-            sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST_PATH"
-          fi
-
-      - name: Build Android Debug APK with Gradle
-        run: |
-          # 1. Resolve JDK 21 Home
-          JDK_21="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          if [ -z "$JDK_21" ] || [ ! -d "$JDK_21" ]; then
-            JDK_21=$(dirname $(dirname $(which javac)))
-          fi
-
-          export JAVA_HOME="$JDK_21"
-          export PATH="$JDK_21/bin:$PATH"
-
-          echo "=== JAVA 21 VERIFICATION ==="
+          echo "=== NODE VERSION ==="
+          node --version
+          echo "=== JAVA VERSION ==="
           java -version
+          echo "=== JAVAC VERSION ==="
           javac -version
-
-          # 2. Build Debug APK with explicit Java 21 Home
+          echo "=== GRADLE VERSION ==="
           cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug \
-            -Dorg.gradle.java.home="$JDK_21" \
-            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m" \
-            --no-daemon \
-            --stacktrace
+          chmod +x ./gradlew
+          ./gradlew --version
 
-      - name: Upload Android APK Artifact
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew clean assembleDebug --stacktrace
+
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DayTrace-Android-Debug-APK
+          name: DayTrace-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30

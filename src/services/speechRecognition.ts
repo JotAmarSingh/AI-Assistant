@@ -1,39 +1,11 @@
 /**
- * Speech Recognition Service for Native Android & Web Capture
- * Supports:
- * 1. Native AndroidBridge Speech Recognition (Android Intent Recognizer)
- * 2. Capacitor / Cordova Speech Recognition Plugin
- * 3. MediaDevices.getUserMedia microphone permissions (Native Webview Audio Stream)
- * 4. Web Speech API (SpeechRecognition / webkitSpeechRecognition)
+ * Speech Recognition Service for Pixel 10a / Android 16 & Web Fallback
+ * Primary: Real Native SpeechRecognizer via DayTraceNative Capacitor plugin (On-Device Preferred)
+ * Fallback: Web Speech API (SpeechRecognition / webkitSpeechRecognition)
  */
 
-declare global {
-  interface Window {
-    SpeechRecognition?: any;
-    webkitSpeechRecognition?: any;
-    AndroidBridge?: {
-      promptGeminiNano?: (prompt: string) => string | Promise<string>;
-      startSpeechRecognition?: () => void;
-      stopSpeechRecognition?: () => void;
-      scheduleExactAlarm?: (reminderId: string, triggerTimeMillis: number, title: string, message: string) => void;
-      cancelAlarm?: (reminderId: string) => void;
-      startLocationUpdates?: () => void;
-      getDeviceModel?: () => string;
-      isAiCoreAvailable?: () => boolean;
-    };
-    plugins?: {
-      speechRecognition?: {
-        hasPermission: (success: (has: boolean) => void, error: (err: any) => void) => void;
-        requestPermission: (success: () => void, error: (err: any) => void) => void;
-        startListening: (success: (matches: string[]) => void, error: (err: any) => void, options?: any) => void;
-        stopListening: (success: () => void, error: (err: any) => void) => void;
-        isRecognitionAvailable: (success: (available: boolean) => void, error: (err: any) => void) => void;
-      };
-    };
-    onNativeSpeechResult?: (transcript: string, isFinal: boolean) => void;
-    onNativeSpeechError?: (errorMessage: string) => void;
-  }
-}
+import { DayTraceNative, isNativeAndroid } from './nativeBridge';
+import { PluginListenerHandle } from '@capacitor/core';
 
 export type VoiceIntentType = 'TIMELINE_UPDATE' | 'TASK_DONE' | 'NEW_TASK' | 'NEW_REMINDER';
 
@@ -51,60 +23,31 @@ export class SpeechRecognitionService {
   private recognition: any = null;
   private isListening = false;
   private mediaStream: MediaStream | null = null;
+  private nativeListeners: PluginListenerHandle[] = [];
 
   constructor() {
-    const SpeechClass = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
-    if (SpeechClass) {
-      try {
-        this.recognition = new SpeechClass();
-        this.recognition.continuous = false;
-        this.recognition.interimResults = true;
-        this.recognition.lang = 'en-US';
-      } catch (err) {
-        console.warn('SpeechRecognition initialization error:', err);
+    if (typeof window !== 'undefined') {
+      const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechClass) {
+        try {
+          this.recognition = new SpeechClass();
+          this.recognition.continuous = false;
+          this.recognition.interimResults = true;
+          this.recognition.lang = 'en-US';
+        } catch (err) {
+          console.warn('SpeechRecognition init error:', err);
+        }
       }
     }
   }
 
   public isSupported(): boolean {
     if (typeof window === 'undefined') return false;
-    return Boolean(
-      window.AndroidBridge?.startSpeechRecognition ||
-      window.plugins?.speechRecognition ||
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition ||
+    return isNativeAndroid() || Boolean(
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition ||
       navigator?.mediaDevices?.getUserMedia
     );
-  }
-
-  /**
-   * Requests native hardware microphone permission across Android APK, WebView, and browser
-   */
-  public async requestHardwareMicPermission(): Promise<boolean> {
-    // 1. Check Cordova / Capacitor Native Plugin
-    if (window.plugins?.speechRecognition) {
-      return new Promise((resolve) => {
-        window.plugins!.speechRecognition.requestPermission(
-          () => resolve(true),
-          () => resolve(false)
-        );
-      });
-    }
-
-    // 2. Request Android Native WebView / MediaDevices stream
-    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.mediaStream = stream;
-        // Keep active or release when done
-        return true;
-      } catch (e: any) {
-        console.warn('Microphone hardware permission error:', e);
-        return false;
-      }
-    }
-
-    return true;
   }
 
   public async startListening(
@@ -113,68 +56,45 @@ export class SpeechRecognitionService {
     onError: (error: string) => void
   ): Promise<boolean> {
     if (this.isListening) {
-      this.stopListening();
+      await this.stopListening();
     }
 
-    // 1. Android Bridge (Native Android app embedding)
-    if (window.AndroidBridge?.startSpeechRecognition) {
+    // 1. PRIMARY: Native Pixel Android SpeechRecognizer via Capacitor Plugin
+    if (isNativeAndroid()) {
       try {
-        window.onNativeSpeechResult = (transcript: string, isFinal: boolean) => {
-          if (isFinal) {
-            onFinal(transcript);
+        // Clear previous native listeners
+        for (const handle of this.nativeListeners) {
+          await handle.remove();
+        }
+        this.nativeListeners = [];
+
+        const resultHandle = await DayTraceNative.addListener('speechResult', (data) => {
+          if (data.isFinal) {
+            onFinal(data.transcript);
             this.isListening = false;
           } else {
-            onInterim(transcript);
+            onInterim(data.transcript);
           }
-        };
+        });
+        this.nativeListeners.push(resultHandle);
 
-        window.onNativeSpeechError = (errMsg: string) => {
-          onError(errMsg);
+        const errorHandle = await DayTraceNative.addListener('speechError', (data) => {
+          onError(data.error || 'Native speech recognition error');
           this.isListening = false;
-        };
+        });
+        this.nativeListeners.push(errorHandle);
 
-        window.AndroidBridge.startSpeechRecognition();
+        const startRes = await DayTraceNative.startSpeechRecognition();
         this.isListening = true;
-        return true;
+        return Boolean(startRes?.started);
       } catch (err: any) {
-        console.warn('Native AndroidBridge speech error, trying fallback', err);
+        console.warn('Native DayTraceNative speech error, falling back to Web Speech API', err);
       }
     }
 
-    // 2. Capacitor / Cordova Native Speech Plugin
-    if (window.plugins?.speechRecognition) {
-      try {
-        window.plugins.speechRecognition.startListening(
-          (matches: string[]) => {
-            if (matches && matches.length > 0) {
-              onFinal(matches[0]);
-            }
-            this.isListening = false;
-          },
-          (err: any) => {
-            onError(typeof err === 'string' ? err : 'Native speech error');
-            this.isListening = false;
-          },
-          { language: 'en-US', matches: 1 }
-        );
-        this.isListening = true;
-        return true;
-      } catch (err) {
-        console.warn('Cordova speech recognition error', err);
-      }
-    }
-
-    // 3. Ensure hardware permission is acquired first for Web / WebView
-    const hasMic = await this.requestHardwareMicPermission();
-    if (!hasMic && !this.recognition) {
-      onError('Microphone permission was not granted. Please allow microphone access in Android app settings.');
-      return false;
-    }
-
-    // 4. Web Speech API (Chrome / Android System Webview)
-    if (!this.recognition) {
-      // Re-instantiate if needed
-      const SpeechClass = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+    // 2. FALLBACK: Web Speech API (for browser preview)
+    if (!this.recognition && typeof window !== 'undefined') {
+      const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechClass) {
         this.recognition = new SpeechClass();
         this.recognition.continuous = false;
@@ -184,7 +104,7 @@ export class SpeechRecognitionService {
     }
 
     if (!this.recognition) {
-      onError('Speech Recognition engine not found. You can type directly in the memo box!');
+      onError('Speech Recognition engine not available. You can type directly in the memo box!');
       return false;
     }
 
@@ -210,7 +130,6 @@ export class SpeechRecognitionService {
       };
 
       this.recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error event:', event.error);
         if (event.error === 'not-allowed') {
           onError('Microphone permission denied. Please enable Microphone permission in Android App Info.');
         } else if (event.error !== 'no-speech') {
@@ -229,7 +148,7 @@ export class SpeechRecognitionService {
       this.isListening = true;
       return true;
     } catch (e: any) {
-      console.warn('Failed to start speech recognition:', e);
+      console.warn('Failed to start web speech recognition:', e);
       onError(e?.message || 'Could not start microphone');
       this.isListening = false;
       this.releaseMicStream();
@@ -237,18 +156,10 @@ export class SpeechRecognitionService {
     }
   }
 
-  public stopListening() {
-    if (window.AndroidBridge?.stopSpeechRecognition) {
+  public async stopListening() {
+    if (isNativeAndroid()) {
       try {
-        window.AndroidBridge.stopSpeechRecognition();
-      } catch {
-        // ignore
-      }
-    }
-
-    if (window.plugins?.speechRecognition) {
-      try {
-        window.plugins.speechRecognition.stopListening(() => {}, () => {});
+        await DayTraceNative.stopSpeechRecognition();
       } catch {
         // ignore
       }

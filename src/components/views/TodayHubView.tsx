@@ -80,57 +80,9 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
     }
   }, [feedbackToast]);
 
-  // Hook Native Android Speech Recognition Bridge
+  // Speech Recognition support check
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.onNativeSpeechResult = (transcript: string, isFinal: boolean) => {
-        setInputText(transcript);
-        if (isFinal) {
-          setIsRecording(false);
-        }
-      };
-
-      window.onNativeSpeechError = (err: string) => {
-        console.warn('Native speech recognition error', err);
-        setIsRecording(false);
-      };
-    }
-  }, []);
-
-  // Web Speech Recognition setup
-  useEffect(() => {
-    if (window.AndroidBridge?.startSpeechRecognition) {
-      setSpeechSupported(true);
-      return;
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0].transcript)
-          .join('');
-        setInputText(transcript);
-      };
-
-      recognition.onend = () => {
-        setIsRecording(false);
-      };
-
-      recognition.onerror = (e: any) => {
-        console.error('Speech recognition error', e);
-        setIsRecording(false);
-      };
-
-      recognitionRef.current = recognition;
-    } else {
-      setSpeechSupported(false);
-    }
+    setSpeechSupported(speechService.isSupported());
   }, []);
 
   const toggleVoiceRecording = async () => {

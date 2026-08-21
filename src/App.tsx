@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { DayProvider, useDay } from './context/DayContext';
-import { AndroidDeviceWrapper } from './components/android/AndroidDeviceWrapper';
 import { AndroidStatusBar } from './components/android/AndroidStatusBar';
 import { AndroidNotificationCenter } from './components/android/AndroidNotificationCenter';
 import { AndroidTopAppBar } from './components/android/AndroidTopAppBar';
@@ -127,9 +126,9 @@ const MainScreen: React.FC = () => {
 export default function App() {
   return (
     <DayProvider>
-      <AndroidDeviceWrapper>
+      <div className="w-full h-screen min-h-screen bg-[#111318] text-[#E2E2E6] flex flex-col overflow-hidden relative font-sans">
         <MainScreen />
-      </AndroidDeviceWrapper>
+      </div>
     </DayProvider>
   );
 }

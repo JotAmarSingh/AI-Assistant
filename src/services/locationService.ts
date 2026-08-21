@@ -1,19 +1,17 @@
 /**
  * Location & Geofencing Engine for DayTrace
- * Implements Section 13 location-based reminder triggers & continuous geofence monitoring
+ * Primary: Real Google Play Services Geofencing via DayTraceNative plugin
+ * Fallback: Geolocation watchPosition for browser preview
  */
+
+import { DayTraceNative, isNativeAndroid } from './nativeBridge';
+import { GeofenceLocation } from '../types';
+import { PluginListenerHandle } from '@capacitor/core';
 
 export interface GeoCoordinate {
   latitude: number;
   longitude: number;
 }
-
-// Default approximate reference locations (can be calibrated dynamically by user)
-export const KNOWN_LOCATIONS: { [key: string]: GeoCoordinate } = {
-  HOME: { latitude: 37.7749, longitude: -122.4194 },
-  OFFICE: { latitude: 37.7899, longitude: -122.4008 },
-  GYM: { latitude: 37.7833, longitude: -122.4167 },
-};
 
 /**
  * Calculates distance in meters between two coordinates (Haversine formula)
@@ -35,11 +33,34 @@ export function calculateDistanceMeters(coord1: GeoCoordinate, coord2: GeoCoordi
 
 export class LocationService {
   private watchId: number | null = null;
-  private onLocationChangeCallback?: (locationName: string, coords: GeoCoordinate) => void;
+  private onLocationChangeCallback?: (locationName: string, coords?: GeoCoordinate) => void;
+  private nativeGeofenceHandle: PluginListenerHandle | null = null;
 
-  public startWatching(onLocationChange: (locationName: string, coords: GeoCoordinate) => void) {
+  public async startWatching(
+    onLocationChange: (locationName: string, coords?: GeoCoordinate) => void,
+    userLocations?: GeofenceLocation[]
+  ) {
     this.onLocationChangeCallback = onLocationChange;
 
+    // 1. PRIMARY: Register native geofences with Android Play Services
+    if (isNativeAndroid() && userLocations && userLocations.length > 0) {
+      try {
+        if (this.nativeGeofenceHandle) {
+          await this.nativeGeofenceHandle.remove();
+        }
+
+        this.nativeGeofenceHandle = await DayTraceNative.addListener('geofenceTransition', (data) => {
+          console.log('Native geofence transition received:', data);
+          this.onLocationChangeCallback?.(data.locationName);
+        });
+
+        await DayTraceNative.registerGeofences({ locations: userLocations });
+      } catch (e) {
+        console.warn('Native geofence registration warning:', e);
+      }
+    }
+
+    // 2. Browser / WebView Geolocation watcher fallback
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
       this.watchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -47,7 +68,7 @@ export class LocationService {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
           };
-          this.evaluateProximity(coords);
+          this.evaluateProximity(coords, userLocations);
         },
         (err) => {
           console.warn('Geolocation watching error', err.message);
@@ -57,20 +78,43 @@ export class LocationService {
     }
   }
 
-  public stopWatching() {
+  public async syncLocationsToNative(locations: GeofenceLocation[]) {
+    if (isNativeAndroid() && locations.length > 0) {
+      try {
+        await DayTraceNative.registerGeofences({ locations });
+      } catch (e) {
+        console.warn('Failed to sync geofences to native client:', e);
+      }
+    }
+  }
+
+  public async stopWatching() {
+    if (this.nativeGeofenceHandle) {
+      await this.nativeGeofenceHandle.remove();
+      this.nativeGeofenceHandle = null;
+    }
+
+    if (isNativeAndroid()) {
+      try {
+        await DayTraceNative.removeAllGeofences();
+      } catch {
+        // ignore
+      }
+    }
+
     if (this.watchId !== null && typeof window !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
   }
 
-  private evaluateProximity(currentCoords: GeoCoordinate) {
-    for (const [name, targetCoords] of Object.entries(KNOWN_LOCATIONS)) {
-      const distance = calculateDistanceMeters(currentCoords, targetCoords);
-      if (distance <= 300) {
-        // within 300m geofence radius
-        const formatted = name.charAt(0) + name.slice(1).toLowerCase();
-        this.onLocationChangeCallback?.(formatted, currentCoords);
+  private evaluateProximity(currentCoords: GeoCoordinate, locations?: GeofenceLocation[]) {
+    if (!locations || locations.length === 0) return;
+
+    for (const loc of locations) {
+      const distance = calculateDistanceMeters(currentCoords, { latitude: loc.latitude, longitude: loc.longitude });
+      if (distance <= (loc.radiusMeters || 200)) {
+        this.onLocationChangeCallback?.(loc.name, currentCoords);
         return;
       }
     }

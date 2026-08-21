@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DayTrace</string>
+    <string name="title_activity_main">DayTrace</string>
+    <string name="package_name">com.amarsingh.daytrace</string>
+    <string name="custom_url_scheme">com.amarsingh.daytrace</string>
+</resources>

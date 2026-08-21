@@ -360,6 +360,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Continuous Geofencing and Location Monitoring
   useEffect(() => {
+    const locations = state.geofenceLocations || DEFAULT_GEOFENCE_LOCATIONS;
     locationService.startWatching((locName) => {
       setState((prev) => {
         if (prev.current.location === locName) return prev;
@@ -398,10 +399,12 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           timeline: newTimeline,
         };
       });
-    });
+    }, locations);
 
-    return () => locationService.stopWatching();
-  }, []);
+    return () => {
+      locationService.stopWatching();
+    };
+  }, [state.geofenceLocations]);
 
   // Deep Work & Pomodoro Focus Timer Ticker
   useEffect(() => {

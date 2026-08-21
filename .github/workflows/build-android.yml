@@ -28,10 +28,12 @@ jobs:
         with:
           cmdline-tools-version: '11076708'
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22 (LTS)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
       - name: Install Dependencies
         run: npm install

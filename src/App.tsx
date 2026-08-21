@@ -30,7 +30,10 @@ const MainScreen: React.FC = () => {
     isGeofenceModalOpen,
     setIsGeofenceModalOpen,
     notificationToast,
-    dismissToast
+    dismissToast,
+    activeTriggeredAlert,
+    dismissTriggeredAlert,
+    handleAlertAction,
   } = useDay();
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -108,6 +111,42 @@ const MainScreen: React.FC = () => {
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
       />
+
+      {/* Interactive Heads-Up Triggered Alert Card (When trigger fires while screen interactive) */}
+      {activeTriggeredAlert && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%] bg-[#1D2026] text-[#E2E2E6] border-2 border-[#D1E1FF] rounded-3xl p-4 shadow-2xl space-y-3 animate-in fade-in slide-in-from-top-3">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#D1E1FF] px-2 py-0.5 rounded-full bg-[#334867]">
+                ⚡ Triggered Alert
+              </span>
+              <h3 className="text-sm font-bold text-[#E2E2E6] mt-1.5">{activeTriggeredAlert.title}</h3>
+              <p className="text-[11px] text-[#C4C6D0]">{activeTriggeredAlert.subtitle}</p>
+            </div>
+            <button
+              onClick={dismissTriggeredAlert}
+              className="text-[#C4C6D0] hover:text-white p-1"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex items-center justify-end space-x-2 pt-1 border-t border-[#44474E]/30">
+            <button
+              onClick={() => handleAlertAction('SNOOZE')}
+              className="py-1.5 px-3 rounded-2xl bg-[#2E3036] hover:bg-[#334867] text-xs font-semibold text-[#E2E2E6] transition"
+            >
+              Snooze (10m)
+            </button>
+            <button
+              onClick={() => handleAlertAction('DONE')}
+              className="py-1.5 px-3.5 rounded-2xl bg-[#D1E1FF] hover:bg-white text-[#003062] text-xs font-bold transition shadow-sm"
+            >
+              ✓ Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global System Toast Banner */}
       {notificationToast && (

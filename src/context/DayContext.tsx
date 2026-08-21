@@ -6,6 +6,7 @@ import {
   TimelineEvent, 
   FixedEvent, 
   ReminderItem, 
+  Automation,
   AppMode, 
   EnergyLevel, 
   TimetableSlot, 
@@ -21,7 +22,8 @@ import {
 import { createFreshDailyState, SAMPLE_TEMPLATE_STATE, INITIAL_DAILY_STATE, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
-import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi } from '../services/nativeBridge';
+import { parseVoiceAutomations } from '../utils/localAutomationParser';
+import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, persistNativeSyncQueue, markNativeSyncCompleted } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
 import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets } from '../services/googleSheetsSync';
@@ -32,6 +34,14 @@ const STORAGE_KEY = 'daytrace_state_v2';
 
 interface DayContextType {
   state: DailyState;
+  automations: Automation[];
+  addAutomation: (auto: Omit<Automation, 'id' | 'createdAt'>) => void;
+  deleteAutomation: (id: string) => void;
+  markAutomationComplete: (id: string) => void;
+  snoozeAutomation: (id: string, minutes?: number) => void;
+  activeTriggeredAlert: { id: string; title: string; subtitle: string; automationId?: string; reminderId?: string } | null;
+  dismissTriggeredAlert: () => void;
+  handleAlertAction: (action: 'DONE' | 'SNOOZE', alertId?: string) => void;
   mode: AppMode;
   setMode: (mode: AppMode) => void;
   isProcessing: boolean;
@@ -115,6 +125,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...createFreshDailyState(),
           ...parsed,
+          automations: parsed.automations || [],
           gamification: {
             ...INITIAL_GAMIFICATION_STATE,
             ...(parsed.gamification || {}),
@@ -135,6 +146,19 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
   const [isPeriodicPromptOpen, setIsPeriodicPromptOpen] = useState<boolean>(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
+
+  // Active triggered alert (Heads-up in-app card)
+  const [activeTriggeredAlert, setActiveTriggeredAlert] = useState<{
+    id: string;
+    title: string;
+    subtitle: string;
+    automationId?: string;
+    reminderId?: string;
+  } | null>(null);
+
+  const dismissTriggeredAlert = useCallback(() => {
+    setActiveTriggeredAlert(null);
+  }, []);
 
   // Modals state
   const [isFocusModalOpen, setIsFocusModalOpen] = useState<boolean>(false);
@@ -275,6 +299,87 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [state]);
 
+  // 1. Sync active automations and unified pending sync queue to native SharedPreferences
+  useEffect(() => {
+    if (state.automations) {
+      persistNativeAutomations(state.automations);
+    }
+    const unsyncedTimeline = (state.timeline || []).filter((t) => t.syncStatus !== 'SYNCED');
+    persistNativeSyncQueue({
+      pendingTimeline: unsyncedTimeline,
+      pendingTasks: state.tasks || [],
+      pendingAutomations: state.automations || [],
+      pendingReminders: state.reminders || [],
+      dailySummary: {
+        date: state.date,
+        location: state.current.location,
+        energy: state.current.energy,
+        activity: state.current.activity,
+      },
+    });
+  }, [state.automations, state.timeline, state.tasks, state.reminders, state.date, state.current]);
+
+  // 2. Reconcile background native pending logs and automation states
+  useEffect(() => {
+    const reconcileBackgroundActivity = async () => {
+      const pendingState = await fetchNativePendingState();
+      if (pendingState) {
+        const { pendingLogs, automations: nativeAutos } = pendingState;
+        if ((pendingLogs && pendingLogs.length > 0) || (nativeAutos && nativeAutos.length > 0)) {
+          setState((prev) => {
+            let updatedAutos = prev.automations || [];
+            if (nativeAutos && nativeAutos.length > 0) {
+              const nativeMap = new Map(nativeAutos.map((a: any) => [a.id, a]));
+              updatedAutos = updatedAutos.map((a) => {
+                const match: any = nativeMap.get(a.id);
+                if (match && match.status !== a.status) {
+                  return { ...a, ...match };
+                }
+                return a;
+              });
+            }
+
+            let updatedTimeline = prev.timeline;
+            if (pendingLogs && pendingLogs.length > 0) {
+              const existingIds = new Set(prev.timeline.map((t) => t.id));
+              const newItems = pendingLogs
+                .filter((log: any) => !existingIds.has(log.id))
+                .map((log: any) => ({
+                  id: log.id,
+                  time: log.time,
+                  date: log.date,
+                  type: log.type,
+                  description: log.description,
+                  location: log.location,
+                  source: log.source,
+                  syncStatus: log.syncStatus || 'PENDING',
+                }));
+
+              if (newItems.length > 0) {
+                updatedTimeline = [...prev.timeline, ...newItems];
+              }
+            }
+
+            return {
+              ...prev,
+              automations: updatedAutos,
+              timeline: updatedTimeline,
+            };
+          });
+        }
+      }
+    };
+
+    reconcileBackgroundActivity();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        reconcileBackgroundActivity();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Live time ticker & Periodic 30-min prompt evaluation & Alarm triggers
   useEffect(() => {
     const checkAlarmsAndPrompts = () => {
@@ -343,11 +448,33 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         if (!isSleeping) {
-          const intervalMs = (settings.periodicPromptIntervalMinutes || 30) * 60 * 1000;
-          if (Date.now() - lastPromptTimeRef.current >= intervalMs) {
-            lastPromptTimeRef.current = Date.now();
-            soundEffects.playPromptChime();
-            setIsPeriodicPromptOpen(true);
+          const intervalMins = settings.periodicPromptIntervalMinutes || 30;
+          
+          // Calculate time gap since last logged timeline event or state update
+          let minsSinceLastActivity = 999;
+          if (state.timeline && state.timeline.length > 0) {
+            const lastEvent = state.timeline[state.timeline.length - 1];
+            const timePart = lastEvent.time.includes('–') ? lastEvent.time.split('–')[1] : lastEvent.time;
+            const parts = timePart.split(':');
+            if (parts.length >= 2) {
+              const lh = parseInt(parts[0], 10);
+              const lm = parseInt(parts[1], 10);
+              if (!isNaN(lh) && !isNaN(lm)) {
+                let diff = (now.getHours() * 60 + now.getMinutes()) - (lh * 60 + lm);
+                if (diff < 0) diff += 24 * 60;
+                minsSinceLastActivity = diff;
+              }
+            }
+          }
+
+          // Trigger check-in prompt if there is an unexplained activity gap >= intervalMins
+          if (minsSinceLastActivity >= intervalMins) {
+            const intervalMs = intervalMins * 60 * 1000;
+            if (Date.now() - lastPromptTimeRef.current >= intervalMs) {
+              lastPromptTimeRef.current = Date.now();
+              soundEffects.playPromptChime();
+              setIsPeriodicPromptOpen(true);
+            }
           }
         }
       }
@@ -356,7 +483,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkAlarmsAndPrompts();
     const interval = setInterval(checkAlarmsAndPrompts, 10000);
     return () => clearInterval(interval);
-  }, [state.userSettings, state.reminders]);
+  }, [state.userSettings, state.reminders, state.timeline]);
 
   // Continuous Geofencing and Location Monitoring
   useEffect(() => {
@@ -598,9 +725,77 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Voice Memo Quick Capture Handler
   const executeVoiceTranscript = useCallback((rawTranscript: string) => {
-    const parsed = speechService.parseVoiceTranscript(rawTranscript);
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
+    // 1. High priority: Fast local automation & multi-activity parser
+    const autoParse = parseVoiceAutomations(rawTranscript, state, nowStr);
+    if (autoParse.isAutomation && autoParse.automations.length > 0) {
+      soundEffects.playTaskDone();
+      triggerPixelHaptic('taskDone');
+
+      setState((prev) => {
+        const newAutos: Automation[] = autoParse.automations.map((a, i) => {
+          const autoId = `auto-${Date.now()}-${i}`;
+          if (a.triggerType === 'TIME' && a.scheduledTime) {
+            scheduleNativeReminder(autoId, a.scheduledTime, a.reminderText);
+          }
+          return {
+            id: autoId,
+            title: a.title,
+            originalVoiceText: a.originalVoiceText || rawTranscript,
+            triggerType: a.triggerType,
+            locationName: a.locationName,
+            scheduledTime: a.scheduledTime,
+            reminderText: a.reminderText,
+            status: 'PENDING' as const,
+            createdAt: nowStr,
+          };
+        });
+
+        return {
+          ...prev,
+          automations: [...(prev.automations || []), ...newAutos],
+        };
+      });
+
+      awardPoints(15 * autoParse.automations.length, `Created ${autoParse.automations.length} automation(s)`);
+      setNotificationToast(`✓ Created ${autoParse.automations.length} automation(s) from voice`);
+      return;
+    }
+
+    if (autoParse.timelineLogs.length > 0) {
+      soundEffects.playTaskDone();
+      triggerPixelHaptic('taskDone');
+
+      setState((prev) => {
+        const newEvents: TimelineEvent[] = autoParse.timelineLogs.map((te, i) => ({
+          id: `time-voice-${Date.now()}-${i}`,
+          time: te.time || nowStr,
+          type: te.type || 'EVENT',
+          description: te.description,
+          location: prev.current.location,
+          source: 'CHECK_IN' as const,
+          syncStatus: 'PENDING' as const,
+        }));
+
+        const lastEv = autoParse.timelineLogs[autoParse.timelineLogs.length - 1];
+        return {
+          ...prev,
+          current: {
+            ...prev.current,
+            activity: lastEv ? lastEv.description : prev.current.activity,
+            updatedAt: nowStr,
+          },
+          timeline: [...prev.timeline, ...newEvents],
+        };
+      });
+
+      awardPoints(15, 'Voice activities logged to timeline');
+      setNotificationToast(`✓ Logged activities to timeline`);
+      return;
+    }
+
+    const parsed = speechService.parseVoiceTranscript(rawTranscript);
     soundEffects.playTaskDone();
 
     if (parsed.type === 'NEW_REMINDER') {
@@ -812,6 +1007,105 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     try {
+      // 0. Instant deterministic local automation & activity parser (0ms, 100% offline, privacy first)
+      const autoParse = parseVoiceAutomations(userInput, state, userTimestamp);
+      if (autoParse.isAutomation && autoParse.automations.length > 0) {
+        soundEffects.playTaskDone();
+        triggerPixelHaptic('taskDone');
+
+        const newAutos: Automation[] = autoParse.automations.map((a, i) => {
+          const autoId = `auto-${Date.now()}-${i}`;
+          if (a.triggerType === 'TIME' && a.scheduledTime) {
+            scheduleNativeReminder(autoId, a.scheduledTime, a.reminderText);
+          }
+          return {
+            id: autoId,
+            title: a.title,
+            originalVoiceText: a.originalVoiceText || userInput,
+            triggerType: a.triggerType,
+            locationName: a.locationName,
+            scheduledTime: a.scheduledTime,
+            reminderText: a.reminderText,
+            status: 'PENDING' as const,
+            createdAt: userTimestamp,
+          };
+        });
+
+        const lines = autoParse.automations.map((a) => {
+          const triggerLabel =
+            a.triggerType === 'GEOFENCE_EXIT'
+              ? `Leaving ${a.locationName || 'location'}`
+              : a.triggerType === 'GEOFENCE_ENTER'
+              ? `Arriving ${a.locationName || 'location'}`
+              : `At ${a.scheduledTime || 'time'}`;
+          return `${triggerLabel} → ${a.title}`;
+        });
+
+        const confirmation = `✓ ${autoParse.automations.length} automation${
+          autoParse.automations.length > 1 ? 's' : ''
+        } created:\n${lines.join('\n')}`;
+
+        setState((prev) => ({
+          ...prev,
+          automations: [...(prev.automations || []), ...newAutos],
+          conversationHistory: [
+            ...prev.conversationHistory,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'assistant',
+              text: confirmation,
+              timestamp: userTimestamp,
+            },
+          ],
+        }));
+
+        awardPoints(15 * autoParse.automations.length, `Created ${autoParse.automations.length} automation(s)`);
+        setNotificationToast(`✓ Created ${autoParse.automations.length} automation(s)`);
+        return confirmation;
+      }
+
+      if (autoParse.timelineLogs.length > 0) {
+        soundEffects.playTaskDone();
+        triggerPixelHaptic('taskDone');
+
+        const newEvents: TimelineEvent[] = autoParse.timelineLogs.map((te, i) => ({
+          id: `time-log-${Date.now()}-${i}`,
+          time: te.time || userTimestamp,
+          type: te.type || 'EVENT',
+          description: te.description,
+          location: state.current.location,
+          source: 'CHECK_IN' as const,
+          syncStatus: 'PENDING' as const,
+        }));
+
+        const lastEv = autoParse.timelineLogs[autoParse.timelineLogs.length - 1];
+        const lines = autoParse.timelineLogs.map((e) => `${e.time ? e.time + ' ' : ''}${e.description}`);
+        const confirmation = `✓ Added to timeline:\n${lines.join('\n')}`;
+
+        setState((prev) => ({
+          ...prev,
+          current: {
+            ...prev.current,
+            activity: lastEv ? lastEv.description : prev.current.activity,
+            updatedAt: userTimestamp,
+          },
+          timeline: [...prev.timeline, ...newEvents],
+          conversationHistory: [
+            ...prev.conversationHistory,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'assistant',
+              text: confirmation,
+              timestamp: userTimestamp,
+            },
+          ],
+        }));
+
+        awardPoints(15, 'Activities logged to timeline');
+        setNotificationToast('✓ Logged activities to timeline');
+        return confirmation;
+      }
+
       let parseResult: any = null;
 
       // 1. Try On-Device Gemini Nano (if available via AICore or window.ai)
@@ -1208,6 +1502,239 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reminders: prev.reminders.filter((r) => r.id !== reminderId),
     }));
   }, []);
+
+  // Automations CRUD & Actions
+  const addAutomation = useCallback((autoData: Omit<Automation, 'id' | 'createdAt'>) => {
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const newId = `auto-${Date.now()}`;
+    const newAuto: Automation = {
+      id: newId,
+      createdAt: now,
+      ...autoData,
+    };
+
+    setState((prev) => ({
+      ...prev,
+      automations: [...(prev.automations || []), newAuto],
+    }));
+
+    if (newAuto.triggerType === 'TIME' && newAuto.scheduledTime) {
+      scheduleNativeReminder(newId, newAuto.scheduledTime, newAuto.reminderText);
+    }
+  }, []);
+
+  const deleteAutomation = useCallback((id: string) => {
+    cancelNativeReminder(id);
+    setState((prev) => ({
+      ...prev,
+      automations: (prev.automations || []).filter((a) => a.id !== id),
+    }));
+  }, []);
+
+  const markAutomationComplete = useCallback((id: string) => {
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    setState((prev) => {
+      const target = (prev.automations || []).find((a) => a.id === id);
+      const title = target?.title || 'Automation task';
+
+      const updatedAutomations = (prev.automations || []).map((a) =>
+        a.id === id ? { ...a, status: 'COMPLETED' as const, completedAt: nowStr } : a
+      );
+
+      const updatedTimeline = [
+        ...prev.timeline,
+        {
+          id: `time-${Date.now()}`,
+          time: nowStr,
+          type: 'TASK_COMPLETED' as const,
+          description: `✓ ${title} — Completed`,
+          location: prev.current.location,
+          source: 'TASK_COMPLETION' as const,
+          syncStatus: 'PENDING' as const,
+        },
+      ];
+
+      return {
+        ...prev,
+        automations: updatedAutomations,
+        timeline: updatedTimeline,
+      };
+    });
+
+    triggerPixelHaptic('taskDone');
+    soundEffects.playTaskDone();
+    awardPoints(20, 'Automation completed');
+    setNotificationToast(`✓ Completed automation task`);
+    setActiveTriggeredAlert(null);
+  }, [awardPoints]);
+
+  const snoozeAutomation = useCallback((id: string, minutes = 10) => {
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const snoozeTime = new Date(Date.now() + minutes * 60 * 1000);
+    const snoozeHM = `${String(snoozeTime.getHours()).padStart(2, '0')}:${String(snoozeTime.getMinutes()).padStart(2, '0')}`;
+
+    setState((prev) => {
+      const target = (prev.automations || []).find((a) => a.id === id);
+      const title = target?.title || 'Automation task';
+
+      const updatedAutomations = (prev.automations || []).map((a) =>
+        a.id === id ? { ...a, status: 'SNOOZED' as const, snoozedUntil: snoozeTime.toISOString() } : a
+      );
+
+      const updatedTimeline = [
+        ...prev.timeline,
+        {
+          id: `time-${Date.now()}`,
+          time: nowStr,
+          type: 'EVENT' as const,
+          description: `💤 Snoozed: ${title} (${minutes}m)`,
+          location: prev.current.location,
+          source: 'AUTOMATION' as const,
+          syncStatus: 'PENDING' as const,
+        },
+      ];
+
+      return {
+        ...prev,
+        automations: updatedAutomations,
+        timeline: updatedTimeline,
+      };
+    });
+
+    scheduleNativeReminder(`snooze-${id}`, snoozeHM, `Snoozed Alert: Task Reminder`);
+    setNotificationToast(`💤 Snoozed for ${minutes} min`);
+    setActiveTriggeredAlert(null);
+  }, []);
+
+  const handleAlertAction = useCallback((action: 'DONE' | 'SNOOZE', alertId?: string) => {
+    const alert = activeTriggeredAlert;
+    const targetAutoId = alert?.automationId || (alertId?.startsWith('auto-') ? alertId : undefined);
+    const targetRemId = alert?.reminderId || (alertId?.startsWith('rem-') ? alertId : undefined);
+
+    if (action === 'DONE') {
+      if (targetAutoId) {
+        markAutomationComplete(targetAutoId);
+      } else if (targetRemId) {
+        toggleReminder(targetRemId);
+      }
+      setActiveTriggeredAlert(null);
+    } else if (action === 'SNOOZE') {
+      if (targetAutoId) {
+        snoozeAutomation(targetAutoId, 10);
+      } else {
+        snoozePrompts(10);
+      }
+      setActiveTriggeredAlert(null);
+    }
+  }, [activeTriggeredAlert, markAutomationComplete, toggleReminder, snoozeAutomation, snoozePrompts]);
+
+  // Native geofenceTransition & notificationAction background listeners
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+
+    let geofenceSub: any = null;
+    let notificationSub: any = null;
+
+    const setupListeners = async () => {
+      try {
+        geofenceSub = await DayTraceNative.addListener('geofenceTransition', (data) => {
+          const { locationName, transitionType } = data;
+          const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          const isExit = transitionType === 'EXIT';
+          const isEnter = transitionType === 'ENTER' || transitionType === 'DWELL';
+
+          setState((prev) => {
+            const locLower = (locationName || '').toLowerCase();
+            const automations = prev.automations || [];
+
+            const matchedAutos: Automation[] = [];
+            const updatedAutos = automations.map((a) => {
+              if (a.status === 'PENDING') {
+                const autoLocLower = (a.locationName || '').toLowerCase();
+                const locMatches = autoLocLower.includes(locLower) || locLower.includes(autoLocLower);
+                if (locMatches) {
+                  if ((isExit && a.triggerType === 'GEOFENCE_EXIT') || (isEnter && a.triggerType === 'GEOFENCE_ENTER')) {
+                    matchedAutos.push(a);
+                    return { ...a, status: 'TRIGGERED' as const, triggeredAt: nowStr };
+                  }
+                }
+              }
+              return a;
+            });
+
+            const newTimeline = [...prev.timeline];
+
+            newTimeline.push({
+              id: `geo-${Date.now()}`,
+              time: nowStr,
+              type: isExit ? 'DEPARTURE' : 'ARRIVAL',
+              description: isExit ? `📍 Left ${locationName}` : `📍 Arrived at ${locationName}`,
+              location: locationName,
+              source: 'GEOFENCE',
+              syncStatus: 'PENDING',
+            });
+
+            matchedAutos.forEach((a) => {
+              newTimeline.push({
+                id: `auto-log-${Date.now()}-${a.id}`,
+                time: nowStr,
+                type: 'EVENT',
+                description: `⚡ Reminder: ${a.title}`,
+                location: locationName,
+                source: 'AUTOMATION',
+                syncStatus: 'PENDING',
+              });
+            });
+
+            if (matchedAutos.length > 0) {
+              const primary = matchedAutos[0];
+              setActiveTriggeredAlert({
+                id: primary.id,
+                title: primary.title,
+                subtitle: `${isExit ? 'Leaving' : 'Arriving at'} ${locationName}`,
+                automationId: primary.id,
+              });
+              setNotificationToast(`⚡ Reminder: ${primary.title}`);
+              triggerPixelHaptic('notification');
+            }
+
+            return {
+              ...prev,
+              current: {
+                ...prev.current,
+                location: locationName || prev.current.location,
+                updatedAt: nowStr,
+              },
+              automations: updatedAutos,
+              timeline: newTimeline,
+            };
+          });
+        });
+
+        notificationSub = await DayTraceNative.addListener('notificationAction', (data) => {
+          const { action, reminderId } = data;
+          if (action === 'DONE') {
+            if (reminderId) {
+              markAutomationComplete(reminderId);
+            }
+          } else if (action === 'SNOOZE') {
+            if (reminderId) {
+              snoozeAutomation(reminderId, 10);
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('Native listener setup skipped in non-native environment', err);
+      }
+    };
+
+    setupListeners();
+
+    return () => {
+      geofenceSub?.remove?.();
+      notificationSub?.remove?.();
+    };
+  }, [markAutomationComplete, snoozeAutomation]);
 
   const addTimetableSlot = useCallback((slotData: Omit<TimetableSlot, 'id'>) => {
     setState((prev) => ({
@@ -1635,7 +2162,21 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastSyncedAt: res.syncedAt,
       });
 
-      setNotificationToast(`📊 Synced ${res.rowsAppended} rows + full backup to Google Sheets!`);
+      if (res.updatedTimeline) {
+        setState((prev) => ({
+          ...prev,
+          timeline: res.updatedTimeline!,
+        }));
+      }
+
+      await markNativeSyncCompleted();
+
+      if (res.newEntriesSynced > 0 || res.recordsUpdated > 0) {
+        setNotificationToast(`📊 Synced: ${res.newEntriesSynced} new, ${res.recordsUpdated} updated + full backup!`);
+      } else {
+        setNotificationToast(`📊 Google Sheets: All records up-to-date (Full backup saved).`);
+      }
+
       soundEffects.playTaskDone();
       return { success: true, url: res.spreadsheetUrl };
     } catch (err: any) {
@@ -1695,6 +2236,14 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         finishFocusTaskEarly,
         // Voice Memo Quick Capture
         executeVoiceTranscript,
+        // Automations & Background Triggers
+        addAutomation,
+        deleteAutomation,
+        markAutomationComplete,
+        snoozeAutomation,
+        activeTriggeredAlert,
+        dismissTriggeredAlert,
+        handleAlertAction,
         // Gamification & Rewards Vault
         claimReward,
         addCustomReward,

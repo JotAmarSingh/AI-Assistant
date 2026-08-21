@@ -63,6 +63,9 @@ import java.util.Locale;
 public class DayTraceNativePlugin extends Plugin {
     private static final String TAG = "DayTraceNativePlugin";
     public static final String PREFS_ALARMS = "daytrace_scheduled_alarms";
+    public static final String PREFS_AUTOMATIONS = "daytrace_automations";
+    public static final String PREFS_PENDING_LOGS = "daytrace_pending_logs";
+    public static final String PREFS_SYNC_QUEUE = "daytrace_sync_queue";
     private static DayTraceNativePlugin instance;
 
     private SpeechRecognizer speechRecognizer;
@@ -75,6 +78,7 @@ public class DayTraceNativePlugin extends Plugin {
         instance = this;
         geofencingClient = LocationServices.getGeofencingClient(getContext());
         AlarmReceiver.createNotificationChannel(getContext());
+        NightlySyncWorker.scheduleNightlySync(getContext());
         Log.d(TAG, "DayTraceNativePlugin loaded on Pixel device");
     }
 
@@ -86,6 +90,17 @@ public class DayTraceNativePlugin extends Plugin {
             data.put("transitionType", transitionType);
             data.put("timestamp", System.currentTimeMillis());
             instance.notifyListeners("geofenceTransition", data);
+        }
+    }
+
+    public static void notifyNotificationAction(String action, String reminderId, String locationName) {
+        if (instance != null) {
+            JSObject data = new JSObject();
+            data.put("action", action);
+            data.put("reminderId", reminderId != null ? reminderId : "");
+            data.put("locationName", locationName != null ? locationName : "");
+            data.put("timestamp", System.currentTimeMillis());
+            instance.notifyListeners("notificationAction", data);
         }
     }
 
@@ -268,7 +283,141 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     // ==========================================
-    // 2. NATIVE ALARMMANAGER SCHEDULING (Section 9)
+    // 2. NATIVE PERSISTENT AUTOMATIONS SYNCHRONIZATION
+    // ==========================================
+
+    @PluginMethod
+    public void syncNativeAutomations(PluginCall call) {
+        JSArray automationsArray = call.getArray("automations");
+        if (automationsArray == null) {
+            call.reject("automations array is required");
+            return;
+        }
+
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_AUTOMATIONS, Context.MODE_PRIVATE);
+            prefs.edit().putString("automations_list", automationsArray.toString()).apply();
+            Log.d(TAG, "Persisted " + automationsArray.length() + " native automations for dead-process geofence matching");
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("count", automationsArray.length());
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to persist automations", e);
+            call.reject("Failed to sync automations: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void syncPendingQueue(PluginCall call) {
+        JSObject queueObj = call.getObject("queue");
+        if (queueObj == null) {
+            call.reject("queue object is required");
+            return;
+        }
+
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_SYNC_QUEUE, Context.MODE_PRIVATE);
+            prefs.edit()
+                    .putString("pending_queue_json", queueObj.toString())
+                    .putLong("last_queued_at", System.currentTimeMillis())
+                    .putString("sync_status", "PENDING")
+                    .apply();
+            Log.d(TAG, "Synced unified pending queue to native storage for background WorkManager");
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to persist sync queue", e);
+            call.reject("Failed to sync pending queue: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getPendingQueue(PluginCall call) {
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_SYNC_QUEUE, Context.MODE_PRIVATE);
+            String queueJson = prefs.getString("pending_queue_json", "{}");
+            String syncStatus = prefs.getString("sync_status", "IDLE");
+            long lastQueuedAt = prefs.getLong("last_queued_at", 0);
+
+            JSObject ret = new JSObject();
+            ret.put("queue", new JSObject(queueJson));
+            ret.put("syncStatus", syncStatus);
+            ret.put("lastQueuedAt", lastQueuedAt);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting pending queue", e);
+            call.reject("Error getting pending queue: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void markNativeSyncCompleted(PluginCall call) {
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_SYNC_QUEUE, Context.MODE_PRIVATE);
+            prefs.edit()
+                    .putString("sync_status", "SYNCED")
+                    .putLong("last_synced_at", System.currentTimeMillis())
+                    .apply();
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Error marking sync completed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getNativePendingState(PluginCall call) {
+        try {
+            Context context = getContext();
+            SharedPreferences logsPrefs = context.getSharedPreferences(PREFS_PENDING_LOGS, Context.MODE_PRIVATE);
+            SharedPreferences autoPrefs = context.getSharedPreferences(PREFS_AUTOMATIONS, Context.MODE_PRIVATE);
+
+            String pendingLogsJson = logsPrefs.getString("pending_logs", "[]");
+            String automationsJson = autoPrefs.getString("automations_list", "[]");
+
+            // Clear pending logs since we are handing them off to React
+            logsPrefs.edit().putString("pending_logs", "[]").apply();
+
+            JSObject ret = new JSObject();
+            ret.put("pendingLogs", new JSArray(pendingLogsJson));
+            ret.put("automations", new JSArray(automationsJson));
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading native pending state", e);
+            call.reject("Error getting pending state: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void configureNightlySync(PluginCall call) {
+        try {
+            String endpoint = call.getString("syncEndpoint", "");
+            String authToken = call.getString("authToken", "");
+
+            SharedPreferences prefs = getContext().getSharedPreferences(NightlySyncWorker.PREFS_SYNC, Context.MODE_PRIVATE);
+            prefs.edit()
+                    .putString("sync_endpoint", endpoint)
+                    .putString("auth_token", authToken)
+                    .apply();
+
+            NightlySyncWorker.scheduleNightlySync(getContext());
+
+            JSObject ret = new JSObject();
+            ret.put("scheduled", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to configure nightly sync: " + e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // 3. NATIVE ALARMMANAGER SCHEDULING (Section 9)
     // ==========================================
 
     @PluginMethod
@@ -385,7 +534,7 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     // ==========================================
-    // 3. NATIVE GEOFENCING CLIENT (Section 10)
+    // 4. NATIVE GEOFENCING CLIENT (Section 10)
     // ==========================================
 
     @PluginMethod
@@ -478,7 +627,7 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     // ==========================================
-    // 4. ON-DEVICE AI / GEMINI NANO STATUS (Section 7)
+    // 5. ON-DEVICE AI / GEMINI NANO STATUS (Section 7)
     // ==========================================
 
     @PluginMethod
@@ -486,7 +635,7 @@ public class DayTraceNativePlugin extends Plugin {
         JSObject ret = new JSObject();
         
         // Runtime feature detection for Pixel / Android AICore & Prompt API
-        // Truthful reporting: Check if AICore service or ML Kit GenAI Prompt model exists
+        // Truthful reporting per requirement 9: Check if AICore service exists
         boolean hasAiCoreService = false;
         try {
             PackageManager pm = getContext().getPackageManager();
@@ -494,10 +643,8 @@ public class DayTraceNativePlugin extends Plugin {
             hasAiCoreService = true;
         } catch (PackageManager.NameNotFoundException ignored) {}
 
+        // Non-blocking: Return UNAVAILABLE per requirement 9 unless official runtime feature confirms prompt model
         String status = "UNAVAILABLE";
-        if (hasAiCoreService) {
-            status = "AVAILABLE"; // AICore package is present on Pixel system
-        }
 
         ret.put("status", status);
         ret.put("hasAiCorePackage", hasAiCoreService);
@@ -508,7 +655,7 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     // ==========================================
-    // 5. PIXEL HAPTICS (Section 13)
+    // 6. PIXEL HAPTICS (Section 13)
     // ==========================================
 
     @PluginMethod

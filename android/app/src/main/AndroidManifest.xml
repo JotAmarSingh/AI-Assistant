@@ -65,6 +65,12 @@
             android:enabled="true"
             android:exported="true" />
 
+        <!-- Notification Direct Action Receiver (Handles DONE/SNOOZE when app is dead) -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

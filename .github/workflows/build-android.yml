@@ -42,6 +42,23 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Download & Verify Official Gradle 8.14.3 Wrapper JAR
+        run: |
+          mkdir -p android/gradle/wrapper
+          curl -sSL "https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar" -o android/gradle/wrapper/gradle-wrapper.jar
+          EXPECTED_SHA="7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172"
+          ACTUAL_SHA=$(sha256sum android/gradle/wrapper/gradle-wrapper.jar | awk '{print $1}')
+          echo "Expected SHA-256: $EXPECTED_SHA"
+          echo "Actual SHA-256:   $ACTUAL_SHA"
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::Gradle wrapper JAR SHA-256 verification failed!"
+            exit 1
+          fi
+          echo "✓ Official Gradle 8.14.3 wrapper JAR downloaded and verified successfully."
+
+      - name: Generate Android & PWA Assets from Vector SVG
+        run: npm run generate:assets
+
       - name: Run Linter
         run: npm run lint
 

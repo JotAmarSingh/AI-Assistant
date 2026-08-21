@@ -33,7 +33,10 @@ export const RemindersAnchorsView: React.FC = () => {
     snoozePrompts,
     triggerManualPromptCheck,
     syncToGoogleSheets,
-    isSyncingSheets
+    isSyncingSheets,
+    markAutomationComplete,
+    deleteAutomation,
+    snoozeAutomation,
   } = useDay();
   const [isAddAnchorModalOpen, setIsAddAnchorModalOpen] = useState(false);
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
@@ -363,6 +366,117 @@ export const RemindersAnchorsView: React.FC = () => {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+
+        {/* Section 1.5: Voice Automations & Geofence Triggers */}
+        <section className="space-y-3 pt-3 border-t border-[#44474E]/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
+                <Zap className="w-4 h-4" />
+              </div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#E2E2E6]">
+                Voice Automations & Triggers
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono text-[#D1E1FF] px-2 py-0.5 rounded-full bg-[#111318] border border-[#44474E]/40">
+              {(state.automations || []).filter((a) => a.status === 'PENDING').length} active
+            </span>
+          </div>
+
+          <p className="text-[11px] text-[#C4C6D0]/70 leading-relaxed">
+            Automations created via speech ("Remind me when leaving office..."). Handled automatically by Android geofences & alarms.
+          </p>
+
+          {(!state.automations || state.automations.length === 0) ? (
+            <div className="p-4 rounded-[24px] bg-[#1D2026] border border-[#44474E]/40 text-center text-xs text-[#C4C6D0]/60">
+              No voice automations active. Speak a trigger (e.g. <span className="text-[#D1E1FF]">"Remind me when I leave office to get medicines"</span>) to create one.
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {state.automations.map((auto) => {
+                const isPending = auto.status === 'PENDING';
+                const isCompleted = auto.status === 'COMPLETED';
+                const isSnoozed = auto.status === 'SNOOZED';
+                const triggerBadge =
+                  auto.triggerType === 'GEOFENCE_EXIT'
+                    ? `Exit ${auto.locationName || 'Location'}`
+                    : auto.triggerType === 'GEOFENCE_ENTER'
+                    ? `Arrive at ${auto.locationName || 'Location'}`
+                    : `Time ${auto.scheduledTime || ''}`;
+
+                return (
+                  <div
+                    key={auto.id}
+                    className={`bg-[#1D2026] border rounded-[28px] p-4 shadow-md space-y-2.5 transition ${
+                      isCompleted
+                        ? 'border-[#44474E]/30 opacity-60 bg-[#1A1C1E]'
+                        : 'border-[#D1E1FF]/30'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#334867] text-[#D1E1FF] border border-[#D1E1FF]/20">
+                            {triggerBadge}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                              isPending
+                                ? 'bg-[#334867]/40 text-[#D1E1FF]'
+                                : isCompleted
+                                ? 'bg-[#86EFAC]/20 text-[#86EFAC]'
+                                : isSnoozed
+                                ? 'bg-[#FDE047]/20 text-[#FDE047]'
+                                : 'bg-[#D1E1FF]/20 text-[#D1E1FF]'
+                            }`}
+                          >
+                            {auto.status}
+                          </span>
+                        </div>
+                        <h4 className={`text-xs font-bold text-[#E2E2E6] ${isCompleted ? 'line-through text-[#C4C6D0]/50' : ''}`}>
+                          {auto.title}
+                        </h4>
+                        {auto.reminderText && (
+                          <div className="text-[11px] text-[#C4C6D0]">
+                            Reminder: <span className="text-[#D1E1FF]">{auto.reminderText}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => deleteAutomation(auto.id)}
+                        className="p-1.5 text-[#C4C6D0] hover:text-[#F87171] hover:bg-[#2E3036] rounded-xl transition"
+                        title="Delete automation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {!isCompleted && (
+                      <div className="flex items-center space-x-2 pt-1 border-t border-[#44474E]/20">
+                        <button
+                          type="button"
+                          onClick={() => markAutomationComplete(auto.id)}
+                          className="py-1 px-2.5 rounded-xl bg-[#D1E1FF] text-[#003062] hover:bg-white text-[10px] font-bold flex items-center space-x-1 transition shadow-sm"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Done</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => snoozeAutomation(auto.id, 10)}
+                          className="py-1 px-2.5 rounded-xl bg-[#2E3036] text-[#C4C6D0] hover:text-[#E2E2E6] text-[10px] font-semibold flex items-center space-x-1 transition"
+                        >
+                          <span>Snooze (10m)</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

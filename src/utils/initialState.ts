@@ -67,6 +67,7 @@ export const createFreshDailyState = (): DailyState => ({
   timeline: [],
   tasks: [],
   reminders: [],
+  automations: [],
   timetable: [],
   geofenceLocations: DEFAULT_GEOFENCE_LOCATIONS,
   gamification: { ...INITIAL_GAMIFICATION_STATE },
@@ -244,6 +245,7 @@ export const SAMPLE_TEMPLATE_STATE: DailyState = {
       createdAt: '10:00',
     },
   ],
+  automations: [],
   timetable: [
     {
       id: 'slot-1',

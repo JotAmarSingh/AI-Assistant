@@ -109,18 +109,57 @@ export interface TaskItem {
   source?: string;
 }
 
+export type EventSource = 
+  | 'VOICE'
+  | 'MANUAL'
+  | 'CHECK_IN'
+  | 'AUTOMATION'
+  | 'GEOFENCE'
+  | 'TASK_COMPLETION'
+  | 'SYSTEM';
+
+export type SyncStatus = 'PENDING' | 'SYNCED' | 'FAILED';
+
+export interface Automation {
+  id: string;
+  title: string;
+  originalVoiceText: string;
+  triggerType: 'TIME' | 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT';
+  locationId?: string;
+  locationName?: string;
+  scheduledTime?: string; // e.g. "18:00"
+  reminderText: string;
+  status: 'PENDING' | 'TRIGGERED' | 'COMPLETED' | 'SNOOZED';
+  parentAutomationId?: string;
+  relatedAutomationIds?: string[];
+  createdAt: string;
+  triggeredAt?: string;
+  completedAt?: string;
+  snoozedUntil?: string;
+  relatedContext?: string;
+}
+
 export interface TimelineEvent {
   id: string;
-  time: string; // e.g. "09:10" or ISO
-  type: 'EVENT' | 'TASK_STARTED' | 'TASK_COMPLETED' | 'INTERRUPTION' | 'MEETING' | 'DEPARTURE' | 'UPDATE';
+  date?: string; // YYYY-MM-DD
+  time: string; // e.g. "09:10" or "13:15–13:45"
+  startTime?: string;
+  endTime?: string;
+  type: 'EVENT' | 'TASK_STARTED' | 'TASK_COMPLETED' | 'INTERRUPTION' | 'MEETING' | 'DEPARTURE' | 'UPDATE' | 'GEOFENCE' | 'REMINDER';
   description: string;
   relatedTaskId?: string;
+  relatedAutomationId?: string;
   location?: string;
+  locationId?: string;
   classification?: InterruptionClassification;
-  source?: string;
+  source?: EventSource | string;
+  category?: TaskCategory;
   plannedTime?: string;
   varianceMinutes?: number;
   notes?: string;
+  syncStatus?: SyncStatus;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface FixedEvent {
@@ -249,6 +288,7 @@ export interface DailyState {
   timeline: TimelineEvent[];
   tasks: TaskItem[];
   reminders: ReminderItem[];
+  automations?: Automation[];
   timetable: TimetableSlot[];
   geofenceLocations?: GeofenceLocation[];
   gamification?: UserGamification;
@@ -291,6 +331,7 @@ export interface ParseResult {
     cancelledTaskTitles?: string[];
     newFixedEvents?: Omit<FixedEvent, 'id'>[];
     newReminders?: Omit<ReminderItem, 'id'>[];
+    newAutomations?: Omit<Automation, 'id'>[];
     nextBestAction?: {
       taskId?: string | null;
       title: string;
@@ -304,6 +345,7 @@ export interface ParseResult {
       tasksWaiting?: string[];
       tasksBlocked?: string[];
       tasksCreated?: string[];
+      automationsCreated?: string[];
       timelineAdded?: string[];
       nextAction?: string;
     };

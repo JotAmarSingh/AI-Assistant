@@ -4,7 +4,7 @@
  */
 
 import { registerPlugin, Capacitor, PluginListenerHandle } from '@capacitor/core';
-import { GeofenceLocation } from '../types';
+import { GeofenceLocation, Automation, TimelineEvent } from '../types';
 
 export interface DayTraceNativePluginInterface {
   // Speech Recognition
@@ -25,6 +25,14 @@ export interface DayTraceNativePluginInterface {
   // Geofencing
   registerGeofences(options: { locations: GeofenceLocation[] }): Promise<{ success: boolean; registeredCount: number }>;
   removeAllGeofences(): Promise<{ success: boolean }>;
+
+  // Native Automation Persistence (Dead-Process Geofence Matching)
+  syncNativeAutomations(options: { automations: Automation[] }): Promise<{ success: boolean; count: number }>;
+  getNativePendingState(): Promise<{ pendingLogs: any[]; automations: any[] }>;
+  syncPendingQueue(options: { queue: any }): Promise<{ success: boolean }>;
+  getPendingQueue(): Promise<{ queue: any; syncStatus: string; lastQueuedAt: number }>;
+  markNativeSyncCompleted(): Promise<{ success: boolean }>;
+  configureNightlySync(options: { syncEndpoint?: string; authToken?: string }): Promise<{ scheduled: boolean }>;
 
   // On-Device AI / Gemini Nano Status Check
   checkGeminiNanoStatus(): Promise<{
@@ -57,6 +65,11 @@ export interface DayTraceNativePluginInterface {
   addListener(
     eventName: 'geofenceTransition',
     listenerFunc: (data: { locationId: string; locationName: string; transitionType: 'ENTER' | 'EXIT' | 'DWELL'; timestamp: number }) => void
+  ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: 'notificationAction',
+    listenerFunc: (data: { action: 'DONE' | 'SNOOZE' | string; reminderId?: string; locationName?: string; timestamp: number }) => void
   ): Promise<PluginListenerHandle>;
 }
 
@@ -196,3 +209,76 @@ export const triggerPixelHaptic = async (type: 'light' | 'impactHeavy' | 'taskDo
     // fallback or ignore
   }
 };
+
+/**
+ * Synchronizes active automations with Android native SharedPreferences
+ * Allows GeofenceBroadcastReceiver to match tasks even when the app process is terminated
+ */
+export const persistNativeAutomations = async (automations: Automation[]) => {
+  if (!isNativeAndroid()) return;
+  try {
+    await DayTraceNative.syncNativeAutomations({ automations });
+  } catch (e) {
+    console.warn('Failed to sync automations to native storage:', e);
+  }
+};
+
+/**
+ * Reconciles background geofence/alarm triggers and completion actions logged by native receivers
+ */
+export const fetchNativePendingState = async (): Promise<{ pendingLogs: any[]; automations: any[] } | null> => {
+  if (!isNativeAndroid()) return null;
+  try {
+    const state = await DayTraceNative.getNativePendingState();
+    return state;
+  } catch (e) {
+    console.warn('Failed to retrieve native pending state:', e);
+    return null;
+  }
+};
+
+/**
+ * Persists the unified pending sync queue to Android SharedPreferences
+ * so NightlySyncWorker and background services access the same dataset as manual sync
+ */
+export const persistNativeSyncQueue = async (queue: {
+  pendingTimeline: any[];
+  pendingTasks: any[];
+  pendingAutomations: any[];
+  pendingReminders: any[];
+  dailySummary?: any;
+}) => {
+  if (!isNativeAndroid()) return;
+  try {
+    await DayTraceNative.syncPendingQueue({ queue });
+  } catch (e) {
+    console.warn('Failed to persist sync queue to native storage:', e);
+  }
+};
+
+/**
+ * Retrieves the unified pending sync queue status from native storage
+ */
+export const fetchNativeSyncQueue = async (): Promise<{ queue: any; syncStatus: string; lastQueuedAt: number } | null> => {
+  if (!isNativeAndroid()) return null;
+  try {
+    return await DayTraceNative.getPendingQueue();
+  } catch (e) {
+    console.warn('Failed to retrieve native sync queue:', e);
+    return null;
+  }
+};
+
+/**
+ * Marks native sync queue as completed after successful Google Sheets sync
+ */
+export const markNativeSyncCompleted = async () => {
+  if (!isNativeAndroid()) return;
+  try {
+    await DayTraceNative.markNativeSyncCompleted();
+  } catch (e) {
+    console.warn('Failed to mark native sync completed:', e);
+  }
+};
+
+

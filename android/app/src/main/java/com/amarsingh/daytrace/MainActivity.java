@@ -2,11 +2,13 @@ package com.amarsingh.daytrace;
 
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Build;
+import android.graphics.Color;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -26,7 +28,7 @@ import java.util.Locale;
 public class MainActivity extends BridgeActivity {
     public interface GoogleAuthorizationResultCallback {
         void onResult(Intent data);
-        void onCancelled();
+        void onLaunchError(String reason);
     }
 
     private ActivityResultLauncher<IntentSenderRequest> googleAuthorizationLauncher;
@@ -43,11 +45,11 @@ public class MainActivity extends BridgeActivity {
                     GoogleAuthorizationResultCallback callback = googleAuthorizationCallback;
                     googleAuthorizationCallback = null;
                     if (callback == null) return;
-                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                        callback.onResult(result.getData());
-                    } else {
-                        callback.onCancelled();
-                    }
+                    // Google Identity Services intentionally owns interpretation of
+                    // the returned Intent. RESULT_CANCELED may still carry an
+                    // ApiException with the real status, so never discard the data
+                    // based only on Activity resultCode.
+                    callback.onResult(result.getData());
                 }
         );
         handleIncomingIntent(getIntent());
@@ -62,17 +64,53 @@ public class MainActivity extends BridgeActivity {
      */
     private void configureSystemInsets() {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
-        ViewCompat.getWindowInsetsController(getWindow().getDecorView()).setAppearanceLightStatusBars(false);
-        ViewCompat.getWindowInsetsController(getWindow().getDecorView()).setAppearanceLightNavigationBars(false);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getWindow().setStatusBarContrastEnforced(false);
+            getWindow().setNavigationBarContrastEnforced(false);
+        }
+        WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                .setAppearanceLightStatusBars(false);
+        WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                .setAppearanceLightNavigationBars(false);
 
-        ViewCompat.setOnApplyWindowInsetsListener(bridge.getWebView(), (view, windowInsets) -> {
-            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+        View contentView = findViewById(android.R.id.content);
+        View webView = bridge.getWebView();
+        contentView.setBackgroundColor(Color.rgb(17, 19, 24));
+        webView.setBackgroundColor(Color.rgb(17, 19, 24));
+
+        // Capacitor or WebView navigation can replace WebView padding. Native
+        // layout margins remain stable and make the WebView's actual viewport
+        // begin below the status bar and end above gesture/navigation controls.
+        ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, windowInsets) -> {
+            Insets safeInsets = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars()
+                            | WindowInsetsCompat.Type.displayCutout()
+            );
+            Insets imeInsets = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            int bottomInset = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
+                    ? Math.max(safeInsets.bottom, imeInsets.bottom)
+                    : safeInsets.bottom;
+            ViewGroup.LayoutParams rawParams = webView.getLayoutParams();
+            if (rawParams instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) rawParams;
+                if (marginParams.leftMargin != safeInsets.left
+                        || marginParams.topMargin != safeInsets.top
+                        || marginParams.rightMargin != safeInsets.right
+                        || marginParams.bottomMargin != bottomInset) {
+                    marginParams.setMargins(
+                            safeInsets.left,
+                            safeInsets.top,
+                            safeInsets.right,
+                            bottomInset
+                    );
+                    webView.setLayoutParams(marginParams);
+                }
+            }
             return windowInsets;
         });
-        ViewCompat.requestApplyInsets(bridge.getWebView());
+        ViewCompat.requestApplyInsets(contentView);
     }
 
     @Override
@@ -138,7 +176,7 @@ public class MainActivity extends BridgeActivity {
 
     public void launchGoogleAuthorization(PendingIntent pendingIntent, GoogleAuthorizationResultCallback callback) {
         if (pendingIntent == null || googleAuthorizationLauncher == null) {
-            callback.onCancelled();
+            callback.onLaunchError("Google authorization could not be launched by this activity");
             return;
         }
         googleAuthorizationCallback = callback;

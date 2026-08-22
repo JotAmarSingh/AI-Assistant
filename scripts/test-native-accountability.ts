@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createFreshDailyState } from '../src/utils/initialState';
 import {
   reconcileNativeAccountabilityEvents,
@@ -100,5 +101,15 @@ assert.equal(meetingResult.state.timeline.filter((item) => item.id === meetingEv
 const duplicateMeeting = reconcileNativeAccountabilityEvents(meetingResult.state, [meetingEvent]);
 assert.equal(duplicateMeeting.state.meetings.length, 1, 'Meeting replay must not duplicate the meeting');
 assert.equal(duplicateMeeting.state.timeline.filter((item) => item.id === meetingEvent.nativeEventId).length, 1, 'Meeting replay must not duplicate the timeline row');
+
+const mainActivitySource = readFileSync(new URL('../android/app/src/main/java/com/amarsingh/daytrace/MainActivity.java', import.meta.url), 'utf8');
+assert.match(mainActivitySource, /WindowInsetsCompat\.Type\.displayCutout\(\)/, 'Android shell must account for display cutouts');
+assert.match(mainActivitySource, /WindowInsetsCompat\.Type\.ime\(\)/, 'Android shell must keep focused inputs above the keyboard');
+assert.match(mainActivitySource, /marginParams\.setMargins\(/, 'Android shell must inset the WebView with native layout margins');
+assert.doesNotMatch(mainActivitySource, /result\.getResultCode\(\) == Activity\.RESULT_OK/, 'Google authorization results must be decoded by Google Identity Services');
+
+const nativePluginSource = readFileSync(new URL('../android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java', import.meta.url), 'utf8');
+assert.match(nativePluginSource, /getAuthorizationResultFromIntent\(data\)/, 'Google Identity Services must decode the authorization result intent');
+assert.match(nativePluginSource, /MessageDigest\.getInstance\("SHA-1"\)/, 'The installed OAuth signing fingerprint must be available for diagnostics');
 
 console.log('Native accountability reconciliation tests passed.');

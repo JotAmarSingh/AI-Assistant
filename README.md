@@ -3,7 +3,7 @@
 DayTrace is the existing React/TypeScript + Capacitor Android accountability app with native Android alarms, interactive lock-screen check-ins, task persistence, day-separated history, smart locations, categories, Meeting Mode, and optional Google Sheets backup.
 
 - Android application ID: `com.amarsingh.daytrace`
-- Version: `1.2.0` (`versionCode 2026082201`)
+- Version: `1.2.1` (`versionCode 2026082202`)
 - Local parsing: deterministic and offline; no AI API key is required by the installed Android app.
 - Google Sheets is optional and uses Android Google Identity Services.
 
@@ -44,10 +44,10 @@ In Google Cloud Console:
 1. Enable Google Sheets API and Google Drive API.
 2. Configure the OAuth consent screen.
 3. Create an Android OAuth client for package `com.amarsingh.daytrace`.
-4. Use the SHA-1 from the exact stable signing key used for the installed/release APK. The workflow prints `:app:signingReport` to make this visible.
+4. Use the SHA-1 from the exact stable signing key used for the installed/release APK. The workflow prints `:app:signingReport`; after a failed attempt, DayTrace also shows the exact installed APK SHA-1 in the Google Sheets settings panel.
 5. Rebuild with that same key.
 
-Android uses `AuthorizationClient`, not the browser Google Identity Services script. Cancellation is non-destructive, expired/unauthorized requests retry authorization once, and Disconnect Google revokes the granted Sheets/Drive-file scopes when account metadata is available. The PWA/browser path can optionally use `VITE_GOOGLE_CLIENT_ID`.
+Android uses `AuthorizationClient`, not the browser Google Identity Services script. The SDK decodes the returned result intent directly, cancellation is non-destructive, expired/unauthorized requests retry authorization once, and Disconnect Google revokes the granted Sheets/Drive-file scopes when account metadata is available. The PWA/browser path can optionally use `VITE_GOOGLE_CLIENT_ID`.
 
 ## Phone verification
 

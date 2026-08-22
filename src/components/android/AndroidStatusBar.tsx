@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Wifi, Signal, BatteryCharging, Sparkles, Bell } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { isNativeAndroid } from '../../services/nativeBridge';
@@ -9,21 +9,12 @@ interface AndroidStatusBarProps {
 
 export const AndroidStatusBar: React.FC<AndroidStatusBarProps> = ({ onOpenNotifications }) => {
   const { currentTimeString, state, mode } = useDay();
-  const [isNative, setIsNative] = useState(false);
-
-  useEffect(() => {
-    setIsNative(isNativeAndroid());
-  }, []);
 
   const activeTask = state.tasks.find((t) => t.id === state.current.focusTaskId || t.status === 'ACTIVE');
   const pendingRemindersCount = state.reminders.filter((r) => !r.isDone).length;
 
   // In native Android APK, status bar is provided natively by Android OS, so we show an unobtrusive compact in-app header row or let real status bar take over
-  if (isNative) {
-    return (
-      <div className="w-full pt-[env(safe-area-inset-top,0px)] bg-[#111318]" />
-    );
-  }
+  if (isNativeAndroid()) return null;
 
   return (
     <div

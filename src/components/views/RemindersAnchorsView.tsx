@@ -18,11 +18,12 @@ import {
   Loader2,
   Smartphone,
   BellRing,
-  Unplug
+  Unplug,
+  Copy
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
-import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
+import { NativeAppIdentity, NativeNotificationPermissionStatus, checkNativeNotificationPermission, getNativeAppIdentity, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -48,6 +49,8 @@ export const RemindersAnchorsView: React.FC = () => {
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
   const [isTestingLockscreen, setIsTestingLockscreen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NativeNotificationPermissionStatus | null>(null);
+  const [nativeAppIdentity, setNativeAppIdentity] = useState<NativeAppIdentity | null>(null);
+  const [copiedSigningSha1, setCopiedSigningSha1] = useState(false);
 
   const refreshNotificationPermission = useCallback(async () => {
     if (!isNativeAndroid()) return;
@@ -56,6 +59,7 @@ export const RemindersAnchorsView: React.FC = () => {
 
   useEffect(() => {
     refreshNotificationPermission();
+    if (isNativeAndroid()) void getNativeAppIdentity().then(setNativeAppIdentity);
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refreshNotificationPermission();
     };
@@ -378,7 +382,27 @@ export const RemindersAnchorsView: React.FC = () => {
 
               {settings.googleAuthStatus && settings.googleAuthStatus !== 'CONNECTED' && settings.googleAuthStatus !== 'DISCONNECTED' && (
                 <div className="rounded-xl border border-[#FCA5A5]/30 bg-[#7F1D1D]/15 p-2 text-[10px] text-[#FCA5A5]">
-                  <p>{settings.googleAuthStatus === 'CANCELLED' ? 'Google authorization was cancelled. Local DayTrace data is unchanged.' : (settings.googleAuthError || 'Google authorization failed.')}</p>
+                  <p>{settings.googleAuthError || (settings.googleAuthStatus === 'CANCELLED' ? 'Google authorization screen was closed. Local DayTrace data is unchanged.' : 'Google authorization failed.')}</p>
+                  {nativeAppIdentity && (
+                    <div className="mt-2 rounded-lg border border-[#D1E1FF]/20 bg-[#111318]/80 p-2 text-[#C4C6D0]">
+                      <p className="font-semibold text-[#D1E1FF]">Installed APK identity required by Google OAuth</p>
+                      <p className="mt-1 break-all font-mono">Package: {nativeAppIdentity.packageName}</p>
+                      <p className="break-all font-mono">SHA-1: {nativeAppIdentity.sha1}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(nativeAppIdentity.sha1).then(() => {
+                            setCopiedSigningSha1(true);
+                            window.setTimeout(() => setCopiedSigningSha1(false), 1800);
+                          });
+                        }}
+                        className="mt-1.5 inline-flex items-center rounded-lg border border-[#D1E1FF]/25 px-2 py-1 font-bold text-[#D1E1FF]"
+                      >
+                        <Copy className="mr-1 h-3 w-3" />
+                        {copiedSigningSha1 ? 'Copied SHA-1' : 'Copy SHA-1'}
+                      </button>
+                    </div>
+                  )}
                   <button type="button" onClick={() => syncToGoogleSheets()} className="mt-1.5 rounded-lg bg-[#334867] px-2.5 py-1 font-bold text-[#D1E1FF]">Retry authorization</button>
                 </div>
               )}

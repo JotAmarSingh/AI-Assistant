@@ -1,4 +1,4 @@
-# DayTrace 1.2.0 delivery notes
+# DayTrace 1.2.1 delivery notes
 
 ## Fixed
 
@@ -6,10 +6,12 @@
 - GitHub Actions now caches Gradle dependencies and retries Maven downloads with bounded backoff when shared runners receive temporary HTTP 429 rate limits.
 - Multiple time triggers in one sentence now create one automation per time block. The reported 12:30 snack, 3–4 lunch, and 4–6 movie sentence produces three separate alarms.
 - Google Sheets on Android now uses native AuthorizationClient state, token retry, cancellation/error status, explicit disconnect/revocation, and non-destructive failures.
+- Google authorization results are now decoded by Google Identity Services even when Android does not return `RESULT_OK`, preventing valid SDK error/result intents from being mislabeled as a user cancellation.
+- The Google Sheets error panel now shows the exact installed package and public signing SHA-1 needed by the Android OAuth client, with a copy button.
 - Notification permission is requested only when prompts are enabled or the test is tapped; a granted test continues automatically, while denied/disabled status routes to Android settings.
 - Fresh installs no longer contain fake tasks, routines, conversations, timeline entries, learned suggestions, or saved locations.
 - “Save/log/tag my current location as …” is routed before generic task queries.
-- Status/navigation insets and `adjustResize` protect the UI from Pixel system bars and the keyboard.
+- Android 16 edge-to-edge insets now reduce the native WebView viewport using stable layout margins for the status bar, display cutout, gesture/navigation area, and visible keyboard. The in-app mock status row is never rendered in the APK.
 - Destructive task, timeline, reminder, automation, routine, category, location, meeting, learning, focus-reset, timetable-replacement, and all-data actions require confirmation.
 
 ## Added
@@ -41,7 +43,8 @@
 - Schema migration/sample-preservation tests: passed.
 - Exact reported multi-trigger parser test: passed.
 - Meeting transcript/summary/action extraction tests: passed.
-- Vite production build and Capacitor Android sync: run as part of final packaging.
+- Vite production build: passed (bundle-size advisory only).
+- Capacitor Android sync: passed; native inset and authorization edits remained intact after sync.
 - Android `assembleDebug`, emulator/instrumentation, locked-screen, process-death, reboot, Battery Saver, microphone, and Google account-consent tests could not be executed in this sandbox because it has no Android SDK/device and no interactive Google account. The GitHub workflow is configured to run the Android compile on push.
 
 ## Known platform limitation

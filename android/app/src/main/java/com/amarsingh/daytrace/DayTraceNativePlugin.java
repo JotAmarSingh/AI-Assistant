@@ -9,7 +9,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -48,6 +51,7 @@ import com.google.android.gms.auth.api.identity.Identity;
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.common.api.CommonStatusCodes;
 import com.google.android.gms.common.api.Scope;
 
 import org.json.JSONArray;
@@ -58,6 +62,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.io.File;
+import java.security.MessageDigest;
 
 @CapacitorPlugin(
         name = "DayTraceNative",
@@ -1070,6 +1075,56 @@ public class DayTraceNativePlugin extends Plugin {
     // 9. NATIVE GOOGLE SHEETS AUTHORIZATION
     // ==========================================
 
+    /**
+     * Returns the identity Google Cloud must register for this exact installed
+     * APK. Exposing the fingerprint is diagnostic only; it is a public
+     * certificate digest and never exposes the signing key.
+     */
+    @PluginMethod
+    public void getAppIdentity(PluginCall call) {
+        try {
+            PackageManager packageManager = getContext().getPackageManager();
+            String packageName = getContext().getPackageName();
+            PackageInfo packageInfo;
+            Signature[] signatures;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES);
+                signatures = packageInfo.signingInfo != null
+                        ? packageInfo.signingInfo.getApkContentsSigners()
+                        : new Signature[0];
+            } else {
+                //noinspection deprecation
+                packageInfo = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
+                //noinspection deprecation
+                signatures = packageInfo.signatures;
+            }
+            if (signatures == null || signatures.length == 0) {
+                call.reject("The installed APK signing certificate could not be read");
+                return;
+            }
+
+            byte[] digest = MessageDigest.getInstance("SHA-1").digest(signatures[0].toByteArray());
+            StringBuilder fingerprint = new StringBuilder();
+            for (byte value : digest) {
+                if (fingerprint.length() > 0) fingerprint.append(':');
+                fingerprint.append(String.format(Locale.US, "%02X", value & 0xFF));
+            }
+
+            JSObject result = new JSObject();
+            result.put("packageName", packageName);
+            result.put("sha1", fingerprint.toString());
+            result.put("versionName", packageInfo.versionName != null ? packageInfo.versionName : "");
+            result.put("versionCode", Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                    ? packageInfo.getLongVersionCode()
+                    : packageInfo.versionCode);
+            boolean isDebuggable = (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            result.put("buildType", isDebuggable ? "debug" : "release");
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("The installed APK identity could not be read: " + error.getMessage());
+        }
+    }
+
     @PluginMethod
     public void requestGoogleSheetsAccess(PluginCall call) {
         if (!(getActivity() instanceof MainActivity)) {
@@ -1123,19 +1178,30 @@ public class DayTraceNativePlugin extends Plugin {
                                                 .getAuthorizationResultFromIntent(data);
                                         resolveGoogleAuthorization(pendingCall, authorizationResult);
                                     } catch (ApiException error) {
+                                        boolean wasCancelled = error.getStatusCode() == CommonStatusCodes.CANCELED;
+                                        String status = wasCancelled ? "CANCELLED" : "ERROR";
+                                        String detail = "Google authorization returned status "
+                                                + error.getStatusCode()
+                                                + (error.getMessage() != null ? ": " + error.getMessage() : "");
+                                        getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
+                                                .edit().putString("status", status).putString("last_error", detail).apply();
+                                        pendingCall.reject(wasCancelled
+                                                ? "Google authorization screen was closed or cancelled (status " + error.getStatusCode() + "). No local data was changed."
+                                                : "Google authorization failed (status " + error.getStatusCode() + "): " + error.getMessage());
+                                    } catch (Exception error) {
                                         getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
                                                 .edit().putString("status", "ERROR").putString("last_error", error.getMessage()).apply();
-                                        pendingCall.reject("Google authorization failed (" + error.getStatusCode() + "): " + error.getMessage());
+                                        pendingCall.reject("Google authorization returned an unreadable result: " + error.getMessage());
                                     }
                                 }
 
                                 @Override
-                                public void onCancelled() {
+                                public void onLaunchError(String reason) {
                                     PluginCall pendingCall = pendingGoogleAuthorizationCall;
                                     pendingGoogleAuthorizationCall = null;
                                     getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
-                                            .edit().putString("status", "CANCELLED").putString("last_error", "Authorization cancelled by user").apply();
-                                    if (pendingCall != null) pendingCall.reject("Google authorization was cancelled. No local data was changed.");
+                                            .edit().putString("status", "ERROR").putString("last_error", reason).apply();
+                                    if (pendingCall != null) pendingCall.reject(reason);
                                 }
                             }
                     );

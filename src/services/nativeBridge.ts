@@ -65,6 +65,7 @@ export interface DayTraceNativePluginInterface {
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   openNotificationSettings(): Promise<{ success: boolean }>;
   requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
+  getAppIdentity(): Promise<NativeAppIdentity>;
   clearGoogleSheetsAccess(): Promise<{ success: boolean }>;
   revokeGoogleSheetsAccess(): Promise<{ success: boolean; revoked: boolean }>;
 
@@ -112,6 +113,14 @@ export interface NativeNotificationPermissionStatus {
   notificationsEnabled: boolean;
   channelEnabled: boolean;
   canRequest: boolean;
+}
+
+export interface NativeAppIdentity {
+  packageName: string;
+  sha1: string;
+  versionName: string;
+  versionCode: number;
+  buildType: string;
 }
 
 export interface NativeMeetingRecordingState {
@@ -411,6 +420,16 @@ export const requestNativeGoogleSheetsAccess = async (): Promise<string> => {
     throw new Error('Google authorization did not return an access token.');
   }
   return result.accessToken;
+};
+
+export const getNativeAppIdentity = async (): Promise<NativeAppIdentity | null> => {
+  if (!isNativeAndroid()) return null;
+  try {
+    return await DayTraceNative.getAppIdentity();
+  } catch (error) {
+    console.warn('Failed to read installed Android app identity:', error);
+    return null;
+  }
 };
 
 export const clearNativeGoogleSheetsAccess = async (): Promise<void> => {

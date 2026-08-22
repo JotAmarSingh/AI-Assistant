@@ -32,7 +32,13 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'gradle'
+
+      # Official Gradle action caches downloaded dependencies between runs.
+      # Keep this separate from setup-java caching as recommended by Gradle.
+      - name: Configure Gradle dependency cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
 
       - name: Setup Android SDK (API 36)
         uses: android-actions/setup-android@v3
@@ -106,18 +112,18 @@ jobs:
       - name: Report Debug Signing SHA-1 for Google Sheets OAuth
         run: |
           cd android
-          ./gradlew :app:signingReport
+          bash ../scripts/run-gradle-with-retry.sh :app:signingReport --stacktrace
 
       - name: Build Android APK
         run: |
           cd android
           chmod +x ./gradlew
           if [ -n "$DAYTRACE_KEYSTORE_PATH" ]; then
-            ./gradlew clean assembleRelease --stacktrace
+            bash ../scripts/run-gradle-with-retry.sh clean assembleRelease --stacktrace
             cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/DayTrace.apk
           else
             echo "::warning::Stable signing secrets are missing. This debug APK may not update an APK signed by another runner."
-            ./gradlew clean assembleDebug --stacktrace
+            bash ../scripts/run-gradle-with-retry.sh clean assembleDebug --stacktrace
             cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/DayTrace.apk
           fi
 

@@ -24,6 +24,8 @@ The optional development server can use `GEMINI_API_KEY`, but the Android app do
 
 Open `android/` in Android Studio, or run the included GitHub Actions workflow. The workflow installs Android API 36, verifies the Gradle wrapper JAR, runs TypeScript/regression tests, builds the web bundle, syncs Capacitor, and assembles an APK.
 
+The workflow uses the official Gradle Actions dependency cache and a four-attempt bounded backoff wrapper. Temporary Maven Central HTTP 429 responses therefore retry while already-downloaded artifacts remain cached; genuine compile failures still fail after the final attempt.
+
 The project intentionally does not contain a signing key. Configure one stable key for every APK that must update the same installed app:
 
 - `DAYTRACE_KEYSTORE_BASE64`

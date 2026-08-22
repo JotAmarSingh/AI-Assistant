@@ -8,7 +8,11 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
-        classpath 'com.google.gms:google-services:4.4.4'
+        // DayTrace does not require Firebase. Load this plugin only when a real
+        // google-services.json is intentionally supplied for a future build.
+        if (file('app/google-services.json').exists()) {
+            classpath 'com.google.gms:google-services:4.4.4'
+        }
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

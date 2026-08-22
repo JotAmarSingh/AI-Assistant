@@ -2,6 +2,7 @@
 
 ## Fixed
 
+- GitHub Actions now caches Gradle dependencies and retries Maven downloads with bounded backoff when shared runners receive temporary HTTP 429 rate limits.
 - Multiple time triggers in one sentence now create one automation per time block. The reported 12:30 snack, 3–4 lunch, and 4–6 movie sentence produces three separate alarms.
 - Google Sheets on Android now uses native AuthorizationClient state, token retry, cancellation/error status, explicit disconnect/revocation, and non-destructive failures.
 - Notification permission is requested only when prompts are enabled or the test is tapped; a granted test continues automatically, while denied/disabled status routes to Android settings.

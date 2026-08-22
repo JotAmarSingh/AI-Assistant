@@ -10,7 +10,8 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "test:native-accountability": "node --import tsx scripts/test-native-accountability.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:day-history": "node --import tsx scripts/test-daily-history.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

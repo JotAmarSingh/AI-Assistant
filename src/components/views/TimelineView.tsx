@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Clock, Plus, MapPin, CheckCircle2, Play, Coffee, Car, Calendar, Trash2 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TimelineEvent, InterruptionClassification } from '../../types';
+import { toLocalDateKey } from '../../utils/dailyHistory';
 
 export const TimelineView: React.FC = () => {
   const { state, addTimelineEvent, deleteTimelineEvent, currentTimeString } = useDay();
@@ -16,7 +17,9 @@ export const TimelineView: React.FC = () => {
   const [plannedTime, setPlannedTime] = useState('');
   const [varianceMinutes, setVarianceMinutes] = useState<number | undefined>(undefined);
 
-  const sortedTimeline = [...state.timeline].sort((a, b) => a.time.localeCompare(b.time));
+  const sortedTimeline = state.timeline
+    .filter((event) => (event.date || state.date) === state.date)
+    .sort((a, b) => a.time.localeCompare(b.time));
 
   const handleCreateEvent = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +66,7 @@ export const TimelineView: React.FC = () => {
       <div className="p-3 bg-[#111318] border-b border-[#44474E]/30 flex items-center justify-between z-10">
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-[#E2E2E6]">
-            Today's Chronological Stream
+            {state.date === toLocalDateKey() ? "Today's" : state.date} Chronological Stream
           </h3>
           <p className="text-[11px] text-[#C4C6D0]/70">
             {sortedTimeline.length} recorded events for {state.date}
@@ -246,4 +249,3 @@ export const TimelineView: React.FC = () => {
     </div>
   );
 };
-

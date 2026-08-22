@@ -87,6 +87,7 @@ export type AppMode =
 
 export interface TaskItem {
   id: string;
+  date?: string; // YYYY-MM-DD when the task entered DayTrace
   title: string;
   category: TaskCategory;
   owner: TaskOwner;
@@ -164,6 +165,7 @@ export interface TimelineEvent {
 
 export interface FixedEvent {
   id: string;
+  date?: string; // YYYY-MM-DD
   time: string; // e.g. "11:30"
   endTime?: string;
   title: string;
@@ -175,6 +177,7 @@ export interface FixedEvent {
 
 export interface ReminderItem {
   id: string;
+  date?: string; // YYYY-MM-DD
   type: ReminderType;
   triggerCondition: string; // "13:00" or "Arriving Home" or "When IT confirms CRM"
   message: string;

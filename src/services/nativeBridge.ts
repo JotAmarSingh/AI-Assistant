@@ -63,6 +63,7 @@ export interface DayTraceNativePluginInterface {
   requestNotificationPermission(): Promise<{ granted: boolean }>;
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   openNotificationSettings(): Promise<{ success: boolean }>;
+  requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
 
   // Event Listeners
   addListener(
@@ -378,6 +379,18 @@ export const requestNativeNotificationPermission = async (): Promise<boolean> =>
   }
 };
 
+/** Uses Android Google Identity Services instead of loading the browser GIS SDK in a WebView. */
+export const requestNativeGoogleSheetsAccess = async (): Promise<string> => {
+  if (!isNativeAndroid()) {
+    throw new Error('Native Google authorization is only available in the Android app.');
+  }
+  const result = await DayTraceNative.requestGoogleSheetsAccess();
+  if (!result?.accessToken) {
+    throw new Error('Google authorization did not return an access token.');
+  }
+  return result.accessToken;
+};
+
 export const checkNativeNotificationPermission = async (): Promise<NativeNotificationPermissionStatus> => {
   if (!isNativeAndroid()) {
     return { granted: true, status: 'GRANTED', runtimeGranted: true, notificationsEnabled: true, channelEnabled: true, canRequest: false };
@@ -400,5 +413,4 @@ export const openNativeNotificationSettings = async (): Promise<boolean> => {
     return false;
   }
 };
-
 

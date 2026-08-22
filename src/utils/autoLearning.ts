@@ -38,108 +38,12 @@ export interface LearnedQuickOption {
   taskId?: string;
 }
 
-// Initial seed usage statistics so the user starts with realistic intelligence
-const INITIAL_LEARNING_PROFILE: AutoLearningProfile = {
-  totalLearnedInteractions: 18,
+const createEmptyLearningProfile = (): AutoLearningProfile => ({
+  totalLearnedInteractions: 0,
   lastUpdated: new Date().toISOString(),
-  taskUsage: {
-    'Morning content post': {
-      taskId: 'task-1',
-      title: 'Morning content post',
-      category: 'CONTENT',
-      startCount: 8,
-      completeCount: 8,
-      totalInteractions: 16,
-      lastUsedAt: '09:40',
-    },
-    'Job/recruiter correspondence & follow-ups': {
-      taskId: 'task-3',
-      title: 'Job/recruiter correspondence & follow-ups',
-      category: 'CAREER',
-      startCount: 6,
-      completeCount: 3,
-      totalInteractions: 11,
-      lastUsedAt: '09:38',
-    },
-    'Client work proposal revision': {
-      taskId: 'task-4',
-      title: 'Client work proposal revision',
-      category: 'CLIENT',
-      startCount: 5,
-      completeCount: 2,
-      totalInteractions: 8,
-      lastUsedAt: '09:38',
-    },
-    'Prepare and submit final workflow': {
-      taskId: 'task-2',
-      title: 'Prepare and submit final workflow',
-      category: 'OFFICE',
-      startCount: 4,
-      completeCount: 4,
-      totalInteractions: 9,
-      lastUsedAt: '12:30',
-    },
-    'Next content reel script drafting': {
-      taskId: 'task-7',
-      title: 'Next content reel script drafting',
-      category: 'CONTENT',
-      startCount: 3,
-      completeCount: 1,
-      totalInteractions: 5,
-      lastUsedAt: '09:45',
-    },
-  },
-  routineUsage: {
-    'office_arrival': {
-      id: 'office_arrival',
-      label: '📍 Reached office at 9:10',
-      prompt: 'I reached office at 9:10. Logging this now. I have a boss meeting at 11:30.',
-      category: 'TRANSITION',
-      usageCount: 12,
-      lastUsedAt: '09:38',
-    },
-    'lunch_break': {
-      id: 'lunch_break',
-      label: '🍱 Lunch break at 1:00 PM',
-      prompt: 'Went home for lunch at 1:00 PM. Grabbed my water bottle and returned at 1:45 PM.',
-      category: 'ROUTINE',
-      usageCount: 9,
-      lastUsedAt: '13:00',
-    },
-    'workflow_submitted': {
-      id: 'workflow_submitted',
-      label: '✅ Workflow submitted to IT',
-      prompt: 'I submitted the final workflow. Sir will ask IT to put it into CRM. Once IT finishes, I will test it.',
-      category: 'DELEGATION' as any,
-      usageCount: 7,
-      lastUsedAt: '12:30',
-    },
-    'crm_confirmed': {
-      id: 'crm_confirmed',
-      label: '⚡ IT confirmed CRM is live',
-      prompt: 'IT confirmed the CRM workflow is live now.',
-      category: 'TRIGGER',
-      usageCount: 5,
-      lastUsedAt: '12:30',
-    },
-    'quick_idea': {
-      id: 'quick_idea',
-      label: '💡 Idea: AI productivity reel',
-      prompt: 'Idea: Film a short reel on context switching vs deep work.',
-      category: 'ROUTINE',
-      usageCount: 4,
-      lastUsedAt: '10:15',
-    },
-    'office_evening_reminder': {
-      id: 'office_evening_reminder',
-      label: '⏰ Remind after office in evening',
-      prompt: 'Remind me in the evening after office to review today\'s pending tasks and take my gym bag.',
-      category: 'ROUTINE',
-      usageCount: 8,
-      lastUsedAt: '18:30',
-    },
-  },
-};
+  taskUsage: {},
+  routineUsage: {},
+});
 
 export const getLearningProfile = (): AutoLearningProfile => {
   try {
@@ -150,7 +54,7 @@ export const getLearningProfile = (): AutoLearningProfile => {
   } catch (e) {
     console.error('Error loading learning profile', e);
   }
-  return INITIAL_LEARNING_PROFILE;
+  return createEmptyLearningProfile();
 };
 
 export const saveLearningProfile = (profile: AutoLearningProfile) => {
@@ -212,8 +116,9 @@ export const recordRoutineInteraction = (id: string, label: string, prompt: stri
 };
 
 export const resetLearningProfile = () => {
-  saveLearningProfile(INITIAL_LEARNING_PROFILE);
-  return INITIAL_LEARNING_PROFILE;
+  const empty = createEmptyLearningProfile();
+  saveLearningProfile(empty);
+  return empty;
 };
 
 /**
@@ -227,6 +132,13 @@ export const computeAutoLearnedQuickUpdates = (
   state: DailyState,
   profile: AutoLearningProfile
 ): LearnedQuickOption[] => {
+  if (
+    profile.totalLearnedInteractions === 0
+    && Object.keys(profile.taskUsage).length === 0
+    && Object.keys(profile.routineUsage).length === 0
+  ) {
+    return [];
+  }
   const options: LearnedQuickOption[] = [];
   const seenLabels = new Set<string>();
 

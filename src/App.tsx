@@ -34,6 +34,9 @@ const MainScreen: React.FC = () => {
     activeTriggeredAlert,
     dismissTriggeredAlert,
     handleAlertAction,
+    selectedDate,
+    isViewingToday,
+    historicalDateMessage,
   } = useDay();
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -66,7 +69,20 @@ const MainScreen: React.FC = () => {
       <AndroidTopAppBar onNavigateTab={(tab) => setActiveTab(tab)} />
 
       {/* Primary Dynamic Screen View */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      <main
+        className="flex-1 flex flex-col overflow-hidden relative"
+        onClickCapture={(event) => {
+          if (!isViewingToday) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      >
+        {!isViewingToday && (
+          <div className="shrink-0 px-3 py-1.5 bg-[#334867] border-b border-[#D1E1FF]/30 text-[11px] text-[#D1E1FF] text-center font-semibold">
+            Viewing {selectedDate} • read-only history{historicalDateMessage ? ` • ${historicalDateMessage}` : ''}
+          </div>
+        )}
         {renderActiveView()}
       </main>
 

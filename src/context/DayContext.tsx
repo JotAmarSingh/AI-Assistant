@@ -3,6 +3,7 @@ import {
   DailyState, 
   TaskItem, 
   TaskStatus, 
+  TaskCategory,
   TimelineEvent, 
   FixedEvent, 
   ReminderItem, 
@@ -27,15 +28,28 @@ import { classifyUserIntent, executeDayTraceQuery, speakQueryResponse } from '..
 import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, persistNativeSyncQueue, markNativeSyncCompleted, syncNativePeriodicPromptConfig, triggerNativeTestPrompt } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
-import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets } from '../services/googleSheetsSync';
+import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets, fetchBackupForDateFromGoogleSheets } from '../services/googleSheetsSync';
 import { speechService } from '../services/speechRecognition';
 import { DEFAULT_REWARDS, INITIAL_GAMIFICATION_STATE, updateStreak } from '../services/rewardsCatalog';
 import { reconcileNativeAccountabilityEvents, selectNativeSuggestedTasks } from '../utils/nativeAccountability';
+import {
+  createEmptyHistoricalState,
+  createNextDailyState,
+  getDailySnapshot,
+  normalizeDailyStateDates,
+  saveDailySnapshot,
+  toLocalDateKey,
+} from '../utils/dailyHistory';
 
 const STORAGE_KEY = 'daytrace_state_v2';
 
 interface DayContextType {
   state: DailyState;
+  selectedDate: string;
+  isViewingToday: boolean;
+  isLoadingHistoricalDate: boolean;
+  historicalDateMessage: string | null;
+  selectViewDate: (date: string) => Promise<void>;
   automations: Automation[];
   addAutomation: (auto: Omit<Automation, 'id' | 'createdAt'>) => void;
   deleteAutomation: (id: string) => void;
@@ -48,6 +62,7 @@ interface DayContextType {
   setMode: (mode: AppMode) => void;
   isProcessing: boolean;
   processUserInput: (input: string) => Promise<string>;
+  startAccountabilityTask: (task: { id?: string; title: string; category?: string }) => void;
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => void;
   addTask: (task: Omit<TaskItem, 'id' | 'createdAt'>) => void;
   deleteTask: (taskId: string) => void;
@@ -126,7 +141,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return {
+        const hydrated = normalizeDailyStateDates({
           ...createFreshDailyState(),
           ...parsed,
           automations: parsed.automations || [],
@@ -135,7 +150,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...(parsed.gamification || {}),
           },
           geofenceLocations: parsed.geofenceLocations || DEFAULT_GEOFENCE_LOCATIONS,
-        };
+        });
+        const today = toLocalDateKey();
+        if (hydrated.date !== today) {
+          saveDailySnapshot(hydrated);
+          return createNextDailyState(hydrated, today);
+        }
+        return hydrated;
       }
     } catch (e) {
       console.error('Failed to load DayTrace state from localStorage', e);
@@ -143,6 +164,11 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return createFreshDailyState();
   });
   const stateRef = useRef(state);
+
+  const [selectedDate, setSelectedDate] = useState<string>(state.date);
+  const [historicalState, setHistoricalState] = useState<DailyState | null>(null);
+  const [isLoadingHistoricalDate, setIsLoadingHistoricalDate] = useState(false);
+  const [historicalDateMessage, setHistoricalDateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -207,6 +233,91 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const fresh = resetLearningProfile();
     setLearningProfileState(fresh);
   }, []);
+
+  const selectViewDate = useCallback(async (date: string) => {
+    const today = toLocalDateKey();
+    const normalizedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
+    if (normalizedDate === stateRef.current.date || normalizedDate === today) {
+      setSelectedDate(stateRef.current.date);
+      setHistoricalState(null);
+      setHistoricalDateMessage(null);
+      return;
+    }
+
+    setSelectedDate(normalizedDate);
+    setHistoricalDateMessage(null);
+    const localSnapshot = getDailySnapshot(normalizedDate);
+    if (localSnapshot) {
+      setHistoricalState(localSnapshot);
+      return;
+    }
+
+    const spreadsheetId = stateRef.current.userSettings?.googleSpreadsheetId;
+    if (spreadsheetId) {
+      setIsLoadingHistoricalDate(true);
+      try {
+        const cloudSnapshot = await fetchBackupForDateFromGoogleSheets(spreadsheetId, normalizedDate);
+        if (cloudSnapshot?.state) {
+          const normalized = normalizeDailyStateDates({ ...cloudSnapshot.state, date: normalizedDate });
+          saveDailySnapshot(normalized);
+          setHistoricalState(normalized);
+          setHistoricalDateMessage('Loaded from Google Sheets backup');
+          return;
+        }
+      } catch (error: any) {
+        setHistoricalDateMessage(error?.message || 'Could not load this date from Google Sheets');
+      } finally {
+        setIsLoadingHistoricalDate(false);
+      }
+    }
+
+    setHistoricalState(createEmptyHistoricalState(normalizedDate, stateRef.current));
+    setHistoricalDateMessage((current) => current || 'No saved records found for this date');
+  }, []);
+
+  const isViewingToday = selectedDate === state.date;
+  const displayedState = isViewingToday
+    ? state
+    : historicalState || createEmptyHistoricalState(selectedDate, state);
+
+  const rollForwardIfNeeded = useCallback(() => {
+    const today = toLocalDateKey();
+    setState((previous) => {
+      if (previous.date === today) return previous;
+      saveDailySnapshot(previous);
+      const next = createNextDailyState(previous, today);
+      stateRef.current = next;
+      return next;
+    });
+    setSelectedDate(today);
+    setHistoricalState(null);
+    setHistoricalDateMessage(null);
+  }, []);
+
+  useEffect(() => {
+    rollForwardIfNeeded();
+    const timer = window.setInterval(rollForwardIfNeeded, 30_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        setSelectedDate(toLocalDateKey());
+        setHistoricalState(null);
+        setHistoricalDateMessage(null);
+      } else {
+        rollForwardIfNeeded();
+      }
+    };
+    const handlePageHide = () => {
+      setSelectedDate(toLocalDateKey());
+      setHistoricalState(null);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [rollForwardIfNeeded]);
 
   const awardPoints = useCallback((pointsToAdd: number, reason?: string) => {
     setState((prev) => {
@@ -440,6 +551,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ...prev.timeline,
                 {
                   id: `time-${Date.now()}`,
+                  date: prev.date,
                   time: currentHM,
                   type: 'EVENT',
                   description: `Alarm triggered: ${reminder.message}`,
@@ -538,6 +650,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (triggeredAny) {
           newTimeline.push({
             id: `time-${Date.now()}`,
+            date: prev.date,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             type: 'EVENT',
             description: `Triggered location reminder at ${locName}`,
@@ -598,6 +711,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...prevState.timeline,
               {
                 id: `time-${Date.now()}`,
+                date: prevState.date,
                 time: nowStr,
                 type: 'EVENT' as const,
                 description: `🎯 Completed ${minsLogged}m Focus Block on: ${prev.targetTaskTitle}`,
@@ -722,6 +836,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.timeline,
         {
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: nowStr,
           type: 'TASK_COMPLETED' as const,
           description: `Finished: ${targetTitle} (${minsElapsed}m focus)`,
@@ -838,6 +953,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setState((prev) => {
         const newEvents: TimelineEvent[] = autoParse.timelineLogs.map((te, i) => ({
           id: `time-voice-${Date.now()}-${i}`,
+          date: prev.date,
           time: te.time || nowStr,
           type: te.type || 'EVENT',
           description: te.description,
@@ -871,6 +987,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const trigger = parsed.timeHint || nowStr;
       const newReminder: ReminderItem = {
         id: newRemId,
+        date: state.date,
         type: 'TIME_BASED',
         triggerCondition: trigger,
         message: parsed.titleOrText,
@@ -909,6 +1026,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...prev.timeline,
           {
             id: `time-${Date.now()}`,
+            date: prev.date,
             time: nowStr,
             type: 'TASK_COMPLETED' as const,
             description: `Voice Completed: ${matchedTask ? matchedTask.title : parsed.titleOrText}`,
@@ -929,12 +1047,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (parsed.type === 'NEW_TASK') {
       const newTask: TaskItem = {
         id: `task-${Date.now()}`,
+        date: state.date,
         title: parsed.titleOrText,
         category: 'OFFICE',
         owner: 'ME',
         status: 'NEXT',
         priority: 1,
-        createdAt: nowStr,
+        createdAt: new Date().toISOString(),
       };
 
       setState((prev) => ({
@@ -953,6 +1072,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...prev.timeline,
           {
             id: `time-${Date.now()}`,
+            date: prev.date,
             time: nowStr,
             type: 'EVENT' as const,
             description: `🎙️ Voice Note: ${parsed.rawTranscript}`,
@@ -1001,6 +1121,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.timeline,
         {
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: nowStr,
           type: 'EVENT' as const,
           description: `📍 [GEOFENCE] ${previousLocation} ➔ ${locationName} (${arrivalMsg})`,
@@ -1171,6 +1292,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const newEvents: TimelineEvent[] = autoParse.timelineLogs.map((te, i) => ({
           id: `time-log-${Date.now()}-${i}`,
+          date: state.date,
           time: te.time || userTimestamp,
           type: te.type || 'EVENT',
           description: te.description,
@@ -1304,7 +1426,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               recordTaskInteraction(nt.title, newId, 'UPDATE', nt.category || 'OFFICE');
               updatedTasks.push({
                 id: newId,
-                createdAt: userTimestamp,
+                date: prev.date,
+                createdAt: new Date().toISOString(),
                 priority: nt.priority || 6,
                 ...nt,
               });
@@ -1331,6 +1454,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           extractedStateUpdate.newTimelineEvents.forEach((ev: any) => {
             updatedTimeline.push({
               id: `time-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+              date: prev.date,
               time: ev.time || userTimestamp,
               ...ev,
             });
@@ -1344,6 +1468,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (!exists) {
               updatedFixed.push({
                 id: `fix-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                date: prev.date,
                 ...fe,
               });
             }
@@ -1356,7 +1481,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const newRemId = `rem-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
             updatedReminders.push({
               id: newRemId,
-              createdAt: userTimestamp,
+              date: prev.date,
+              createdAt: new Date().toISOString(),
               isDone: false,
               ...rem,
             });
@@ -1444,6 +1570,9 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             completedAt: newStatus === 'DONE' ? now : t.completedAt,
           };
         }
+        if (newStatus === 'ACTIVE' && t.status === 'ACTIVE') {
+          return { ...t, status: 'NEXT' as TaskStatus };
+        }
         return t;
       });
 
@@ -1462,6 +1591,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (newStatus === 'DONE') {
         updatedTimeline.push({
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: now,
           type: 'TASK_COMPLETED',
           description: `Completed: ${targetTask.title}`,
@@ -1471,6 +1601,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else if (newStatus === 'ACTIVE') {
         updatedTimeline.push({
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: now,
           type: 'TASK_STARTED',
           description: `Started: ${targetTask.title}`,
@@ -1484,6 +1615,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         current: {
           ...prev.current,
           focusTaskId: newStatus === 'ACTIVE' ? taskId : prev.current.focusTaskId === taskId ? null : prev.current.focusTaskId,
+          activity: newStatus === 'ACTIVE' ? `Working on: ${targetTask.title}` : prev.current.activity,
+          updatedAt: now,
         },
         tasks: updatedTasks,
         timeline: updatedTimeline,
@@ -1496,17 +1629,93 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshLearningProfile, evaluateEventTriggeredReminders]);
 
   const addTask = useCallback((taskData: Omit<TaskItem, 'id' | 'createdAt'>) => {
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const newTask: TaskItem = {
-      id: `task-${Date.now()}`,
-      createdAt: now,
-      ...taskData,
-    };
     setState((prev) => ({
       ...prev,
-      tasks: [newTask, ...prev.tasks],
+      tasks: [{
+        id: `task-${Date.now()}`,
+        date: prev.date,
+        createdAt: new Date().toISOString(),
+        ...taskData,
+      }, ...prev.tasks],
     }));
   }, []);
+
+  const startAccountabilityTask = useCallback((selection: { id?: string; title: string; category?: string }) => {
+    const cleanTitle = selection.title.trim();
+    if (!cleanTitle) return;
+    const allowedCategories: TaskCategory[] = [
+      'OFFICE', 'CAREER', 'CLIENT', 'CONTENT', 'KHABARZAAR',
+      'HOME', 'FAMILY', 'HEALTH', 'PERSONAL', 'IDEAS',
+    ];
+    const category = allowedCategories.includes(selection.category as TaskCategory)
+      ? selection.category as TaskCategory
+      : 'PERSONAL';
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const knownTask = stateRef.current.tasks.find((task) =>
+      (selection.id && task.id === selection.id)
+      || task.title.trim().toLowerCase() === cleanTitle.toLowerCase()
+    );
+    const taskId = knownTask?.id || selection.id || `task-${Date.now()}`;
+
+    setState((prev) => {
+      const existing = prev.tasks.find((task) =>
+        task.id === taskId
+        || task.title.trim().toLowerCase() === cleanTitle.toLowerCase()
+      );
+      const selectedTask: TaskItem = existing || {
+        id: taskId,
+        date: prev.date,
+        title: cleanTitle,
+        category,
+        owner: 'ME',
+        status: 'ACTIVE',
+        priority: 7,
+        createdAt: now.toISOString(),
+        source: 'ACCOUNTABILITY_PROMPT',
+      };
+      const activity = `Working on: ${selectedTask.title}`;
+      const hasTask = prev.tasks.some((task) => task.id === taskId);
+      const tasks = (hasTask ? prev.tasks : [selectedTask, ...prev.tasks]).map((task) => {
+        if (task.id === taskId) return { ...task, status: 'ACTIVE' as TaskStatus };
+        if (task.status === 'ACTIVE') return { ...task, status: 'NEXT' as TaskStatus };
+        return task;
+      });
+
+      return {
+        ...prev,
+        tasks,
+        current: {
+          ...prev.current,
+          focusTaskId: taskId,
+          activity,
+          updatedAt: nowTime,
+        },
+        timeline: [
+          ...prev.timeline,
+          {
+            id: `prompt-task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            date: prev.date,
+            time: nowTime,
+            type: 'TASK_STARTED',
+            description: activity,
+            relatedTaskId: taskId,
+            location: prev.current.location,
+            source: 'CHECK_IN',
+            syncStatus: 'PENDING',
+            createdAt: now.toISOString(),
+          },
+        ],
+        nativeAccountability: {
+          processedEventIds: prev.nativeAccountability?.processedEventIds || [],
+          lastCompletedAtMillis: now.getTime(),
+        },
+      };
+    });
+
+    recordTaskInteraction(cleanTitle, taskId, 'START', category);
+    refreshLearningProfile();
+  }, [refreshLearningProfile]);
 
   const deleteTask = useCallback((taskId: string) => {
     setState((prev) => ({
@@ -1533,6 +1742,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.timeline,
         {
           id: `time-${Date.now()}`,
+          date: prev.date,
           ...eventData,
         },
       ],
@@ -1553,6 +1763,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.fixedEvents,
         {
           id: `fix-${Date.now()}`,
+          date: prev.date,
           ...eventData,
         },
       ],
@@ -1584,7 +1795,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.reminders,
         {
           id: newId,
-          createdAt: now,
+          date: prev.date,
+          createdAt: new Date().toISOString(),
           isDone: false,
           ...reminderData,
         },
@@ -1646,6 +1858,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.timeline,
         {
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: nowStr,
           type: 'TASK_COMPLETED' as const,
           description: `✓ ${title} — Completed`,
@@ -1686,6 +1899,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...prev.timeline,
         {
           id: `time-${Date.now()}`,
+          date: prev.date,
           time: nowStr,
           type: 'EVENT' as const,
           description: `💤 Snoozed: ${title} (${minutes}m)`,
@@ -1899,6 +2113,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!existingTask) {
           currentTasks.push({
             id: `task-routine-${slot.id}`,
+            date: prev.date,
             title: slot.title,
             category: slot.category,
             owner: 'ME',
@@ -2127,7 +2342,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const loadSampleTemplate = useCallback(() => {
-    setState(SAMPLE_TEMPLATE_STATE);
+    setState(normalizeDailyStateDates({ ...SAMPLE_TEMPLATE_STATE, date: toLocalDateKey() }));
   }, []);
 
   const exportDataJSON = useCallback(() => {
@@ -2162,10 +2377,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed && Array.isArray(parsed.tasks)) {
-        setState({
+        setState(normalizeDailyStateDates({
           ...createFreshDailyState(),
           ...parsed,
-        });
+        }));
         return true;
       }
     } catch (e) {
@@ -2191,7 +2406,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 1. Restore DailyState
       if (snapshot.state) {
-        setState({
+        setState(normalizeDailyStateDates({
           ...createFreshDailyState(),
           ...snapshot.state,
           userSettings: {
@@ -2200,7 +2415,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             googleSpreadsheetId: sheetId,
             googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
           },
-        });
+        }));
       }
 
       // 2. Restore AutoLearning Profile
@@ -2231,7 +2446,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const now = new Date();
       const currentHour = now.getHours();
       const targetHour = settings.nightlySyncHour ?? 2; // 2 AM
-      const todayDateStr = now.toISOString().split('T')[0];
+      const todayDateStr = toLocalDateKey(now);
 
       const lastBackupDate = settings.lastNightlyBackupAt ? settings.lastNightlyBackupAt.split('T')[0] : '';
       if (currentHour === targetHour && lastBackupDate !== todayDateStr) {
@@ -2310,11 +2525,17 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <DayContext.Provider
       value={{
-        state,
+        state: displayedState,
+        selectedDate,
+        isViewingToday,
+        isLoadingHistoricalDate,
+        historicalDateMessage,
+        selectViewDate,
         mode,
         setMode,
         isProcessing,
         processUserInput,
+        startAccountabilityTask,
         updateTaskStatus,
         addTask,
         deleteTask,

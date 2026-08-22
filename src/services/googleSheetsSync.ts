@@ -9,6 +9,7 @@
  */
 import { DailyState, EndOfDayReview, TimelineEvent, TaskItem, ReminderItem } from '../types';
 import { getLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
+import { isNativeAndroid, requestNativeGoogleSheetsAccess } from './nativeBridge';
 
 declare global {
   interface Window {
@@ -44,9 +45,13 @@ export async function loadGsiScript(): Promise<void> {
     return;
   }
   return new Promise((resolve, reject) => {
-    const existingScript = document.getElementById('google-gsi-client');
+    const existingScript = document.getElementById('google-gsi-client') as HTMLScriptElement | null;
     if (existingScript) {
-      existingScript.addEventListener('load', () => resolve());
+      if (existingScript.dataset.loaded === 'true' && window.google?.accounts?.oauth2) {
+        resolve();
+        return;
+      }
+      existingScript.addEventListener('load', () => resolve(), { once: true });
       existingScript.addEventListener('error', (err) => reject(err));
       return;
     }
@@ -55,7 +60,10 @@ export async function loadGsiScript(): Promise<void> {
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
     script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
     document.head.appendChild(script);
   });
@@ -67,6 +75,20 @@ export async function loadGsiScript(): Promise<void> {
 export async function getGoogleAccessToken(forcePrompt = false): Promise<string> {
   if (cachedAccessToken && Date.now() < tokenExpiresAt && !forcePrompt) {
     return cachedAccessToken;
+  }
+
+  if (isNativeAndroid()) {
+    try {
+      cachedAccessToken = await requestNativeGoogleSheetsAccess();
+      tokenExpiresAt = Date.now() + 50 * 60 * 1000;
+      return cachedAccessToken;
+    } catch (error: any) {
+      throw new Error(`Google account authorization failed: ${error?.message || 'unknown Android authorization error'}`);
+    }
+  }
+
+  if (!OAUTH_CLIENT_ID) {
+    throw new Error('Google Sheets web sync is not configured. Set VITE_GOOGLE_CLIENT_ID for the web build.');
   }
 
   await loadGsiScript();
@@ -399,7 +421,7 @@ export async function syncStateToGoogleSheets(
   dailyState.tasks.forEach((t) => {
     const expectedRow = [
       t.id,
-      currentDate,
+      t.date || currentDate,
       t.title,
       t.category,
       t.status,
@@ -454,7 +476,7 @@ export async function syncStateToGoogleSheets(
   dailyState.reminders.forEach((r) => {
     const expectedRow = [
       r.id,
-      currentDate,
+      r.date || currentDate,
       r.type,
       r.triggerCondition,
       r.message,
@@ -691,3 +713,32 @@ export async function fetchLatestBackupFromGoogleSheets(
   return JSON.parse(jsonString) as FullBackupSnapshot;
 }
 
+/** Returns the newest full-state backup for one calendar date. */
+export async function fetchBackupForDateFromGoogleSheets(
+  spreadsheetId: string,
+  date: string
+): Promise<FullBackupSnapshot | null> {
+  const token = await getGoogleAccessToken();
+  const range = "'Full State Backups'!A2:G";
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to retrieve ${date} from Google Sheets (${response.status}): ${detail.slice(0, 180)}`);
+  }
+
+  const data = await response.json();
+  const rows: any[][] = data.values || [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (String(row?.[1] || '') !== date || !row?.[6]) continue;
+    try {
+      return JSON.parse(row[6]) as FullBackupSnapshot;
+    } catch {
+      throw new Error(`The Google Sheets backup for ${date} contains invalid JSON.`);
+    }
+  }
+  return null;
+}

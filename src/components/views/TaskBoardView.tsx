@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, CheckCircle2, Play, PauseCircle, Clock, CornerDownRight, Trash2, User, Lock, Unlock, Timer, BrainCircuit } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TaskStatus, TaskCategory, TaskOwner } from '../../types';
+import { taskIsVisibleOnBoard } from '../../utils/dailyHistory';
 
 export const TaskBoardView: React.FC = () => {
   const { state, updateTaskStatus, addTask, deleteTask, startFocusTimer, setIsFocusModalOpen } = useDay();
@@ -20,14 +21,18 @@ export const TaskBoardView: React.FC = () => {
   const [newTrigger, setNewTrigger] = useState('');
   const [newNotes, setNewNotes] = useState('');
 
+  const dateVisibleTasks = state.tasks.filter((task) =>
+    taskIsVisibleOnBoard(task, state.date, state.date)
+  );
+
   const filterOptions: { status: TaskStatus | 'ALL'; label: string; count: number }[] = [
-    { status: 'ALL', label: 'All', count: state.tasks.length },
-    { status: 'ACTIVE', label: 'Active', count: state.tasks.filter((t) => t.status === 'ACTIVE').length },
-    { status: 'NEXT', label: 'Next', count: state.tasks.filter((t) => t.status === 'NEXT').length },
-    { status: 'WAITING', label: 'Waiting', count: state.tasks.filter((t) => t.status === 'WAITING').length },
-    { status: 'BLOCKED', label: 'Blocked', count: state.tasks.filter((t) => t.status === 'BLOCKED').length },
-    { status: 'CAPTURED', label: 'Ideas', count: state.tasks.filter((t) => t.status === 'CAPTURED').length },
-    { status: 'DONE', label: 'Done', count: state.tasks.filter((t) => t.status === 'DONE').length },
+    { status: 'ALL', label: 'All', count: dateVisibleTasks.length },
+    { status: 'ACTIVE', label: 'Active', count: dateVisibleTasks.filter((t) => t.status === 'ACTIVE').length },
+    { status: 'NEXT', label: 'Next', count: dateVisibleTasks.filter((t) => t.status === 'NEXT').length },
+    { status: 'WAITING', label: 'Waiting', count: dateVisibleTasks.filter((t) => t.status === 'WAITING').length },
+    { status: 'BLOCKED', label: 'Blocked', count: dateVisibleTasks.filter((t) => t.status === 'BLOCKED').length },
+    { status: 'CAPTURED', label: 'Ideas', count: dateVisibleTasks.filter((t) => t.status === 'CAPTURED').length },
+    { status: 'DONE', label: 'Done', count: dateVisibleTasks.filter((t) => t.status === 'DONE').length },
   ];
 
   const categories: TaskCategory[] = [
@@ -45,7 +50,7 @@ export const TaskBoardView: React.FC = () => {
 
   const owners: TaskOwner[] = ['ME', 'IT_TEAM', 'CLIENT', 'BOSS', 'SPOUSE', 'RECRUITER', 'OTHER'];
 
-  const filteredTasks = state.tasks.filter((t) => {
+  const filteredTasks = dateVisibleTasks.filter((t) => {
     const statusMatch = selectedFilter === 'ALL' || t.status === selectedFilter;
     const catMatch = selectedCategory === 'ALL' || t.category === selectedCategory;
     return statusMatch && catMatch;
@@ -440,4 +445,3 @@ export const TaskBoardView: React.FC = () => {
     </div>
   );
 };
-

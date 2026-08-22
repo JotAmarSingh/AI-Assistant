@@ -36,11 +36,17 @@ import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.GeofencingClient;
 import com.google.android.gms.location.GeofencingRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.auth.api.identity.AuthorizationRequest;
+import com.google.android.gms.auth.api.identity.AuthorizationResult;
+import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.common.api.Scope;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -77,6 +83,7 @@ public class DayTraceNativePlugin extends Plugin {
     private SpeechRecognizer speechRecognizer;
     private GeofencingClient geofencingClient;
     private PendingIntent geofencePendingIntent;
+    private PluginCall pendingGoogleAuthorizationCall;
 
     @Override
     public void load() {
@@ -881,6 +888,83 @@ public class DayTraceNativePlugin extends Plugin {
         }
     }
 
+    // ==========================================
+    // 8. NATIVE GOOGLE SHEETS AUTHORIZATION
+    // ==========================================
+
+    @PluginMethod
+    public void requestGoogleSheetsAccess(PluginCall call) {
+        if (!(getActivity() instanceof MainActivity)) {
+            call.reject("DayTrace activity is unavailable for Google authorization");
+            return;
+        }
+        if (pendingGoogleAuthorizationCall != null) {
+            call.reject("A Google authorization request is already in progress");
+            return;
+        }
+
+        List<Scope> requestedScopes = Arrays.asList(
+                new Scope("https://www.googleapis.com/auth/spreadsheets"),
+                new Scope("https://www.googleapis.com/auth/drive.file")
+        );
+        AuthorizationRequest request = AuthorizationRequest.builder()
+                .setRequestedScopes(requestedScopes)
+                .build();
+
+        Identity.getAuthorizationClient(getActivity())
+                .authorize(request)
+                .addOnSuccessListener(result -> {
+                    if (!result.hasResolution()) {
+                        resolveGoogleAuthorization(call, result);
+                        return;
+                    }
+                    pendingGoogleAuthorizationCall = call;
+                    MainActivity activity = (MainActivity) getActivity();
+                    activity.launchGoogleAuthorization(
+                            result.getPendingIntent(),
+                            new MainActivity.GoogleAuthorizationResultCallback() {
+                                @Override
+                                public void onResult(Intent data) {
+                                    PluginCall pendingCall = pendingGoogleAuthorizationCall;
+                                    pendingGoogleAuthorizationCall = null;
+                                    if (pendingCall == null) return;
+                                    try {
+                                        AuthorizationResult authorizationResult = Identity
+                                                .getAuthorizationClient(getActivity())
+                                                .getAuthorizationResultFromIntent(data);
+                                        resolveGoogleAuthorization(pendingCall, authorizationResult);
+                                    } catch (ApiException error) {
+                                        pendingCall.reject("Google authorization failed (" + error.getStatusCode() + "): " + error.getMessage());
+                                    }
+                                }
+
+                                @Override
+                                public void onCancelled() {
+                                    PluginCall pendingCall = pendingGoogleAuthorizationCall;
+                                    pendingGoogleAuthorizationCall = null;
+                                    if (pendingCall != null) pendingCall.reject("Google authorization was cancelled");
+                                }
+                            }
+                    );
+                })
+                .addOnFailureListener(error -> call.reject(
+                        "Google authorization could not start. Verify the Android OAuth client for com.amarsingh.daytrace and its signing SHA-1: "
+                                + error.getMessage()
+                ));
+    }
+
+    private void resolveGoogleAuthorization(PluginCall call, AuthorizationResult result) {
+        String accessToken = result.getAccessToken();
+        if (accessToken == null || accessToken.isEmpty()) {
+            call.reject("Google authorization returned no access token");
+            return;
+        }
+        JSObject response = new JSObject();
+        response.put("accessToken", accessToken);
+        response.put("expiresInSeconds", 3600);
+        call.resolve(response);
+    }
+
     @PluginMethod
     public void getPendingNotificationAction(PluginCall call) {
         JSObject ret = new JSObject();
@@ -901,6 +985,10 @@ public class DayTraceNativePlugin extends Plugin {
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
+        }
+        if (pendingGoogleAuthorizationCall != null) {
+            pendingGoogleAuthorizationCall.reject("Google authorization was interrupted because DayTrace closed");
+            pendingGoogleAuthorizationCall = null;
         }
         super.handleOnDestroy();
     }

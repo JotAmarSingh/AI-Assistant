@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Sparkles, X, Check, Gamepad2, BellOff, Send, Clock, Play, Zap } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { TaskUsageStat } from '../../utils/autoLearning';
 
 interface PeriodicPromptModalProps {
   isOpen: boolean;
@@ -9,14 +10,46 @@ interface PeriodicPromptModalProps {
 }
 
 export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen, onClose }) => {
-  const { state, processUserInput, isProcessing, updateUserSettings, snoozePrompts, currentTimeString, recordPeriodicPromptCompletion } = useDay();
+  const {
+    state,
+    processUserInput,
+    isProcessing,
+    updateUserSettings,
+    snoozePrompts,
+    currentTimeString,
+    recordPeriodicPromptCompletion,
+    learningProfile,
+    startAccountabilityTask,
+  } = useDay();
   const [logText, setLogText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const currentTask = state.tasks.find(t => t.id === state.current.focusTaskId || t.status === 'ACTIVE') ||
-    state.tasks.find(t => t.status === 'NEXT');
+  const suggestions: Array<{ id?: string; title: string; category?: string; learned?: boolean }> = [];
+  const seen = new Set<string>();
+  const addSuggestion = (candidate?: { id?: string; title: string; category?: string; learned?: boolean }) => {
+    if (!candidate?.title || suggestions.length >= 4) return;
+    const key = candidate.id || candidate.title.trim().toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    suggestions.push(candidate);
+  };
+
+  addSuggestion(state.tasks.find((task) => task.id === state.current.focusTaskId));
+  state.tasks.filter((task) => task.status === 'ACTIVE').forEach(addSuggestion);
+  (Object.values(learningProfile.taskUsage) as TaskUsageStat[])
+    .sort((a, b) => b.totalInteractions - a.totalInteractions)
+    .forEach((stat) => addSuggestion({
+      id: stat.taskId,
+      title: stat.title,
+      category: stat.category,
+      learned: true,
+    }));
+  state.tasks
+    .filter((task) => task.status === 'NEXT')
+    .sort((a, b) => b.priority - a.priority)
+    .forEach(addSuggestion);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -24,12 +57,22 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
 
     setIsSubmitting(true);
     try {
-      await processUserInput(logText.trim());
-      recordPeriodicPromptCompletion();
+      startAccountabilityTask({ title: logText.trim() });
       setLogText('');
       onClose();
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleTaskSuggestion = (task: { id?: string; title: string; category?: string }) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      startAccountabilityTask(task);
+      onClose();
     } finally {
       setIsSubmitting(false);
     }
@@ -90,20 +133,24 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
             </p>
           </div>
 
-          {/* Quick Context / Ongoing Task suggestion */}
-          {currentTask && (
-            <div className="p-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <span className="text-[10px] text-[#D1E1FF] font-bold uppercase tracking-wider block">Targeted Task</span>
-                <span className="text-xs font-semibold text-[#E2E2E6] truncate block">{currentTask.title}</span>
+          {/* Stable learned/current task buttons. These bypass the AI parser. */}
+          {suggestions.length > 0 && (
+            <div className="space-y-2">
+              <span className="text-[10px] text-[#D1E1FF] font-bold uppercase tracking-wider">Suggested Tasks</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {suggestions.map((task) => (
+                  <button
+                    key={task.id || task.title}
+                    type="button"
+                    onClick={() => handleTaskSuggestion(task)}
+                    disabled={isSubmitting}
+                    className="p-2.5 rounded-2xl bg-[#111318] border border-[#44474E]/40 hover:border-[#D1E1FF]/50 text-left transition min-w-0"
+                  >
+                    <span className="text-xs font-semibold text-[#E2E2E6] truncate block">{task.title}</span>
+                    <span className="text-[9px] text-[#C4C6D0]">{task.learned ? 'Learned task' : 'Current task'} • tap to start</span>
+                  </button>
+                ))}
               </div>
-              <button
-                type="button"
-                onClick={() => handleQuickLog(`Working on: ${currentTask.title}`)}
-                className="py-1.5 px-3 bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] font-semibold text-xs rounded-xl transition flex items-center space-x-1 shrink-0"
-              >
-                <span>Still On It</span>
-              </button>
             </div>
           )}
 
@@ -146,7 +193,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
                 type="text"
                 value={logText}
                 onChange={(e) => setLogText(e.target.value)}
-                placeholder="e.g., Drafting Q3 report, reviewing emails..."
+                placeholder="Add a new task and start it..."
                 autoFocus
                 disabled={isSubmitting || isProcessing}
                 className="w-full py-3 pl-3.5 pr-11 rounded-2xl bg-[#111318] border border-[#44474E]/50 text-xs text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"

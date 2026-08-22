@@ -32,6 +32,7 @@ import {
 import { useDay } from '../../context/DayContext';
 import { computeAutoLearnedQuickUpdates, LearnedQuickOption, TaskUsageStat } from '../../utils/autoLearning';
 import { speechService } from '../../services/speechRecognition';
+import { taskIsForTodayHub } from '../../utils/dailyHistory';
 
 interface TodayHubViewProps {
   onNavigateToTimetable?: () => void;
@@ -62,6 +63,7 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
   const [speechSupported, setSpeechSupported] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'MOST_USED' | 'ROUTINE' | 'DELEGATION'>('ALL');
   const [showLearningModal, setShowLearningModal] = useState(false);
+  const [showResetLearningConfirm, setShowResetLearningConfirm] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   
   const recognitionRef = useRef<any>(null);
@@ -123,8 +125,11 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
     await processUserInput(textToSend);
   };
 
-  // Compute dynamically learned quick updates
-  const allLearnedUpdates = computeAutoLearnedQuickUpdates(state, learningProfile);
+  const todayTasks = state.tasks.filter((task) => taskIsForTodayHub(task, state.date, state.date));
+  const todayState = { ...state, tasks: todayTasks };
+
+  // Compute dynamically learned quick updates only against the selected day.
+  const allLearnedUpdates = computeAutoLearnedQuickUpdates(todayState, learningProfile);
   
   const filteredLearnedUpdates = allLearnedUpdates.filter((opt) => {
     if (selectedFilter === 'ALL') return true;
@@ -147,11 +152,14 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
   };
 
   // Active focus task and Next Best Action computation
-  const activeTask = state.tasks.find((t) => t.id === state.current.focusTaskId || t.status === 'ACTIVE');
-  const nextAction = state.nextBestAction;
+  const activeTask = todayTasks.find((t) => t.id === state.current.focusTaskId || t.status === 'ACTIVE');
+  const nextAction = state.nextBestAction?.taskId
+    && !todayTasks.some((task) => task.id === state.nextBestAction?.taskId)
+    ? null
+    : state.nextBestAction;
   const nextTargetTask = nextAction?.taskId
-    ? state.tasks.find((t) => t.id === nextAction.taskId)
-    : state.tasks.find((t) => t.status === 'NEXT');
+    ? todayTasks.find((t) => t.id === nextAction.taskId)
+    : todayTasks.find((t) => t.status === 'NEXT');
 
   // Next fixed event calculation
   const nextFixedEvent = state.fixedEvents[0];
@@ -713,6 +721,11 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
                   <span className="text-[10px] text-[#C4C6D0]/70 font-mono">Frequency</span>
                 </div>
                 <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {sortedTaskStats.length === 0 && (
+                    <div className="p-3 text-center text-[11px] text-[#C4C6D0] bg-[#2E3036] rounded-xl border border-[#44474E]/30">
+                      No learned tasks yet. DayTrace will learn from tasks you start and complete.
+                    </div>
+                  )}
                   {sortedTaskStats.slice(0, 5).map((stat) => (
                     <div
                       key={stat.taskId}
@@ -736,11 +749,7 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
             {/* Actions */}
             <div className="pt-2 flex items-center justify-between border-t border-[#44474E]/30">
               <button
-                onClick={() => {
-                  resetLearnedShortcuts();
-                  setFeedbackToast('Learning memory refreshed');
-                  setShowLearningModal(false);
-                }}
+                onClick={() => setShowResetLearningConfirm(true)}
                 className="text-[11px] text-[#C4C6D0] hover:text-[#F87171] flex items-center space-x-1 transition"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -757,8 +766,38 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
           </div>
         </div>
       )}
+
+      {showResetLearningConfirm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-[#1D2026] border border-[#F87171]/40 rounded-[28px] max-w-sm w-full p-5 shadow-2xl space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-[#E2E2E6]">Reset all learned memory?</h3>
+              <p className="text-xs text-[#C4C6D0] mt-1.5 leading-relaxed">
+                This permanently purges learned tasks, routines, frequencies and shortcut history. Your actual tasks and timeline will not be deleted.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowResetLearningConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-[#2E3036] text-[#E2E2E6] text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  resetLearnedShortcuts();
+                  setFeedbackToast('Learning memory purged');
+                  setShowResetLearningConfirm(false);
+                  setShowLearningModal(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-[#F87171] text-[#111318] text-xs font-bold"
+              >
+                Purge Memory
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-

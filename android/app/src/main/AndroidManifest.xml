@@ -4,6 +4,9 @@
     <!-- Permissions required for DayTrace Pixel 10a native capabilities -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -33,6 +36,7 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
 
             <intent-filter>
@@ -85,6 +89,18 @@
         <!-- Periodic Accountability Prompt Inline Reply & Action Receiver -->
         <receiver
             android:name=".PeriodicPromptActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <service
+            android:name=".MeetingRecordingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+        <receiver
+            android:name=".MeetingRecordingActionReceiver"
             android:enabled="true"
             android:exported="false" />
 

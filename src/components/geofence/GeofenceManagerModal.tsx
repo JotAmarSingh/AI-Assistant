@@ -1,22 +1,6 @@
 import React, { useState } from 'react';
-import { 
-  MapPin, 
-  Navigation, 
-  Sparkles, 
-  Check, 
-  X, 
-  ShieldCheck, 
-  Building2, 
-  Home, 
-  Dumbbell, 
-  Radio, 
-  Clock, 
-  Compass, 
-  CheckCircle2, 
-  Zap 
-} from 'lucide-react';
+import { MapPin, Navigation, Pencil, Radio, Trash2, X } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { GeofenceLocation } from '../../types';
 
 interface GeofenceManagerModalProps {
   isOpen: boolean;
@@ -24,169 +8,111 @@ interface GeofenceManagerModalProps {
 }
 
 export const GeofenceManagerModal: React.FC<GeofenceManagerModalProps> = ({ isOpen, onClose }) => {
-  const { state, simulateGeofenceEnter, updateUserSettings } = useDay();
-  const [selectedSimLocation, setSelectedSimLocation] = useState<string>('');
+  const {
+    state,
+    simulateGeofenceEnter,
+    updateUserSettings,
+    saveCurrentLocation,
+    updateSavedLocation,
+    deleteSavedLocation,
+    unignoreLocation,
+  } = useDay();
+  const [newLocationName, setNewLocationName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   if (!isOpen) return null;
 
-  const locations: GeofenceLocation[] = state.geofenceLocations || [
-    {
-      id: 'geo-office',
-      name: 'Office',
-      latitude: 37.7899,
-      longitude: -122.4008,
-      radiusMeters: 250,
-      arrivalMessage: 'Welcome to Office. Reviewing priority tasks for today.',
-      departureMessage: 'Departing Office. Time to wrap up tasks and start evening transition!',
-      targetDepartureTime: '18:30',
-    },
-    {
-      id: 'geo-home',
-      name: 'Home',
-      latitude: 37.7749,
-      longitude: -122.4194,
-      radiusMeters: 200,
-      arrivalMessage: 'Arrived Home. Shift mode to family and recharge.',
-      departureMessage: 'Leaving Home for the day.',
-    },
-    {
-      id: 'geo-gym',
-      name: 'Gym',
-      latitude: 37.7833,
-      longitude: -122.4167,
-      radiusMeters: 150,
-      arrivalMessage: 'Arrived at Gym. Time to power through workout routine!',
-      departureMessage: 'Workout complete. Log hydration and post-workout meal.',
-    },
-  ];
+  const locations = state.geofenceLocations || [];
+  const ignored = state.ignoredLocationClusters || [];
+  const settings = state.userSettings;
 
-  const currentLocation = state.current.location || 'Home';
-
-  const handleSimulate = (locName: string) => {
-    simulateGeofenceEnter(locName);
-  };
-
-  const getLocationIcon = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes('office') || lower.includes('work')) return Building2;
-    if (lower.includes('home')) return Home;
-    if (lower.includes('gym')) return Dumbbell;
-    return MapPin;
+  const handleSaveCurrent = async () => {
+    if (!newLocationName.trim()) return;
+    setIsSaving(true);
+    setMessage(null);
+    try {
+      const result = await saveCurrentLocation(newLocationName);
+      setMessage(result);
+      if (!result.includes('already exists')) setNewLocationName('');
+    } catch (error: any) {
+      setMessage(error?.message || 'Could not read the current location. Check Android location permission.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div 
-        className="bg-[#1D2026] text-[#E2E2E6] border border-[#44474E]/60 rounded-[32px] p-6 max-w-md w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-2 border-b border-[#44474E]/30">
-          <div className="flex items-center space-x-2">
-            <div className="p-2 rounded-2xl bg-[#86EFAC]/10 text-[#86EFAC]">
-              <Radio className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-bold text-base text-[#E2E2E6]">Smart Geofence Automation</h2>
-              <p className="text-[11px] text-[#C4C6D0]/70">Auto-trigger location routines & departure alarms</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-[#C4C6D0] hover:text-[#E2E2E6] p-1">
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[32px] border border-[#44474E] bg-[#1D2026] p-5 text-[#E2E2E6]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[#44474E]/40 pb-3">
+          <div className="flex items-center gap-2"><Radio className="h-5 w-5 text-[#86EFAC]" /><div><h2 className="text-sm font-bold">Smart Locations</h2><p className="text-[10px] text-[#C4C6D0]">Private radius-based context and reminders</p></div></div>
+          <button onClick={onClose} className="p-1 text-[#C4C6D0]"><X className="h-5 w-5" /></button>
         </div>
 
-        {/* Current Active Location Radar Card */}
-        <div className="p-4 rounded-3xl bg-[#111318] border border-[#44474E]/40 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#334867] text-[#D1E1FF] flex items-center justify-center relative">
-              <MapPin className="w-5 h-5" />
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[#86EFAC] rounded-full animate-ping" />
+        <div className="mt-4 space-y-2 rounded-2xl bg-[#111318] p-3">
+          <label className="flex items-center justify-between gap-3 text-xs font-bold">
+            <span>Location reminders</span>
+            <input type="checkbox" checked={!!settings.geofenceEnabled} onChange={(event) => updateUserSettings({ geofenceEnabled: event.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between gap-3 text-xs font-bold">
+            <span><span className="block">Learn new locations</span><span className="text-[10px] font-normal text-[#C4C6D0]">Optional, balanced-power dwell detection</span></span>
+            <input type="checkbox" checked={!!settings.locationLearningEnabled} onChange={(event) => updateUserSettings({ locationLearningEnabled: event.target.checked })} />
+          </label>
+          <label className="block text-[10px] text-[#C4C6D0]">Dwell before asking: {settings.locationDwellMinutes || 10} minutes
+            <input className="mt-1 w-full" type="range" min="5" max="30" step="5" value={settings.locationDwellMinutes || 10} onChange={(event) => updateUserSettings({ locationDwellMinutes: Number(event.target.value) })} />
+          </label>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#D1E1FF]/25 bg-[#111318] p-3">
+          <p className="text-xs font-bold">Add current location</p>
+          <div className="mt-2 flex gap-2">
+            <input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} placeholder="e.g. Grandma’s House" className="min-w-0 flex-1 rounded-xl border border-[#44474E] bg-[#1D2026] px-3 py-2 text-xs outline-none" />
+            <button disabled={!newLocationName.trim() || isSaving} onClick={handleSaveCurrent} className="rounded-xl bg-[#D1E1FF] px-3 text-[#003062] disabled:opacity-40"><Navigation className="h-4 w-4" /></button>
+          </div>
+          {message && <p className="mt-2 text-[10px] text-[#D1E1FF]">{message}</p>}
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#D1E1FF]">Saved places</h3>
+          {locations.length === 0 && <div className="rounded-2xl border border-dashed border-[#44474E] p-5 text-center text-xs text-[#C4C6D0]">No locations saved. DayTrace does not assume Home, Office or Gym.</div>}
+          {locations.map((location) => (
+            <div key={location.id} className="rounded-2xl bg-[#111318] p-3">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-[#D1E1FF]" />
+                {editingId === location.id ? (
+                  <input autoFocus value={editingName} onChange={(event) => setEditingName(event.target.value)} className="min-w-0 flex-1 rounded-lg bg-[#1D2026] px-2 py-1 text-xs" />
+                ) : <span className="min-w-0 flex-1 text-xs font-bold">{location.name}</span>}
+                {editingId === location.id ? (
+                  <button onClick={() => { updateSavedLocation(location.id, { name: editingName.trim() || location.name }); setEditingId(null); }} className="rounded-lg bg-[#334867] px-2 py-1 text-[10px] font-bold">Save</button>
+                ) : (
+                  <button onClick={() => { setEditingId(location.id); setEditingName(location.name); }} className="p-1 text-[#C4C6D0]"><Pencil className="h-3.5 w-3.5" /></button>
+                )}
+                <button onClick={() => deleteSavedLocation(location.id)} className="p-1 text-[#FCA5A5]"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <label className="flex-1 text-[10px] text-[#C4C6D0]">Radius {location.radiusMeters}m
+                  <input className="mt-1 w-full" type="range" min="100" max="500" step="50" value={location.radiusMeters} onChange={(event) => updateSavedLocation(location.id, { radiusMeters: Number(event.target.value) })} />
+                </label>
+                <button onClick={() => simulateGeofenceEnter(location.name)} className="rounded-xl bg-[#334867] px-2.5 py-1.5 text-[10px] font-bold text-[#D1E1FF]">Mark here now</button>
+              </div>
             </div>
-            <div>
-              <span className="text-[10px] text-[#C4C6D0]/70 uppercase tracking-wider font-semibold block">Current Verified Location</span>
-              <span className="text-sm font-bold text-[#E2E2E6]">{currentLocation}</span>
-            </div>
-          </div>
-
-          <span className="text-[10px] text-[#86EFAC] font-mono bg-[#064E3B]/40 px-2.5 py-1 rounded-full border border-[#059669]/40">
-            Active Geofence
-          </span>
+          ))}
         </div>
 
-        {/* 1-Click Simulation Buttons */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider">Simulate Arrival / Departure Routine</span>
-            <span className="text-[10px] text-[#C4C6D0]/60">Triggers automation</span>
+        {ignored.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#D1E1FF]">Ignored areas</h3>
+            {ignored.map((cluster, index) => (
+              <div key={cluster.id} className="flex items-center justify-between rounded-xl bg-[#111318] px-3 py-2 text-[10px] text-[#C4C6D0]">
+                <span>Ignored area {index + 1} • {cluster.radiusMeters}m radius</span>
+                <button onClick={() => unignoreLocation(cluster.id)} className="font-bold text-[#D1E1FF]">Allow prompt again</button>
+              </div>
+            ))}
           </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            {locations.map((loc) => {
-              const Icon = getLocationIcon(loc.name);
-              const isCurrent = currentLocation.toLowerCase() === loc.name.toLowerCase();
-
-              return (
-                <button
-                  key={loc.id}
-                  type="button"
-                  onClick={() => handleSimulate(loc.name)}
-                  className={`p-3 rounded-2xl flex flex-col items-center justify-center space-y-1.5 border transition ${
-                    isCurrent
-                      ? 'bg-[#334867] border-[#D1E1FF] text-[#D1E1FF] shadow-sm'
-                      : 'bg-[#111318] border-[#44474E]/30 text-[#C4C6D0] hover:bg-[#2E3036]'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="text-xs font-bold">{loc.name}</span>
-                  <span className="text-[9px] opacity-70">
-                    {isCurrent ? 'Here Now' : 'Simulate'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Configured Geofence Profiles */}
-        <div className="space-y-2.5 pt-1">
-          <span className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider block">Configured Geofences & Routines</span>
-
-          <div className="space-y-2">
-            {locations.map((loc) => {
-              const Icon = getLocationIcon(loc.name);
-              return (
-                <div
-                  key={loc.id}
-                  className="p-3 rounded-2xl bg-[#111318] border border-[#44474E]/30 space-y-1.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Icon className="w-4 h-4 text-[#D1E1FF]" />
-                      <span className="text-xs font-bold text-[#E2E2E6]">{loc.name} Zone</span>
-                    </div>
-                    <span className="text-[10px] text-[#C4C6D0]/70 font-mono">Radius: {loc.radiusMeters}m</span>
-                  </div>
-
-                  {loc.arrivalMessage && (
-                    <p className="text-[11px] text-[#C4C6D0]/80 pl-6 border-l-2 border-[#D1E1FF]/40">
-                      <strong>Arrival:</strong> {loc.arrivalMessage}
-                    </p>
-                  )}
-
-                  {loc.departureMessage && (
-                    <p className="text-[11px] text-[#C4C6D0]/80 pl-6 border-l-2 border-[#F87171]/40">
-                      <strong>Departure:</strong> {loc.departureMessage}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

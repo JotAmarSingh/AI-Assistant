@@ -1,8 +1,8 @@
 import React from 'react';
-import { Zap, CalendarClock, CheckSquare, Clock, BellRing, BarChart3 } from 'lucide-react';
+import { Zap, CalendarClock, CheckSquare, Clock, BellRing, BarChart3, Mic2 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 
-export type AndroidTab = 'hub' | 'timetable' | 'board' | 'timeline' | 'reminders' | 'review';
+export type AndroidTab = 'hub' | 'timetable' | 'board' | 'timeline' | 'meetings' | 'reminders' | 'review';
 
 interface AndroidNavigationBarProps {
   activeTab: AndroidTab;
@@ -21,6 +21,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
     { id: 'timetable', label: 'Timetable', icon: CalendarClock, badge: activeRoutineCount > 0 ? activeRoutineCount : undefined },
     { id: 'board', label: 'Tasks', icon: CheckSquare, badge: nextTasksCount },
     { id: 'timeline', label: 'Timeline', icon: Clock },
+    { id: 'meetings', label: 'Meetings', icon: Mic2 },
     { id: 'reminders', label: 'Anchors', icon: BellRing, badge: pendingRemindersCount > 0 ? pendingRemindersCount : undefined },
     { id: 'review', label: 'Review', icon: BarChart3 },
   ];
@@ -77,5 +78,4 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
     </nav>
   );
 };
-
 

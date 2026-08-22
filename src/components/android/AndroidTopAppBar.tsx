@@ -12,7 +12,6 @@ import {
   HelpCircle, 
   X, 
   RotateCcw,
-  Sparkle,
   ExternalLink,
   Loader2,
   CheckCircle2,
@@ -46,7 +45,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
     setMode, 
     setCurrentEnergy, 
     resetToFreshStart, 
-    loadSampleTemplate, 
     exportDataJSON, 
     exportDataSheetsCSV, 
     importDataJSON,
@@ -83,7 +81,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
   const [restoreStatus, setRestoreStatus] = useState<{ success?: boolean; message?: string } | null>(null);
 
   const settings = state.userSettings || {};
-  const gamification = state.gamification || { points: 120, currentStreakDays: 1 };
+  const gamification = state.gamification || { points: 0, currentStreakDays: 0 };
 
   const handleTriggerSync = async () => {
     setSyncFeedback(null);
@@ -195,7 +193,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
           </div>
         </div>
 
-        {/* Right: Quick Action Tools (Rewards Pill, Voice, Pomodoro, Sheets, Reset) */}
+        {/* Right: Quick Action Tools (Rewards, Meeting Mode, Pomodoro, Sheets, Reset) */}
         <div className="flex items-center space-x-1">
           {/* Rewards & Streak Pill */}
           <button
@@ -208,12 +206,12 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             <span className="text-[11px] font-bold font-mono text-[#FBBF24]">{gamification.points}</span>
           </button>
 
-          {/* Voice Memo Quick Record Button */}
+          {/* Meeting Mode foreground recorder */}
           <button
             id="voice-capture-top-btn"
             onClick={() => setIsVoiceModalOpen(true)}
             className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] transition shadow-xs"
-            title="Hands-Free Voice Memo Capture"
+            title="Start Meeting Mode recording"
           >
             <Mic className="w-3.5 h-3.5 text-[#D1E1FF]" />
           </button>
@@ -268,12 +266,12 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             <CalendarDays className="w-3.5 h-3.5" />
           </button>
 
-          {/* Reset / Sample Menu */}
+          {/* Destructive reset */}
           <button
             id="reset-day-btn"
             onClick={() => setShowResetConfirmModal(true)}
             className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#F87171]/20 hover:text-[#F87171] text-[#C4C6D0] transition shadow-xs"
-            title="Reset Day / Load Sample"
+            title="Delete DayTrace data and start fresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -414,7 +412,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
         </div>
       )}
 
-      {/* Reset & Template Management Modal */}
+      {/* Destructive fresh-start confirmation */}
       {showResetConfirmModal && (
         <div 
           className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
@@ -428,9 +426,9 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
               <RotateCcw className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-[#E2E2E6]">DayTrace State Options</h3>
+              <h3 className="font-bold text-sm text-[#E2E2E6]">Delete all DayTrace data?</h3>
               <p className="text-xs text-[#C4C6D0] mt-1">
-                Choose to start with a completely empty slate or load the demonstration template.
+                This permanently removes tasks, timeline history, meetings, learned context, locations and settings from this device. Export a backup first if needed.
               </p>
             </div>
 
@@ -442,18 +440,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
                 }}
                 className="w-full py-2.5 px-4 rounded-2xl bg-[#F87171]/20 hover:bg-[#F87171]/30 text-[#FCA5A5] text-xs font-bold transition border border-[#F87171]/30"
               >
-                Clear to Fresh Start (0 Tasks)
-              </button>
-
-              <button
-                onClick={() => {
-                  loadSampleTemplate();
-                  setShowResetConfirmModal(false);
-                }}
-                className="w-full py-2.5 px-4 rounded-2xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-xs font-bold transition border border-[#D1E1FF]/30 flex items-center justify-center space-x-1.5"
-              >
-                <Sparkle className="w-3.5 h-3.5" />
-                <span>Load Demonstration Template</span>
+                Delete All Data & Start Fresh
               </button>
 
               <button

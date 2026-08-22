@@ -12,7 +12,7 @@ export const TimelineView: React.FC = () => {
   const [eventTime, setEventTime] = useState(currentTimeString);
   const [eventType, setEventType] = useState<TimelineEvent['type']>('EVENT');
   const [eventDesc, setEventDesc] = useState('');
-  const [eventLocation, setEventLocation] = useState(state.current.location || 'Office');
+  const [eventLocation, setEventLocation] = useState(state.current.location || 'Unknown');
   const [classification, setClassification] = useState<InterruptionClassification | undefined>(undefined);
   const [plannedTime, setPlannedTime] = useState('');
   const [varianceMinutes, setVarianceMinutes] = useState<number | undefined>(undefined);

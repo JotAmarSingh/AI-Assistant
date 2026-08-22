@@ -5,12 +5,19 @@
  */
 
 import { DayTraceNative, isNativeAndroid } from './nativeBridge';
-import { GeofenceLocation } from '../types';
+import { GeofenceLocation, IgnoredLocationCluster } from '../types';
 import { PluginListenerHandle } from '@capacitor/core';
 
 export interface GeoCoordinate {
   latitude: number;
   longitude: number;
+}
+
+export interface LocationLearningOptions {
+  enabled: boolean;
+  dwellMinutes: number;
+  ignoredClusters: IgnoredLocationCluster[];
+  onNewLocationDwell: (coords: GeoCoordinate) => void;
 }
 
 /**
@@ -35,12 +42,16 @@ export class LocationService {
   private watchId: number | null = null;
   private onLocationChangeCallback?: (locationName: string, coords?: GeoCoordinate) => void;
   private nativeGeofenceHandle: PluginListenerHandle | null = null;
+  private dwellCandidate: { coords: GeoCoordinate; firstSeenAt: number; prompted: boolean } | null = null;
+  private learningOptions?: LocationLearningOptions;
 
   public async startWatching(
     onLocationChange: (locationName: string, coords?: GeoCoordinate) => void,
-    userLocations?: GeofenceLocation[]
+    userLocations?: GeofenceLocation[],
+    learningOptions?: LocationLearningOptions,
   ) {
     this.onLocationChangeCallback = onLocationChange;
+    this.learningOptions = learningOptions;
 
     // 1. PRIMARY: Register native geofences with Android Play Services
     if (isNativeAndroid() && userLocations && userLocations.length > 0) {
@@ -106,17 +117,38 @@ export class LocationService {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
+    this.dwellCandidate = null;
   }
 
   private evaluateProximity(currentCoords: GeoCoordinate, locations?: GeofenceLocation[]) {
-    if (!locations || locations.length === 0) return;
-
-    for (const loc of locations) {
+    for (const loc of locations || []) {
       const distance = calculateDistanceMeters(currentCoords, { latitude: loc.latitude, longitude: loc.longitude });
       if (distance <= (loc.radiusMeters || 200)) {
+        this.dwellCandidate = null;
         this.onLocationChangeCallback?.(loc.name, currentCoords);
         return;
       }
+    }
+
+    const learning = this.learningOptions;
+    if (!learning?.enabled) return;
+    const isIgnored = learning.ignoredClusters.some((cluster) =>
+      calculateDistanceMeters(currentCoords, cluster) <= (cluster.radiusMeters || 200),
+    );
+    if (isIgnored) {
+      this.dwellCandidate = null;
+      return;
+    }
+
+    const now = Date.now();
+    if (!this.dwellCandidate || calculateDistanceMeters(currentCoords, this.dwellCandidate.coords) > 100) {
+      this.dwellCandidate = { coords: currentCoords, firstSeenAt: now, prompted: false };
+      return;
+    }
+    const requiredMillis = Math.max(5, learning.dwellMinutes || 10) * 60_000;
+    if (!this.dwellCandidate.prompted && now - this.dwellCandidate.firstSeenAt >= requiredMillis) {
+      this.dwellCandidate.prompted = true;
+      learning.onNewLocationDwell(currentCoords);
     }
   }
 }

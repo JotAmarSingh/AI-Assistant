@@ -11,7 +11,11 @@
     "clean": "rm -rf dist server.js",
     "test:native-accountability": "node --import tsx scripts/test-native-accountability.ts",
     "lint": "tsc --noEmit",
-    "test:day-history": "node --import tsx scripts/test-daily-history.ts"
+    "test:day-history": "node --import tsx scripts/test-daily-history.ts",
+    "test:state-migrations": "node --import tsx scripts/test-state-migrations.ts",
+    "test:multi-triggers": "node --import tsx scripts/test-multi-trigger-parser.ts",
+    "test:meetings": "node --import tsx scripts/test-meeting-processor.ts",
+    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

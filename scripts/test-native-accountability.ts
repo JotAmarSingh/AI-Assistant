@@ -79,4 +79,26 @@ const openResult = reconcileNativeAccountabilityEvents(snoozeResult.state, [{
 assert.equal(openResult.shouldOpenPrompt, true);
 assert.deepEqual(openResult.acknowledgedEventIds, ['native-open-1']);
 
+const meetingEvent = {
+  nativeEventId: 'native-meeting-1',
+  actionType: 'MEETING_STOPPED',
+  meetingId: 'meeting-1',
+  meetingTitle: 'Party planning',
+  meetingStatus: 'STOPPED',
+  startedAtMillis: 1_777_005_000_000,
+  endedAtMillis: 1_777_005_600_000,
+  durationSeconds: 600,
+  audioPath: '/private/daytrace/meetings/meeting-1.m4a',
+  time: '11:00',
+  date: '2026-08-21',
+  source: 'CHECK_IN',
+};
+const meetingResult = reconcileNativeAccountabilityEvents(openResult.state, [meetingEvent]);
+assert.equal(meetingResult.state.meetings.length, 1);
+assert.equal(meetingResult.state.meetings[0].status, 'NEEDS_TRANSCRIPT');
+assert.equal(meetingResult.state.timeline.filter((item) => item.id === meetingEvent.nativeEventId).length, 1);
+const duplicateMeeting = reconcileNativeAccountabilityEvents(meetingResult.state, [meetingEvent]);
+assert.equal(duplicateMeeting.state.meetings.length, 1, 'Meeting replay must not duplicate the meeting');
+assert.equal(duplicateMeeting.state.timeline.filter((item) => item.id === meetingEvent.nativeEventId).length, 1, 'Meeting replay must not duplicate the timeline row');
+
 console.log('Native accountability reconciliation tests passed.');

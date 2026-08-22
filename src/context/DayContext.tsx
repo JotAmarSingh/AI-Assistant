@@ -18,17 +18,20 @@ import {
   RewardItem,
   RewardTier,
   ClaimedRewardHistory,
-  GeofenceLocation
+  GeofenceLocation,
+  IgnoredLocationCluster,
+  MeetingRecord,
+  TaskCategoryDefinition
 } from '../types';
-import { createFreshDailyState, SAMPLE_TEMPLATE_STATE, INITIAL_DAILY_STATE, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
+import { createFreshDailyState, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
 import { parseVoiceAutomations } from '../utils/localAutomationParser';
-import { classifyUserIntent, executeDayTraceQuery, speakQueryResponse } from '../utils/intentClassifier';
-import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, persistNativeSyncQueue, markNativeSyncCompleted, syncNativePeriodicPromptConfig, triggerNativeTestPrompt } from '../services/nativeBridge';
+import { classifyUserIntent, executeDayTraceQuery, extractSaveCurrentLocationIntent, speakQueryResponse } from '../utils/intentClassifier';
+import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, persistNativeSyncQueue, markNativeSyncCompleted, syncNativePeriodicPromptConfig, triggerNativeTestPrompt, getCurrentCoordinates, checkNativeNotificationPermission, requestNativeNotificationPermission, deleteNativeMeetingAudio } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
-import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets, fetchBackupForDateFromGoogleSheets } from '../services/googleSheetsSync';
+import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets, fetchBackupForDateFromGoogleSheets, disconnectGoogle } from '../services/googleSheetsSync';
 import { speechService } from '../services/speechRecognition';
 import { DEFAULT_REWARDS, INITIAL_GAMIFICATION_STATE, updateStreak } from '../services/rewardsCatalog';
 import { reconcileNativeAccountabilityEvents, selectNativeSuggestedTasks } from '../utils/nativeAccountability';
@@ -40,6 +43,22 @@ import {
   saveDailySnapshot,
   toLocalDateKey,
 } from '../utils/dailyHistory';
+import { migrateDailyState } from '../utils/stateMigrations';
+
+export interface DestructiveConfirmationRequest {
+  id: string;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}
+
+export interface LocationNameConflict {
+  label: string;
+  latitude: number;
+  longitude: number;
+  existing: GeofenceLocation;
+}
 
 const STORAGE_KEY = 'daytrace_state_v2';
 
@@ -91,6 +110,7 @@ interface DayContextType {
   recordPeriodicPromptCompletion: () => void;
   triggerNativePromptTest: (delaySeconds?: number) => Promise<{ scheduled: boolean; delaySeconds: number }>;
   syncToGoogleSheets: () => Promise<{ success: boolean; url?: string; error?: string }>;
+  disconnectGoogleSheets: () => void;
   isSyncingSheets: boolean;
   restoreFromGoogleSheetsBackup: (spreadsheetId?: string) => Promise<{ success: boolean; message?: string }>;
   isRestoringBackup: boolean;
@@ -121,7 +141,6 @@ interface DayContextType {
   setIsGeofenceModalOpen: (open: boolean) => void;
   resetToDefault: () => void;
   resetToFreshStart: () => void;
-  loadSampleTemplate: () => void;
   exportDataJSON: () => string;
   exportDataSheetsCSV: () => { [tab: string]: string };
   importDataJSON: (jsonStr: string) => boolean;
@@ -129,6 +148,30 @@ interface DayContextType {
   learningProfile: AutoLearningProfile;
   recordCustomRoutine: (id: string, label: string, prompt: string) => void;
   resetLearnedShortcuts: () => void;
+  taskCategories: TaskCategoryDefinition[];
+  createTaskCategory: (label: string, color: string, icon: string) => void;
+  updateTaskCategory: (id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => void;
+  deleteTaskCategory: (id: string, reassignToId: string) => void;
+  saveCurrentLocation: (label: string, duplicateMode?: 'UPDATE' | 'CREATE') => Promise<string>;
+  saveLearnedLocation: (label: string) => string;
+  updateSavedLocation: (id: string, updates: Partial<GeofenceLocation>) => void;
+  deleteSavedLocation: (id: string) => void;
+  unignoreLocation: (id: string) => void;
+  ignoreLocationCluster: (cluster: Omit<IgnoredLocationCluster, 'id' | 'ignoredAt'>) => void;
+  pendingLocationLearning: { latitude: number; longitude: number } | null;
+  dismissLocationLearning: (ignore: boolean) => void;
+  locationNameConflict: LocationNameConflict | null;
+  resolveLocationNameConflict: (choice: 'UPDATE' | 'CREATE' | 'CANCEL') => void;
+  meetings: MeetingRecord[];
+  addMeeting: (meeting: MeetingRecord) => void;
+  updateMeeting: (id: string, updates: Partial<MeetingRecord>) => void;
+  deleteMeeting: (id: string, mode?: 'AUDIO' | 'TRANSCRIPT' | 'ENTIRE') => void;
+  destructiveConfirmation: DestructiveConfirmationRequest | null;
+  requestDestructiveConfirmation: (request: Omit<DestructiveConfirmationRequest, 'id'>) => void;
+  confirmDestructiveAction: () => void;
+  cancelDestructiveAction: () => void;
+  undoAction: { label: string; action: () => void } | null;
+  performUndo: () => void;
   notificationToast: string | null;
   dismissToast: () => void;
 }
@@ -141,7 +184,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        const hydrated = normalizeDailyStateDates({
+        const hydrated = migrateDailyState({
           ...createFreshDailyState(),
           ...parsed,
           automations: parsed.automations || [],
@@ -149,8 +192,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...INITIAL_GAMIFICATION_STATE,
             ...(parsed.gamification || {}),
           },
-          geofenceLocations: parsed.geofenceLocations || DEFAULT_GEOFENCE_LOCATIONS,
-        });
+          geofenceLocations: parsed.geofenceLocations || [],
+        }).state;
         const today = toLocalDateKey();
         if (hydrated.date !== today) {
           saveDailySnapshot(hydrated);
@@ -179,6 +222,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentTimeString, setCurrentTimeString] = useState<string>('09:45');
   const [learningProfile, setLearningProfileState] = useState<AutoLearningProfile>(() => getLearningProfile());
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
+  const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmationRequest | null>(null);
+  const [undoAction, setUndoAction] = useState<{ label: string; action: () => void } | null>(null);
+  const [pendingLocationLearning, setPendingLocationLearning] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationNameConflict, setLocationNameConflict] = useState<LocationNameConflict | null>(null);
   const [isPeriodicPromptOpen, setIsPeriodicPromptOpen] = useState<boolean>(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
 
@@ -220,6 +267,33 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const dismissToast = useCallback(() => setNotificationToast(null), []);
 
+  const requestDestructiveConfirmation = useCallback((request: Omit<DestructiveConfirmationRequest, 'id'>) => {
+    setDestructiveConfirmation({ ...request, id: `destructive-${Date.now()}` });
+  }, []);
+
+  const cancelDestructiveAction = useCallback(() => setDestructiveConfirmation(null), []);
+
+  const confirmDestructiveAction = useCallback(() => {
+    setDestructiveConfirmation((pending) => {
+      if (pending) pending.onConfirm();
+      return null;
+    });
+  }, []);
+
+  const offerUndo = useCallback((label: string, action: () => void) => {
+    setUndoAction({ label, action });
+    setNotificationToast(`Deleted ${label}.`);
+    window.setTimeout(() => setUndoAction((current) => current?.action === action ? null : current), 7000);
+  }, []);
+
+  const performUndo = useCallback(() => {
+    setUndoAction((current) => {
+      current?.action();
+      if (current) setNotificationToast(`Restored ${current.label}`);
+      return null;
+    });
+  }, []);
+
   const refreshLearningProfile = useCallback(() => {
     setLearningProfileState(getLearningProfile());
   }, []);
@@ -232,6 +306,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const resetLearnedShortcuts = useCallback(() => {
     const fresh = resetLearningProfile();
     setLearningProfileState(fresh);
+    setState((prev) => ({ ...prev, nextBestAction: null }));
+    setNotificationToast('Learning memory purged. Suggestions will rebuild only from future activity.');
   }, []);
 
   const selectViewDate = useCallback(async (date: string) => {
@@ -391,6 +467,15 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const updateUserSettings = useCallback((updates: Partial<UserSettings>) => {
+    if (updates.periodicPromptEnabled === true && !stateRef.current.userSettings.periodicPromptEnabled && isNativeAndroid()) {
+      void (async () => {
+        const before = await checkNativeNotificationPermission();
+        const granted = before.granted || await requestNativeNotificationPermission();
+        if (!granted) {
+          setNotificationToast('Notifications are blocked. Use Retry or Android settings to allow lock-screen prompts.');
+        }
+      })();
+    }
     setState((prev) => ({
       ...prev,
       userSettings: {
@@ -500,6 +585,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setState(result.state);
     }
     if (result.shouldOpenPrompt) setIsPeriodicPromptOpen(true);
+    if (result.shouldOpenMeetings) window.dispatchEvent(new Event('daytrace-open-meetings'));
     await acknowledgeNativeEvents(result.acknowledgedEventIds);
   }, []);
 
@@ -629,7 +715,12 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Continuous Geofencing and Location Monitoring
   useEffect(() => {
-    const locations = state.geofenceLocations || DEFAULT_GEOFENCE_LOCATIONS;
+    const settings = state.userSettings || DEFAULT_USER_SETTINGS;
+    if (!settings.geofenceEnabled && !settings.locationLearningEnabled) {
+      locationService.stopWatching();
+      return;
+    }
+    const locations = state.geofenceLocations || [];
     locationService.startWatching((locName) => {
       setState((prev) => {
         if (prev.current.location === locName) return prev;
@@ -669,12 +760,17 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           timeline: newTimeline,
         };
       });
-    }, locations);
+    }, locations, {
+      enabled: !!settings.locationLearningEnabled,
+      dwellMinutes: settings.locationDwellMinutes || 10,
+      ignoredClusters: state.ignoredLocationClusters || [],
+      onNewLocationDwell: (coords) => setPendingLocationLearning(coords),
+    });
 
     return () => {
       locationService.stopWatching();
     };
-  }, [state.geofenceLocations]);
+  }, [state.geofenceLocations, state.ignoredLocationClusters, state.userSettings?.geofenceEnabled, state.userSettings?.locationLearningEnabled, state.userSettings?.locationDwellMinutes]);
 
   // Deep Work & Pomodoro Focus Timer Ticker
   useEffect(() => {
@@ -1198,6 +1294,26 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       // 0. TOP PRIORITY: Intent Router & Question Classifier (ZERO SIDE EFFECTS FOR QUERIES)
       const classified = classifyUserIntent(userInput, state, lastQueryContextRef.current);
+      if (classified.type === 'SAVE_CURRENT_LOCATION') {
+        const locationIntent = extractSaveCurrentLocationIntent(userInput);
+        const answerText = locationIntent
+          ? await saveCurrentLocation(locationIntent.label)
+          : 'Tell me what name to use for this location.';
+        setState((prev) => ({
+          ...prev,
+          conversationHistory: [
+            ...prev.conversationHistory,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'ai',
+              text: answerText,
+              timestamp: userTimestamp,
+            },
+          ],
+        }));
+        setNotificationToast(answerText);
+        return answerText;
+      }
       if (classified.type === 'QUERY' || classified.isQuestion) {
         if (classified.queryDetails?.targetLocation || classified.queryDetails?.triggerType) {
           lastQueryContextRef.current = {
@@ -1718,15 +1834,25 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshLearningProfile]);
 
   const deleteTask = useCallback((taskId: string) => {
-    setState((prev) => ({
-      ...prev,
-      tasks: prev.tasks.filter((t) => t.id !== taskId),
-      current: {
-        ...prev.current,
-        focusTaskId: prev.current.focusTaskId === taskId ? null : prev.current.focusTaskId,
+    const task = stateRef.current.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    requestDestructiveConfirmation({
+      title: `Delete “${task.title}”?`,
+      description: 'The task will be removed from the board. Its existing timeline history will remain.',
+      confirmLabel: 'Delete task',
+      onConfirm: () => {
+        setState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.filter((item) => item.id !== taskId),
+          current: {
+            ...prev.current,
+            focusTaskId: prev.current.focusTaskId === taskId ? null : prev.current.focusTaskId,
+          },
+        }));
+        offerUndo(`“${task.title}”`, () => setState((prev) => ({ ...prev, tasks: [...prev.tasks, task] })));
       },
-    }));
-  }, []);
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   const editTask = useCallback((taskId: string, updates: Partial<TaskItem>) => {
     setState((prev) => ({
@@ -1750,11 +1876,18 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const deleteTimelineEvent = useCallback((eventId: string) => {
-    setState((prev) => ({
-      ...prev,
-      timeline: prev.timeline.filter((e) => e.id !== eventId),
-    }));
-  }, []);
+    const event = stateRef.current.timeline.find((item) => item.id === eventId);
+    if (!event) return;
+    requestDestructiveConfirmation({
+      title: 'Delete this timeline entry?',
+      description: `“${event.description}” will be removed from DayTrace history.`,
+      confirmLabel: 'Delete entry',
+      onConfirm: () => {
+        setState((prev) => ({ ...prev, timeline: prev.timeline.filter((item) => item.id !== eventId) }));
+        offerUndo('timeline entry', () => setState((prev) => ({ ...prev, timeline: [...prev.timeline, event] })));
+      },
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   const addFixedEvent = useCallback((eventData: Omit<FixedEvent, 'id'>) => {
     setState((prev) => ({
@@ -1771,11 +1904,18 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const deleteFixedEvent = useCallback((eventId: string) => {
-    setState((prev) => ({
-      ...prev,
-      fixedEvents: prev.fixedEvents.filter((e) => e.id !== eventId),
-    }));
-  }, []);
+    const event = stateRef.current.fixedEvents.find((item) => item.id === eventId);
+    if (!event) return;
+    requestDestructiveConfirmation({
+      title: `Delete “${event.title}”?`,
+      description: 'This fixed event will be removed from the selected day.',
+      confirmLabel: 'Delete event',
+      onConfirm: () => {
+        setState((prev) => ({ ...prev, fixedEvents: prev.fixedEvents.filter((item) => item.id !== eventId) }));
+        offerUndo(`“${event.title}”`, () => setState((prev) => ({ ...prev, fixedEvents: [...prev.fixedEvents, event] })));
+      },
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   const toggleReminder = useCallback((reminderId: string) => {
     setState((prev) => ({
@@ -1809,12 +1949,19 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const deleteReminder = useCallback((reminderId: string) => {
-    cancelNativeReminder(reminderId);
-    setState((prev) => ({
-      ...prev,
-      reminders: prev.reminders.filter((r) => r.id !== reminderId),
-    }));
-  }, []);
+    const reminder = stateRef.current.reminders.find((item) => item.id === reminderId);
+    if (!reminder) return;
+    requestDestructiveConfirmation({
+      title: `Delete “${reminder.message}”?`,
+      description: 'The reminder and its scheduled Android alarm will be removed.',
+      confirmLabel: 'Delete reminder',
+      onConfirm: () => {
+        cancelNativeReminder(reminderId);
+        setState((prev) => ({ ...prev, reminders: prev.reminders.filter((item) => item.id !== reminderId) }));
+        offerUndo(`“${reminder.message}”`, () => setState((prev) => ({ ...prev, reminders: [...prev.reminders, reminder] })));
+      },
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   // Automations CRUD & Actions
   const addAutomation = useCallback((autoData: Omit<Automation, 'id' | 'createdAt'>) => {
@@ -1837,12 +1984,19 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const deleteAutomation = useCallback((id: string) => {
-    cancelNativeReminder(id);
-    setState((prev) => ({
-      ...prev,
-      automations: (prev.automations || []).filter((a) => a.id !== id),
-    }));
-  }, []);
+    const automation = (stateRef.current.automations || []).find((item) => item.id === id);
+    if (!automation) return;
+    requestDestructiveConfirmation({
+      title: `Delete “${automation.title}”?`,
+      description: 'This automation and its scheduled alarm will be removed.',
+      confirmLabel: 'Delete automation',
+      onConfirm: () => {
+        cancelNativeReminder(id);
+        setState((prev) => ({ ...prev, automations: (prev.automations || []).filter((item) => item.id !== id) }));
+        offerUndo(`“${automation.title}”`, () => setState((prev) => ({ ...prev, automations: [...(prev.automations || []), automation] })));
+      },
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   const markAutomationComplete = useCallback((id: string) => {
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -2038,6 +2192,9 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           } else if (action === 'OPEN_PERIODIC_PROMPT' || action === 'ACCOUNTABILITY_EVENT') {
             window.dispatchEvent(new Event('daytrace-native-reconcile'));
+          } else if (action === 'OPEN_MEETINGS') {
+            window.dispatchEvent(new Event('daytrace-native-reconcile'));
+            window.dispatchEvent(new Event('daytrace-open-meetings'));
           }
         });
       } catch (err) {
@@ -2075,11 +2232,18 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const deleteTimetableSlot = useCallback((id: string) => {
-    setState((prev) => ({
-      ...prev,
-      timetable: (prev.timetable || []).filter((s) => s.id !== id),
-    }));
-  }, []);
+    const slot = (stateRef.current.timetable || []).find((item) => item.id === id);
+    if (!slot) return;
+    requestDestructiveConfirmation({
+      title: `Delete “${slot.title}”?`,
+      description: 'This routine slot will be removed. Tasks already created from it will remain.',
+      confirmLabel: 'Delete routine',
+      onConfirm: () => {
+        setState((prev) => ({ ...prev, timetable: (prev.timetable || []).filter((item) => item.id !== id) }));
+        offerUndo(`“${slot.title}”`, () => setState((prev) => ({ ...prev, timetable: [...(prev.timetable || []), slot] })));
+      },
+    });
+  }, [offerUndo, requestDestructiveConfirmation]);
 
   const toggleSlotStatus = useCallback((id: string, status: RoutineSlotStatus) => {
     setState((prev) => {
@@ -2293,17 +2457,32 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
       ];
     } else {
-      presetSlots = SAMPLE_TEMPLATE_STATE.timetable.map(({ id, ...rest }) => rest);
+      presetSlots = [
+        { title: 'Morning planning', category: 'PERSONAL', startTime: '08:30', endTime: '09:00', durationMinutes: 30, days: 'DAILY', status: 'PENDING', isRegularHabit: true, iconKey: 'default' },
+        { title: 'Priority work block', category: 'OFFICE', startTime: '09:00', endTime: '12:00', durationMinutes: 180, days: 'WEEKDAYS', status: 'PENDING', isRegularHabit: true, iconKey: 'work' },
+        { title: 'End-of-day review', category: 'PERSONAL', startTime: '18:00', endTime: '18:20', durationMinutes: 20, days: 'DAILY', status: 'PENDING', isRegularHabit: true, iconKey: 'night' },
+      ];
     }
 
-    setState((prev) => ({
+    const applyPreset = () => setState((prev) => ({
       ...prev,
       timetable: presetSlots.map((slot, index) => ({
         id: `slot-preset-${Date.now()}-${index}`,
         ...slot,
       })),
     }));
-  }, []);
+    const existingCount = stateRef.current.timetable?.length || 0;
+    if (existingCount === 0) {
+      applyPreset();
+      return;
+    }
+    requestDestructiveConfirmation({
+      title: `Replace ${existingCount} timetable routine${existingCount === 1 ? '' : 's'}?`,
+      description: 'Applying this preset replaces the current timetable. Tasks and timeline history are not deleted.',
+      confirmLabel: 'Replace timetable',
+      onConfirm: applyPreset,
+    });
+  }, [requestDestructiveConfirmation]);
 
   const setCurrentEnergy = useCallback((energy: EnergyLevel) => {
     setState((prev) => ({
@@ -2333,16 +2512,239 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
+  const createTaskCategory = useCallback((label: string, color: string, icon: string) => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) return;
+    const exists = (stateRef.current.taskCategories || []).some(
+      (item) => item.label.toLowerCase() === cleanLabel.toLowerCase(),
+    );
+    if (exists) {
+      setNotificationToast(`A category named “${cleanLabel}” already exists.`);
+      return;
+    }
+    const now = new Date().toISOString();
+    const item: TaskCategoryDefinition = {
+      id: `category-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: cleanLabel,
+      color: color || '#6B7280',
+      icon: icon || 'tag',
+      createdAt: now,
+      updatedAt: now,
+    };
+    setState((prev) => ({ ...prev, taskCategories: [...(prev.taskCategories || []), item] }));
+    setNotificationToast(`Created category “${cleanLabel}”.`);
+  }, []);
+
+  const updateTaskCategory = useCallback((id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => {
+    const now = new Date().toISOString();
+    setState((prev) => ({
+      ...prev,
+      taskCategories: (prev.taskCategories || []).map((item) => item.id === id
+        ? { ...item, ...updates, label: updates.label?.trim() || item.label, updatedAt: now }
+        : item),
+    }));
+  }, []);
+
+  const deleteTaskCategory = useCallback((id: string, reassignToId: string) => {
+    const category = (stateRef.current.taskCategories || []).find((item) => item.id === id);
+    const destination = (stateRef.current.taskCategories || []).find((item) => item.id === reassignToId);
+    if (!category || category.isSystem || !destination || destination.id === id) return;
+    const affectedCount = stateRef.current.tasks.filter((task) => task.category === id).length;
+    requestDestructiveConfirmation({
+      title: `Delete category “${category.label}”?`,
+      description: `${affectedCount} task${affectedCount === 1 ? '' : 's'} will move to “${destination.label}”. No task will be deleted.`,
+      confirmLabel: 'Delete category',
+      onConfirm: () => setState((prev) => ({
+        ...prev,
+        taskCategories: (prev.taskCategories || []).filter((item) => item.id !== id),
+        tasks: prev.tasks.map((task) => task.category === id ? { ...task, category: destination.id } : task),
+      })),
+    });
+  }, [requestDestructiveConfirmation]);
+
+  const saveLocationAt = useCallback((label: string, latitude: number, longitude: number, source: 'USER' | 'LEARNED' = 'USER') => {
+    const cleanLabel = label.trim();
+    const now = new Date().toISOString();
+    const location: GeofenceLocation = {
+      id: `location-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: cleanLabel,
+      latitude,
+      longitude,
+      radiusMeters: stateRef.current.userSettings.geofenceRadiusMeters || 200,
+      source,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setState((prev) => ({
+      ...prev,
+      geofenceLocations: [...(prev.geofenceLocations || []), location],
+      current: { ...prev.current, location: cleanLabel, updatedAt: currentTimeString },
+    }));
+    setNotificationToast(`Current location saved as ${cleanLabel}.`);
+    return location;
+  }, [currentTimeString]);
+
+  const saveCurrentLocation = useCallback(async (label: string, duplicateMode?: 'UPDATE' | 'CREATE'): Promise<string> => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) throw new Error('Enter a name for this location.');
+    const coordinates = await getCurrentCoordinates();
+    const existing = (stateRef.current.geofenceLocations || []).find(
+      (item) => item.name.toLowerCase() === cleanLabel.toLowerCase(),
+    );
+    if (existing && !duplicateMode) {
+      setLocationNameConflict({
+        label: cleanLabel,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        existing,
+      });
+      return `A location named ${cleanLabel} already exists. Choose Update, Create another, or Cancel.`;
+    }
+    if (existing && duplicateMode === 'UPDATE') {
+      setState((prev) => ({
+        ...prev,
+        geofenceLocations: (prev.geofenceLocations || []).map((item) => item.id === existing.id
+          ? { ...item, latitude: coordinates.latitude, longitude: coordinates.longitude, updatedAt: new Date().toISOString() }
+          : item),
+        current: { ...prev.current, location: existing.name, updatedAt: currentTimeString },
+      }));
+      return `Current location updated for ${existing.name}.`;
+    }
+    const finalLabel = existing && duplicateMode === 'CREATE'
+      ? `${cleanLabel} ${(stateRef.current.geofenceLocations || []).filter((item) => item.name.toLowerCase().startsWith(cleanLabel.toLowerCase())).length + 1}`
+      : cleanLabel;
+    saveLocationAt(finalLabel, coordinates.latitude, coordinates.longitude, 'USER');
+    return `Current location saved as ${finalLabel}.`;
+  }, [currentTimeString, saveLocationAt]);
+
+  const saveLearnedLocation = useCallback((label: string): string => {
+    if (!pendingLocationLearning || !label.trim()) return 'Enter a name for this location.';
+    saveLocationAt(label, pendingLocationLearning.latitude, pendingLocationLearning.longitude, 'LEARNED');
+    setPendingLocationLearning(null);
+    return `Current location saved as ${label.trim()}.`;
+  }, [pendingLocationLearning, saveLocationAt]);
+
+  const updateSavedLocation = useCallback((id: string, updates: Partial<GeofenceLocation>) => {
+    setState((prev) => ({
+      ...prev,
+      geofenceLocations: (prev.geofenceLocations || []).map((item) => item.id === id
+        ? { ...item, ...updates, updatedAt: new Date().toISOString() }
+        : item),
+    }));
+  }, []);
+
+  const deleteSavedLocation = useCallback((id: string) => {
+    const location = (stateRef.current.geofenceLocations || []).find((item) => item.id === id);
+    if (!location) return;
+    requestDestructiveConfirmation({
+      title: `Delete location “${location.name}”?`,
+      description: 'Location automations that reference it may stop matching. Tasks and timeline history will remain.',
+      confirmLabel: 'Delete location',
+      onConfirm: () => setState((prev) => ({
+        ...prev,
+        geofenceLocations: (prev.geofenceLocations || []).filter((item) => item.id !== id),
+        current: prev.current.location === location.name ? { ...prev.current, location: 'Unknown' } : prev.current,
+      })),
+    });
+  }, [requestDestructiveConfirmation]);
+
+  const ignoreLocationCluster = useCallback((cluster: Omit<IgnoredLocationCluster, 'id' | 'ignoredAt'>) => {
+    const ignored: IgnoredLocationCluster = {
+      ...cluster,
+      id: `ignored-location-${Date.now()}`,
+      ignoredAt: new Date().toISOString(),
+    };
+    setState((prev) => ({ ...prev, ignoredLocationClusters: [...(prev.ignoredLocationClusters || []), ignored] }));
+  }, []);
+
+  const unignoreLocation = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      ignoredLocationClusters: (prev.ignoredLocationClusters || []).filter((item) => item.id !== id),
+    }));
+  }, []);
+
+  const dismissLocationLearning = useCallback((ignore: boolean) => {
+    if (ignore && pendingLocationLearning) {
+      ignoreLocationCluster({
+        latitude: pendingLocationLearning.latitude,
+        longitude: pendingLocationLearning.longitude,
+        radiusMeters: stateRef.current.userSettings.geofenceRadiusMeters || 200,
+      });
+    }
+    setPendingLocationLearning(null);
+  }, [ignoreLocationCluster, pendingLocationLearning]);
+
+  const resolveLocationNameConflict = useCallback((choice: 'UPDATE' | 'CREATE' | 'CANCEL') => {
+    const conflict = locationNameConflict;
+    setLocationNameConflict(null);
+    if (!conflict || choice === 'CANCEL') return;
+    if (choice === 'UPDATE') {
+      updateSavedLocation(conflict.existing.id, {
+        latitude: conflict.latitude,
+        longitude: conflict.longitude,
+      });
+      setNotificationToast(`Updated ${conflict.existing.name} to the current location.`);
+      return;
+    }
+    const count = (stateRef.current.geofenceLocations || []).filter(
+      (item) => item.name.toLowerCase().startsWith(conflict.label.toLowerCase()),
+    ).length;
+    saveLocationAt(`${conflict.label} ${count + 1}`, conflict.latitude, conflict.longitude, 'USER');
+  }, [locationNameConflict, saveLocationAt, updateSavedLocation]);
+
+  const addMeeting = useCallback((meeting: MeetingRecord) => {
+    setState((prev) => ({ ...prev, meetings: [...(prev.meetings || []).filter((item) => item.id !== meeting.id), meeting] }));
+  }, []);
+
+  const updateMeeting = useCallback((id: string, updates: Partial<MeetingRecord>) => {
+    setState((prev) => ({
+      ...prev,
+      meetings: (prev.meetings || []).map((meeting) => meeting.id === id
+        ? { ...meeting, ...updates, updatedAt: new Date().toISOString() }
+        : meeting),
+    }));
+  }, []);
+
+  const deleteMeeting = useCallback((id: string, mode: 'AUDIO' | 'TRANSCRIPT' | 'ENTIRE' = 'ENTIRE') => {
+    const meeting = (stateRef.current.meetings || []).find((item) => item.id === id);
+    if (!meeting) return;
+    const consequence = mode === 'AUDIO'
+      ? 'The audio recording will be removed; the transcript, summary and tasks will remain.'
+      : mode === 'TRANSCRIPT'
+        ? 'The transcript and summary will be removed; the audio and tasks will remain.'
+        : 'The meeting record, recording, transcript and summary will be removed. Tasks created from action items will remain.';
+    requestDestructiveConfirmation({
+      title: `${mode === 'AUDIO' ? 'Delete recording from' : mode === 'TRANSCRIPT' ? 'Delete transcript from' : 'Delete'} “${meeting.title}”?`,
+      description: consequence,
+      confirmLabel: mode === 'ENTIRE' ? 'Delete meeting' : mode === 'AUDIO' ? 'Delete recording' : 'Delete transcript',
+      onConfirm: () => {
+        if ((mode === 'AUDIO' || mode === 'ENTIRE') && meeting.audioPath) {
+          void deleteNativeMeetingAudio(meeting.audioPath).catch((error) => {
+            console.warn('Meeting audio deletion failed', error);
+            setNotificationToast('The meeting record was updated, but Android could not delete the audio file.');
+          });
+        }
+        setState((prev) => ({
+          ...prev,
+          meetings: mode === 'ENTIRE'
+            ? (prev.meetings || []).filter((item) => item.id !== id)
+            : (prev.meetings || []).map((item) => item.id === id
+              ? mode === 'AUDIO'
+                ? { ...item, audioPath: undefined, updatedAt: new Date().toISOString() }
+                : { ...item, transcript: undefined, summary: undefined, actionItems: [], updatedAt: new Date().toISOString() }
+              : item),
+        }));
+      },
+    });
+  }, [requestDestructiveConfirmation]);
+
   const resetToDefault = useCallback(() => {
     setState(createFreshDailyState());
   }, []);
 
   const resetToFreshStart = useCallback(() => {
     setState(createFreshDailyState());
-  }, []);
-
-  const loadSampleTemplate = useCallback(() => {
-    setState(normalizeDailyStateDates({ ...SAMPLE_TEMPLATE_STATE, date: toLocalDateKey() }));
   }, []);
 
   const exportDataJSON = useCallback(() => {
@@ -2377,10 +2779,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed && Array.isArray(parsed.tasks)) {
-        setState(normalizeDailyStateDates({
+        setState(migrateDailyState({
           ...createFreshDailyState(),
           ...parsed,
-        }));
+        }).state);
         return true;
       }
     } catch (e) {
@@ -2406,7 +2808,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 1. Restore DailyState
       if (snapshot.state) {
-        setState(normalizeDailyStateDates({
+        setState(migrateDailyState({
           ...createFreshDailyState(),
           ...snapshot.state,
           userSettings: {
@@ -2415,7 +2817,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             googleSpreadsheetId: sheetId,
             googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
           },
-        }));
+        }).state);
       }
 
       // 2. Restore AutoLearning Profile
@@ -2478,6 +2880,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         googleSpreadsheetUrl: res.spreadsheetUrl,
         googleSpreadsheetTitle: res.spreadsheetTitle,
         lastSyncedAt: res.syncedAt,
+        googleAuthStatus: 'CONNECTED',
+        googleAuthError: null,
       });
 
       if (res.updatedTimeline) {
@@ -2500,6 +2904,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err: any) {
       console.error('Google Sheets sync error:', err);
       const errMsg = err?.message || 'Sync failed. Please check permissions.';
+      updateUserSettings({
+        googleAuthStatus: /cancel/i.test(errMsg) ? 'CANCELLED' : 'ERROR',
+        googleAuthError: errMsg,
+      });
       setNotificationToast(`⚠️ Google Sheets Sync: ${errMsg}`);
       return { success: false, error: errMsg };
     } finally {
@@ -2507,10 +2915,45 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [state, updateUserSettings]);
 
+  const disconnectGoogleSheets = useCallback(() => {
+    requestDestructiveConfirmation({
+      title: 'Disconnect Google Sheets?',
+      description: 'DayTrace will revoke its Google Sheets and Drive-file access. Your local DayTrace data and the spreadsheet itself will not be deleted.',
+      confirmLabel: 'Disconnect Google',
+      onConfirm: () => {
+        void (async () => {
+          try {
+            await disconnectGoogle();
+            updateUserSettings({
+              googleSpreadsheetId: null,
+              googleSpreadsheetUrl: null,
+              googleSpreadsheetTitle: null,
+              googleAuthStatus: 'DISCONNECTED',
+              googleAuthError: null,
+            });
+            setNotificationToast('Google Sheets disconnected. Local DayTrace data was preserved.');
+          } catch (error: any) {
+            const message = error?.message || 'Google access could not be disconnected.';
+            updateUserSettings({ googleAuthStatus: 'ERROR', googleAuthError: message });
+            setNotificationToast(message);
+          }
+        })();
+      },
+    });
+  }, [requestDestructiveConfirmation, updateUserSettings]);
+
   const triggerNativePromptTest = useCallback(async (delaySeconds: number = 10) => {
     if (isNativeAndroid()) {
+      const before = await checkNativeNotificationPermission();
+      const granted = before.granted || await requestNativeNotificationPermission();
+      if (!granted) {
+        setNotificationToast('Notification permission was denied. Retry the test or open Android notification settings.');
+        return { scheduled: false, delaySeconds: 0 };
+      }
       const res = await triggerNativeTestPrompt(delaySeconds);
-      setNotificationToast(`📱 Lock phone now! Test prompt arrives in ${delaySeconds}s.`);
+      setNotificationToast(res.scheduled
+        ? `📱 Lock phone now! Test prompt arrives in ${delaySeconds}s.`
+        : 'The test notification could not be scheduled.');
       return res;
     } else {
       setNotificationToast(`📱 Simulating lock-screen check in ${delaySeconds}s...`);
@@ -2564,6 +3007,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recordPeriodicPromptCompletion,
         triggerNativePromptTest,
         syncToGoogleSheets,
+        disconnectGoogleSheets,
         isSyncingSheets,
         restoreFromGoogleSheetsBackup,
         isRestoringBackup,
@@ -2602,7 +3046,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsGeofenceModalOpen,
         resetToDefault,
         resetToFreshStart,
-        loadSampleTemplate,
         exportDataJSON,
         exportDataSheetsCSV,
         importDataJSON,
@@ -2610,6 +3053,30 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         learningProfile,
         recordCustomRoutine,
         resetLearnedShortcuts,
+        taskCategories: displayedState.taskCategories || [],
+        createTaskCategory,
+        updateTaskCategory,
+        deleteTaskCategory,
+        saveCurrentLocation,
+        saveLearnedLocation,
+        updateSavedLocation,
+        deleteSavedLocation,
+        unignoreLocation,
+        ignoreLocationCluster,
+        pendingLocationLearning,
+        dismissLocationLearning,
+        locationNameConflict,
+        resolveLocationNameConflict,
+        meetings: displayedState.meetings || [],
+        addMeeting,
+        updateMeeting,
+        deleteMeeting,
+        destructiveConfirmation,
+        requestDestructiveConfirmation,
+        confirmDestructiveAction,
+        cancelDestructiveAction,
+        undoAction,
+        performUndo,
         notificationToast,
         dismissToast,
       }}

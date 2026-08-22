@@ -17,7 +17,8 @@ import {
   ExternalLink,
   Loader2,
   Smartphone,
-  BellRing
+  BellRing,
+  Unplug
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
@@ -37,6 +38,7 @@ export const RemindersAnchorsView: React.FC = () => {
     triggerManualPromptCheck,
     triggerNativePromptTest,
     syncToGoogleSheets,
+    disconnectGoogleSheets,
     isSyncingSheets,
     markAutomationComplete,
     deleteAutomation,
@@ -157,8 +159,9 @@ export const RemindersAnchorsView: React.FC = () => {
                 type="button"
                 onClick={async () => {
                   setIsTestingLockscreen(true);
-                  await triggerNativePromptTest(10);
-                  setTimeout(() => setIsTestingLockscreen(false), 12000);
+                  const result = await triggerNativePromptTest(10);
+                  await refreshNotificationPermission();
+                  setTimeout(() => setIsTestingLockscreen(false), result.scheduled ? 12000 : 500);
                 }}
                 disabled={isTestingLockscreen}
                 className="py-1 px-2.5 rounded-xl bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] text-[11px] font-semibold flex items-center space-x-1 transition shadow-sm disabled:opacity-50"
@@ -373,21 +376,38 @@ export const RemindersAnchorsView: React.FC = () => {
                 </button>
               </div>
 
+              {settings.googleAuthStatus && settings.googleAuthStatus !== 'CONNECTED' && settings.googleAuthStatus !== 'DISCONNECTED' && (
+                <div className="rounded-xl border border-[#FCA5A5]/30 bg-[#7F1D1D]/15 p-2 text-[10px] text-[#FCA5A5]">
+                  <p>{settings.googleAuthStatus === 'CANCELLED' ? 'Google authorization was cancelled. Local DayTrace data is unchanged.' : (settings.googleAuthError || 'Google authorization failed.')}</p>
+                  <button type="button" onClick={() => syncToGoogleSheets()} className="mt-1.5 rounded-lg bg-[#334867] px-2.5 py-1 font-bold text-[#D1E1FF]">Retry authorization</button>
+                </div>
+              )}
+
               {settings.googleSpreadsheetUrl && (
-                <div className="flex items-center justify-between pt-1 border-t border-[#44474E]/20 text-[10px]">
-                  <span className="text-[#86EFAC] font-mono flex items-center">
-                    <CheckCircle2 className="w-3 h-3 mr-1" />
-                    Sheet linked
-                  </span>
-                  <a
-                    href={settings.googleSpreadsheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#D1E1FF] underline font-semibold flex items-center space-x-1"
+                <div className="pt-1 border-t border-[#44474E]/20 text-[10px] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#86EFAC] font-mono flex items-center">
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      Sheet linked
+                    </span>
+                    <a
+                      href={settings.googleSpreadsheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#D1E1FF] underline font-semibold flex items-center space-x-1"
+                    >
+                      <span>View Spreadsheet</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={disconnectGoogleSheets}
+                    className="flex items-center rounded-lg border border-[#FCA5A5]/30 px-2.5 py-1 text-[#FCA5A5] font-bold"
                   >
-                    <span>View Spreadsheet</span>
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
+                    <Unplug className="mr-1 h-3 w-3" />
+                    Disconnect Google
+                  </button>
                 </div>
               )}
             </div>

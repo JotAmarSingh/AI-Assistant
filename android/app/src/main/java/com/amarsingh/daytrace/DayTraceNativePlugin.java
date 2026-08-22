@@ -1,6 +1,7 @@
 package com.amarsingh.daytrace;
 
 import android.Manifest;
+import android.accounts.Account;
 import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -22,6 +23,7 @@ import android.speech.SpeechRecognizer;
 import android.util.Log;
 
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSArray;
@@ -36,9 +38,15 @@ import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.GeofencingClient;
 import com.google.android.gms.location.GeofencingRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
 import com.google.android.gms.auth.api.identity.AuthorizationRequest;
 import com.google.android.gms.auth.api.identity.AuthorizationResult;
+import com.google.android.gms.auth.api.identity.ClearTokenRequest;
 import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.common.api.Scope;
 
@@ -49,6 +57,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.io.File;
 
 @CapacitorPlugin(
         name = "DayTraceNative",
@@ -77,11 +86,14 @@ public class DayTraceNativePlugin extends Plugin {
     public static final String PREFS_AUTOMATIONS = "daytrace_automations";
     public static final String PREFS_PENDING_LOGS = "daytrace_pending_logs";
     public static final String PREFS_SYNC_QUEUE = "daytrace_sync_queue";
+    private static final String PREFS_PERMISSIONS = "daytrace_permission_state";
+    private static final String PREFS_GOOGLE_AUTH = "daytrace_google_auth";
     private static DayTraceNativePlugin instance;
     private static JSObject pendingInitialNotificationAction = null;
 
     private SpeechRecognizer speechRecognizer;
     private GeofencingClient geofencingClient;
+    private FusedLocationProviderClient fusedLocationClient;
     private PendingIntent geofencePendingIntent;
     private PluginCall pendingGoogleAuthorizationCall;
 
@@ -90,6 +102,7 @@ public class DayTraceNativePlugin extends Plugin {
         super.load();
         instance = this;
         geofencingClient = LocationServices.getGeofencingClient(getContext());
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(getContext());
         AlarmReceiver.createNotificationChannel(getContext());
         PeriodicPromptReceiver.createNotificationChannel(getContext());
         NightlySyncWorker.scheduleNightlySync(getContext());
@@ -563,6 +576,46 @@ public class DayTraceNativePlugin extends Plugin {
     // ==========================================
 
     @PluginMethod
+    public void getCurrentLocation(PluginCall call) {
+        if (getPermissionState("locationForeground") != com.getcapacitor.PermissionState.GRANTED) {
+            requestPermissionForAlias("locationForeground", call, "currentLocationPermissionCallback");
+            return;
+        }
+        readCurrentLocation(call);
+    }
+
+    @PermissionCallback
+    private void currentLocationPermissionCallback(PluginCall call) {
+        if (getPermissionState("locationForeground") == com.getcapacitor.PermissionState.GRANTED) {
+            readCurrentLocation(call);
+        } else {
+            call.reject("Location permission was denied. DayTrace did not save a place.");
+        }
+    }
+
+    private void readCurrentLocation(PluginCall call) {
+        if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("Location permission is required.");
+            return;
+        }
+        CancellationTokenSource tokenSource = new CancellationTokenSource();
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, tokenSource.getToken())
+                .addOnSuccessListener(location -> {
+                    if (location == null) {
+                        call.reject("Android could not determine the current location. Turn on Location and retry.");
+                        return;
+                    }
+                    JSObject result = new JSObject();
+                    result.put("latitude", location.getLatitude());
+                    result.put("longitude", location.getLongitude());
+                    result.put("accuracyMeters", location.getAccuracy());
+                    call.resolve(result);
+                })
+                .addOnFailureListener(error -> call.reject("Could not get current location: " + error.getMessage()));
+    }
+
+    @PluginMethod
     public void registerGeofences(PluginCall call) {
         JSArray locationsArray = call.getArray("locations");
         if (locationsArray == null || locationsArray.length() == 0) {
@@ -831,16 +884,26 @@ public class DayTraceNativePlugin extends Plugin {
             NotificationChannel channel = manager != null ? manager.getNotificationChannel(PeriodicPromptReceiver.CHANNEL_ID) : null;
             channelEnabled = channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
         }
-        String permissionState = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                ? getPermissionState("notifications").toString().toLowerCase(Locale.US) : "granted";
+        boolean askedBefore = context.getSharedPreferences(PREFS_PERMISSIONS, Context.MODE_PRIVATE)
+                .getBoolean("notifications_asked", false);
+        boolean canRequestAgain = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && !runtimeGranted
+                && (!askedBefore || ActivityCompat.shouldShowRequestPermissionRationale(getActivity(), Manifest.permission.POST_NOTIFICATIONS));
         boolean granted = runtimeGranted && notificationsEnabled && channelEnabled;
-        String status = granted ? "GRANTED" : (permissionState.contains("prompt") ? "NOT_REQUESTED" : "DENIED");
+        String status;
+        if (granted) {
+            status = "GRANTED";
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !runtimeGranted && !askedBefore) {
+            status = "NOT_REQUESTED";
+        } else {
+            status = "DENIED";
+        }
         ret.put("granted", granted);
         ret.put("status", status);
         ret.put("runtimeGranted", runtimeGranted);
         ret.put("notificationsEnabled", notificationsEnabled);
         ret.put("channelEnabled", channelEnabled);
-        ret.put("canRequest", "NOT_REQUESTED".equals(status));
+        ret.put("canRequest", canRequestAgain);
         call.resolve(ret);
     }
 
@@ -848,18 +911,28 @@ public class DayTraceNativePlugin extends Plugin {
     public void requestNotificationPermission(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (getPermissionState("notifications") != com.getcapacitor.PermissionState.GRANTED) {
+                getContext().getSharedPreferences(PREFS_PERMISSIONS, Context.MODE_PRIVATE)
+                        .edit().putBoolean("notifications_asked", true).apply();
                 requestPermissionForAlias("notifications", call, "notificationPermissionCallback");
                 return;
             }
         }
+        boolean notificationsEnabled = NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
+        boolean channelEnabled = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationChannel channel = manager != null ? manager.getNotificationChannel(PeriodicPromptReceiver.CHANNEL_ID) : null;
+            channelEnabled = channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
+        }
         JSObject ret = new JSObject();
-        ret.put("granted", true);
+        ret.put("granted", notificationsEnabled && channelEnabled);
         call.resolve(ret);
     }
 
     @PermissionCallback
     private void notificationPermissionCallback(PluginCall call) {
-        boolean granted = getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED;
+        boolean granted = getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED
+                && NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
         JSObject ret = new JSObject();
         ret.put("granted", granted);
         call.resolve(ret);
@@ -889,7 +962,96 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     // ==========================================
-    // 8. NATIVE GOOGLE SHEETS AUTHORIZATION
+    // 8. MEETING MODE FOREGROUND RECORDING
+    // ==========================================
+
+    @PluginMethod
+    public void startMeetingRecording(PluginCall call) {
+        if (getPermissionState("recordAudio") != com.getcapacitor.PermissionState.GRANTED) {
+            requestPermissionForAlias("recordAudio", call, "meetingRecordingPermissionCallback");
+            return;
+        }
+        String meetingId = call.getString("meetingId", "meeting-" + System.currentTimeMillis());
+        String title = call.getString("title", "Meeting");
+        try {
+            Intent intent = new Intent(getContext(), MeetingRecordingService.class)
+                    .setAction(MeetingRecordingService.ACTION_START)
+                    .putExtra("meetingId", meetingId)
+                    .putExtra("title", title);
+            ContextCompat.startForegroundService(getContext(), intent);
+            JSObject result = new JSObject();
+            result.put("meetingId", meetingId);
+            result.put("title", title);
+            result.put("status", "RECORDING");
+            result.put("startedAtMillis", System.currentTimeMillis());
+            result.put("durationSeconds", 0);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Could not start Meeting Mode: " + error.getMessage());
+        }
+    }
+
+    @PermissionCallback
+    private void meetingRecordingPermissionCallback(PluginCall call) {
+        if (getPermissionState("recordAudio") == com.getcapacitor.PermissionState.GRANTED) {
+            startMeetingRecording(call);
+        } else {
+            call.reject("Microphone permission was denied. No meeting recording was started.");
+        }
+    }
+
+    @PluginMethod
+    public void pauseMeetingRecording(PluginCall call) {
+        sendMeetingServiceAction(MeetingRecordingService.ACTION_PAUSE, call, "PAUSED");
+    }
+
+    @PluginMethod
+    public void resumeMeetingRecording(PluginCall call) {
+        sendMeetingServiceAction(MeetingRecordingService.ACTION_RESUME, call, "RECORDING");
+    }
+
+    @PluginMethod
+    public void stopMeetingRecording(PluginCall call) {
+        sendMeetingServiceAction(MeetingRecordingService.ACTION_STOP, call, "STOPPED");
+    }
+
+    @PluginMethod
+    public void getMeetingRecordingState(PluginCall call) {
+        call.resolve(new JSObject(MeetingRecordingService.readState(getContext()).toString()));
+    }
+
+    @PluginMethod
+    public void deleteMeetingAudio(PluginCall call) {
+        String audioPath = call.getString("audioPath", "");
+        try {
+            File meetingsDirectory = new File(getContext().getFilesDir(), "meetings").getCanonicalFile();
+            File target = new File(audioPath).getCanonicalFile();
+            if (!target.getPath().startsWith(meetingsDirectory.getPath() + File.separator)) {
+                call.reject("Refused to delete a file outside DayTrace meeting storage");
+                return;
+            }
+            JSObject result = new JSObject();
+            result.put("deleted", !target.exists() || target.delete());
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Could not delete meeting audio: " + error.getMessage());
+        }
+    }
+
+    private void sendMeetingServiceAction(String action, PluginCall call, String expectedStatus) {
+        try {
+            Intent intent = new Intent(getContext(), MeetingRecordingService.class).setAction(action);
+            ContextCompat.startForegroundService(getContext(), intent);
+            JSObject result = new JSObject(MeetingRecordingService.readState(getContext()).toString());
+            result.put("status", expectedStatus);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Meeting Mode action failed: " + error.getMessage());
+        }
+    }
+
+    // ==========================================
+    // 9. NATIVE GOOGLE SHEETS AUTHORIZATION
     // ==========================================
 
     @PluginMethod
@@ -900,6 +1062,17 @@ public class DayTraceNativePlugin extends Plugin {
         }
         if (pendingGoogleAuthorizationCall != null) {
             call.reject("A Google authorization request is already in progress");
+            return;
+        }
+
+        SharedPreferences authPrefs = getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE);
+        String cachedToken = authPrefs.getString("access_token", "");
+        long expiresAt = authPrefs.getLong("expires_at", 0L);
+        if (!cachedToken.isEmpty() && expiresAt > System.currentTimeMillis() + 60_000L) {
+            JSObject cached = new JSObject();
+            cached.put("accessToken", cachedToken);
+            cached.put("expiresInSeconds", Math.max(1L, (expiresAt - System.currentTimeMillis()) / 1000L));
+            call.resolve(cached);
             return;
         }
 
@@ -934,6 +1107,8 @@ public class DayTraceNativePlugin extends Plugin {
                                                 .getAuthorizationResultFromIntent(data);
                                         resolveGoogleAuthorization(pendingCall, authorizationResult);
                                     } catch (ApiException error) {
+                                        getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
+                                                .edit().putString("status", "ERROR").putString("last_error", error.getMessage()).apply();
                                         pendingCall.reject("Google authorization failed (" + error.getStatusCode() + "): " + error.getMessage());
                                     }
                                 }
@@ -942,15 +1117,19 @@ public class DayTraceNativePlugin extends Plugin {
                                 public void onCancelled() {
                                     PluginCall pendingCall = pendingGoogleAuthorizationCall;
                                     pendingGoogleAuthorizationCall = null;
-                                    if (pendingCall != null) pendingCall.reject("Google authorization was cancelled");
+                                    getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
+                                            .edit().putString("status", "CANCELLED").putString("last_error", "Authorization cancelled by user").apply();
+                                    if (pendingCall != null) pendingCall.reject("Google authorization was cancelled. No local data was changed.");
                                 }
                             }
                     );
                 })
-                .addOnFailureListener(error -> call.reject(
-                        "Google authorization could not start. Verify the Android OAuth client for com.amarsingh.daytrace and its signing SHA-1: "
-                                + error.getMessage()
-                ));
+                .addOnFailureListener(error -> {
+                    getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
+                            .edit().putString("status", "ERROR").putString("last_error", error.getMessage()).apply();
+                    call.reject("Google authorization could not start. Verify the Android OAuth client for com.amarsingh.daytrace and its signing SHA-1: "
+                            + error.getMessage());
+                });
     }
 
     private void resolveGoogleAuthorization(PluginCall call, AuthorizationResult result) {
@@ -960,9 +1139,88 @@ public class DayTraceNativePlugin extends Plugin {
             return;
         }
         JSObject response = new JSObject();
+        long expiresAt = System.currentTimeMillis() + 3_500_000L;
+        GoogleSignInAccount googleAccount = result.toGoogleSignInAccount();
+        String accountName = googleAccount != null && googleAccount.getAccount() != null
+                ? googleAccount.getAccount().name
+                : "";
+        SharedPreferences.Editor authEditor = getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE)
+                .edit()
+                .putString("access_token", accessToken)
+                .putLong("expires_at", expiresAt)
+                .putString("status", "CONNECTED")
+                .remove("last_error");
+        if (!accountName.isEmpty()) authEditor.putString("account_name", accountName);
+        authEditor.apply();
         response.put("accessToken", accessToken);
-        response.put("expiresInSeconds", 3600);
+        response.put("expiresInSeconds", 3500);
         call.resolve(response);
+    }
+
+    @PluginMethod
+    public void clearGoogleSheetsAccess(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE);
+        String token = prefs.getString("access_token", "");
+        prefs.edit().clear().apply();
+        if (token.isEmpty()) {
+            JSObject result = new JSObject();
+            result.put("success", true);
+            call.resolve(result);
+            return;
+        }
+        ClearTokenRequest request = ClearTokenRequest.builder().setToken(token).build();
+        Identity.getAuthorizationClient(getActivity()).clearToken(request)
+                .addOnSuccessListener(unused -> {
+                    JSObject result = new JSObject();
+                    result.put("success", true);
+                    call.resolve(result);
+                })
+                .addOnFailureListener(error -> call.reject("Google token cache could not be cleared: " + error.getMessage()));
+    }
+
+    @PluginMethod
+    public void revokeGoogleSheetsAccess(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS_GOOGLE_AUTH, Context.MODE_PRIVATE);
+        String accountName = prefs.getString("account_name", "");
+        String token = prefs.getString("access_token", "");
+        if (accountName.isEmpty()) {
+            prefs.edit().clear().apply();
+            if (token.isEmpty()) {
+                JSObject result = new JSObject();
+                result.put("success", true);
+                result.put("revoked", false);
+                call.resolve(result);
+                return;
+            }
+            ClearTokenRequest clearRequest = ClearTokenRequest.builder().setToken(token).build();
+            Identity.getAuthorizationClient(getActivity()).clearToken(clearRequest)
+                    .addOnSuccessListener(unused -> {
+                        JSObject result = new JSObject();
+                        result.put("success", true);
+                        result.put("revoked", false);
+                        call.resolve(result);
+                    })
+                    .addOnFailureListener(error -> call.reject("Google access could not be disconnected: " + error.getMessage()));
+            return;
+        }
+
+        List<Scope> scopes = Arrays.asList(
+                new Scope("https://www.googleapis.com/auth/spreadsheets"),
+                new Scope("https://www.googleapis.com/auth/drive.file")
+        );
+        RevokeAccessRequest revokeRequest = RevokeAccessRequest.builder()
+                .setAccount(new Account(accountName, "com.google"))
+                .setScopes(scopes)
+                .build();
+        Identity.getAuthorizationClient(getActivity()).revokeAccess(revokeRequest)
+                .addOnSuccessListener(unused -> {
+                    prefs.edit().clear().apply();
+                    JSObject result = new JSObject();
+                    result.put("success", true);
+                    result.put("revoked", true);
+                    call.resolve(result);
+                })
+                .addOnFailureListener(error -> call.reject("Google access revocation failed: " + error.getMessage()));
     }
 
     @PluginMethod

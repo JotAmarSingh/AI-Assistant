@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DayProvider, useDay } from './context/DayContext';
 import { AndroidStatusBar } from './components/android/AndroidStatusBar';
 import { AndroidNotificationCenter } from './components/android/AndroidNotificationCenter';
@@ -13,9 +13,12 @@ import { EndOfDayReviewView } from './components/views/EndOfDayReviewView';
 import { PeriodicPromptModal } from './components/android/PeriodicPromptModal';
 import { PomodoroFocusModal } from './components/focus/PomodoroFocusModal';
 import { FloatingFocusHUD } from './components/focus/FloatingFocusHUD';
-import { VoiceCaptureModal } from './components/voice/VoiceCaptureModal';
+import { MeetingModeModal } from './components/meetings/MeetingModeModal';
+import { MeetingsView } from './components/views/MeetingsView';
 import { RewardsVaultModal } from './components/rewards/RewardsVaultModal';
 import { GeofenceManagerModal } from './components/geofence/GeofenceManagerModal';
+import { LocationLearningPrompts } from './components/geofence/LocationLearningPrompts';
+import { DestructiveConfirmationModal } from './components/common/DestructiveConfirmationModal';
 
 const MainScreen: React.FC = () => {
   const { 
@@ -37,9 +40,17 @@ const MainScreen: React.FC = () => {
     selectedDate,
     isViewingToday,
     historicalDateMessage,
+    undoAction,
+    performUndo,
   } = useDay();
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  useEffect(() => {
+    const openMeetings = () => setActiveTab('meetings');
+    window.addEventListener('daytrace-open-meetings', openMeetings);
+    return () => window.removeEventListener('daytrace-open-meetings', openMeetings);
+  }, []);
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -51,6 +62,8 @@ const MainScreen: React.FC = () => {
         return <TaskBoardView />;
       case 'timeline':
         return <TimelineView />;
+      case 'meetings':
+        return <MeetingsView />;
       case 'reminders':
         return <RemindersAnchorsView />;
       case 'review':
@@ -104,8 +117,8 @@ const MainScreen: React.FC = () => {
         onClose={() => setIsFocusModalOpen(false)}
       />
 
-      {/* Voice Memo Quick Capture Modal */}
-      <VoiceCaptureModal
+      {/* Confirmed foreground Meeting Mode recorder */}
+      <MeetingModeModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
       />
@@ -121,6 +134,9 @@ const MainScreen: React.FC = () => {
         isOpen={isGeofenceModalOpen}
         onClose={() => setIsGeofenceModalOpen(false)}
       />
+
+      <LocationLearningPrompts />
+      <DestructiveConfirmationModal />
 
       {/* Android Notification Center Pull-Down Drawer */}
       <AndroidNotificationCenter
@@ -171,7 +187,20 @@ const MainScreen: React.FC = () => {
           className="fixed top-14 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] bg-[#1D2026] text-[#E2E2E6] border border-[#D1E1FF]/40 rounded-2xl px-4 py-2.5 shadow-2xl text-xs font-semibold flex items-center justify-between cursor-pointer animate-in fade-in slide-in-from-top-2"
         >
           <span>{notificationToast}</span>
-          <span className="text-[10px] text-[#C4C6D0]/60 ml-2">Tap to dismiss</span>
+          {undoAction ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                performUndo();
+              }}
+              className="ml-3 rounded-xl bg-[#D1E1FF] px-2.5 py-1 text-[10px] font-bold text-[#003062]"
+            >
+              Undo
+            </button>
+          ) : (
+            <span className="text-[10px] text-[#C4C6D0]/60 ml-2">Tap to dismiss</span>
+          )}
         </div>
       )}
     </div>
@@ -181,7 +210,7 @@ const MainScreen: React.FC = () => {
 export default function App() {
   return (
     <DayProvider>
-      <div className="w-full h-screen min-h-screen bg-[#111318] text-[#E2E2E6] flex flex-col overflow-hidden relative font-sans">
+      <div className="w-full h-[100dvh] min-h-[100dvh] bg-[#111318] text-[#E2E2E6] flex flex-col overflow-hidden relative font-sans">
         <MainScreen />
       </div>
     </DayProvider>

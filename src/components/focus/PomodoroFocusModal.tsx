@@ -26,7 +26,8 @@ export const PomodoroFocusModal: React.FC<PomodoroFocusModalProps> = ({ isOpen, 
     resumeFocusTimer, 
     stopFocusTimer, 
     extendFocusTimer, 
-    finishFocusTaskEarly
+    finishFocusTaskEarly,
+    requestDestructiveConfirmation,
   } = useDay();
 
   const [selectedMode, setSelectedMode] = useState<FocusTimerMode>('POMODORO_25');
@@ -203,9 +204,14 @@ export const PomodoroFocusModal: React.FC<PomodoroFocusModalProps> = ({ isOpen, 
                 </button>
 
                 <button
-                  onClick={stopFocusTimer}
+                  onClick={() => requestDestructiveConfirmation({
+                    title: `Stop “${focusTimer.targetTaskTitle}”?`,
+                    description: 'The current focus timer progress will be reset. The task itself will remain.',
+                    confirmLabel: 'Stop timer',
+                    onConfirm: stopFocusTimer,
+                  })}
                   className="p-2.5 rounded-2xl bg-[#2E3036] hover:bg-[#7F1D1D]/30 text-[#C4C6D0] hover:text-[#F87171] transition"
-                  title="Stop & Reset"
+                  title="Stop focus timer"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>

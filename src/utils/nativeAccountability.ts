@@ -26,6 +26,13 @@ export interface NativeAccountabilityEvent {
   syncStatus?: string;
   createdAt?: number | string;
   isTestPrompt?: boolean;
+  meetingId?: string;
+  meetingTitle?: string;
+  meetingStatus?: string;
+  startedAtMillis?: number;
+  endedAtMillis?: number;
+  durationSeconds?: number;
+  audioPath?: string;
 }
 
 export const selectNativeSuggestedTasks = (
@@ -59,6 +66,7 @@ export interface NativeReconciliationResult {
   state: DailyState;
   acknowledgedEventIds: string[];
   shouldOpenPrompt: boolean;
+  shouldOpenMeetings: boolean;
 }
 
 /** Applies each native intent transaction once and returns a durable idempotency ledger. */
@@ -68,6 +76,7 @@ export const reconcileNativeAccountabilityEvents = (
 ): NativeReconciliationResult => {
   let next = previous;
   let shouldOpenPrompt = false;
+  let shouldOpenMeetings = false;
   const processed = new Set(previous.nativeAccountability?.processedEventIds || []);
   const acknowledgedEventIds: string[] = [];
 
@@ -91,6 +100,40 @@ export const reconcileNativeAccountabilityEvents = (
 
     if (inferredAction === 'OPEN_PROMPT') {
       shouldOpenPrompt = true;
+    } else if (inferredAction === 'OPEN_MEETINGS') {
+      shouldOpenMeetings = true;
+    } else if (inferredAction === 'MEETING_STOPPED' && event.meetingId) {
+      const startedAt = new Date(event.startedAtMillis || Date.now()).toISOString();
+      const endedAt = new Date(event.endedAtMillis || Date.now()).toISOString();
+      const meetingStatus = event.meetingStatus === 'FAILED' ? 'FAILED'
+        : event.meetingStatus === 'INTERRUPTED' ? 'INTERRUPTED'
+          : 'NEEDS_TRANSCRIPT';
+      const meeting = {
+        id: event.meetingId,
+        title: event.meetingTitle || 'Meeting',
+        date: startedAt.slice(0, 10),
+        startedAt,
+        endedAt,
+        durationSeconds: Number(event.durationSeconds || 0),
+        status: meetingStatus as 'FAILED' | 'INTERRUPTED' | 'NEEDS_TRANSCRIPT',
+        audioPath: event.audioPath || undefined,
+        actionItems: [],
+        processingMessage: meetingStatus === 'NEEDS_TRANSCRIPT'
+          ? 'Recording saved. Add or correct the transcript to create the offline summary.'
+          : 'The recording ended unexpectedly. The recovered audio is kept when available.',
+        createdAt: startedAt,
+        updatedAt: endedAt,
+      };
+      const alreadyExists = (next.meetings || []).some((item) => item.id === event.meetingId);
+      next = {
+        ...next,
+        meetings: alreadyExists
+          ? (next.meetings || []).map((item) => item.id === meeting.id ? { ...item, ...meeting } : item)
+          : [...(next.meetings || []), meeting],
+        timeline: next.timeline.some((item) => item.id === eventId)
+          ? next.timeline
+          : [...next.timeline, toTimelineEvent(event, eventId, 'MEETING', `Meeting recorded: ${meeting.title}`, eventTime)],
+      };
     } else if (inferredAction === 'SNOOZE') {
       const nativeSnooze = Number(event.snoozedUntilMillis || 0);
       const currentSnooze = next.userSettings.snoozedUntil
@@ -179,7 +222,7 @@ export const reconcileNativeAccountabilityEvents = (
     };
   }
 
-  return { state: next, acknowledgedEventIds, shouldOpenPrompt };
+  return { state: next, acknowledgedEventIds, shouldOpenPrompt, shouldOpenMeetings };
 };
 
 const toTimelineEvent = (

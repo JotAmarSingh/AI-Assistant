@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Plus, CheckCircle2, Play, PauseCircle, Clock, CornerDownRight, Trash2, User, Lock, Unlock, Timer, BrainCircuit } from 'lucide-react';
+import { Plus, CheckCircle2, Play, PauseCircle, Clock, CornerDownRight, Trash2, User, Lock, Unlock, Timer, BrainCircuit, Settings2 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TaskStatus, TaskCategory, TaskOwner } from '../../types';
 import { taskIsVisibleOnBoard } from '../../utils/dailyHistory';
+import { ManageCategoriesModal } from '../tasks/ManageCategoriesModal';
 
 export const TaskBoardView: React.FC = () => {
-  const { state, updateTaskStatus, addTask, deleteTask, startFocusTimer, setIsFocusModalOpen } = useDay();
+  const { state, updateTaskStatus, addTask, deleteTask, editTask, startFocusTimer, setIsFocusModalOpen, taskCategories } = useDay();
   const [selectedFilter, setSelectedFilter] = useState<TaskStatus | 'ALL'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<TaskCategory | 'ALL'>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
 
   // New task form state
   const [newTitle, setNewTitle] = useState('');
@@ -35,18 +37,8 @@ export const TaskBoardView: React.FC = () => {
     { status: 'DONE', label: 'Done', count: dateVisibleTasks.filter((t) => t.status === 'DONE').length },
   ];
 
-  const categories: TaskCategory[] = [
-    'OFFICE',
-    'CAREER',
-    'CLIENT',
-    'CONTENT',
-    'KHABARZAAR',
-    'HOME',
-    'FAMILY',
-    'HEALTH',
-    'PERSONAL',
-    'IDEAS',
-  ];
+  const categories: TaskCategory[] = taskCategories.map((category) => category.id);
+  const categoryLabel = (id: string) => taskCategories.find((category) => category.id === id)?.label || id;
 
   const owners: TaskOwner[] = ['ME', 'IT_TEAM', 'CLIENT', 'BOSS', 'SPOUSE', 'RECRUITER', 'OTHER'];
 
@@ -144,9 +136,16 @@ export const TaskBoardView: React.FC = () => {
                   : 'text-[#C4C6D0] hover:text-[#E2E2E6]'
               }`}
             >
-              {cat}
+              {categoryLabel(cat)}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setIsManageCategoriesOpen(true)}
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-full bg-[#334867] px-2.5 py-1 font-bold text-[#D1E1FF]"
+          >
+            <Settings2 className="h-3 w-3" /> Manage
+          </button>
         </div>
       </div>
 
@@ -187,9 +186,14 @@ export const TaskBoardView: React.FC = () => {
 
               {/* Tags: Category, Owner, Estimated Time */}
               <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                <span className="px-2.5 py-0.5 rounded-full bg-[#2E3036] text-[#D1E1FF] border border-[#44474E]/30 font-medium">
-                  {task.category}
-                </span>
+                <select
+                  value={task.category}
+                  onChange={(event) => editTask(task.id, { category: event.target.value })}
+                  className="rounded-full border border-[#44474E]/30 bg-[#2E3036] px-2.5 py-0.5 font-medium text-[#D1E1FF] outline-none"
+                  aria-label={`Category for ${task.title}`}
+                >
+                  {taskCategories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+                </select>
 
                 <span className={`px-2.5 py-0.5 rounded-full font-mono flex items-center space-x-1 ${
                   task.owner === 'ME'
@@ -355,7 +359,7 @@ export const TaskBoardView: React.FC = () => {
                     className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
                   >
                     {categories.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>{categoryLabel(c)}</option>
                     ))}
                   </select>
                 </div>
@@ -442,6 +446,8 @@ export const TaskBoardView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ManageCategoriesModal isOpen={isManageCategoriesOpen} onClose={() => setIsManageCategoriesOpen(false)} />
     </div>
   );
 };

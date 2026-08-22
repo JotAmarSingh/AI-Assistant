@@ -12,6 +12,10 @@ import android.view.WindowManager;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.IntentSenderRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
@@ -32,6 +36,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DayTraceNativePlugin.class);
         super.onCreate(savedInstanceState);
+        configureSystemInsets();
         googleAuthorizationLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartIntentSenderForResult(),
                 result -> {
@@ -46,6 +51,28 @@ public class MainActivity extends BridgeActivity {
                 }
         );
         handleIncomingIntent(getIntent());
+    }
+
+    /**
+     * Android 15+ renders edge-to-edge by default. Apply the real status and
+     * navigation bar insets to the WebView so DayTrace content cannot sit
+     * underneath Pixel system icons or gesture/navigation controls. IME space
+     * remains controlled by adjustResize, allowing focused inputs to move above
+     * the keyboard.
+     */
+    private void configureSystemInsets() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        ViewCompat.getWindowInsetsController(getWindow().getDecorView()).setAppearanceLightStatusBars(false);
+        ViewCompat.getWindowInsetsController(getWindow().getDecorView()).setAppearanceLightNavigationBars(false);
+
+        ViewCompat.setOnApplyWindowInsetsListener(bridge.getWebView(), (view, windowInsets) -> {
+            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(bridge.getWebView());
     }
 
     @Override
@@ -82,6 +109,22 @@ public class MainActivity extends BridgeActivity {
             } catch (Exception ignored) {}
             DayTraceNativePlugin.notifyNotificationAction("OPEN_PERIODIC_PROMPT", eventId, openEvent.toString());
             intent.removeExtra("fromPeriodicPrompt");
+        }
+
+        if (intent.getBooleanExtra("openMeetings", false)) {
+            long nowMillis = System.currentTimeMillis();
+            String eventId = "native-open-meetings-" + nowMillis;
+            JSONObject event = new JSONObject();
+            try {
+                event.put("id", eventId);
+                event.put("nativeEventId", eventId);
+                event.put("actionType", "OPEN_MEETINGS");
+                event.put("syncStatus", "PENDING");
+                event.put("createdAt", nowMillis);
+                NativeEventStore.append(getApplicationContext(), event);
+            } catch (Exception ignored) {}
+            DayTraceNativePlugin.notifyNotificationAction("OPEN_MEETINGS", eventId, "");
+            intent.removeExtra("openMeetings");
         }
 
         String action = intent.getStringExtra("action");

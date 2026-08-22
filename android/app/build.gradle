@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def dayTraceKeystorePath = System.getenv('DAYTRACE_KEYSTORE_PATH')
+def dayTraceKeystorePassword = System.getenv('DAYTRACE_KEYSTORE_PASSWORD')
+def dayTraceKeyAlias = System.getenv('DAYTRACE_KEY_ALIAS')
+def dayTraceKeyPassword = System.getenv('DAYTRACE_KEY_PASSWORD')
+def hasStableSigning = dayTraceKeystorePath && dayTraceKeystorePassword && dayTraceKeyAlias && dayTraceKeyPassword
+
 android {
     namespace = "com.amarsingh.daytrace"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +13,8 @@ android {
         applicationId "com.amarsingh.daytrace"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2026082201
+        versionName "1.2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,9 +22,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasStableSigning) {
+            daytraceStable {
+                storeFile file(dayTraceKeystorePath)
+                storePassword dayTraceKeystorePassword
+                keyAlias dayTraceKeyAlias
+                keyPassword dayTraceKeyPassword
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (hasStableSigning) signingConfig signingConfigs.daytraceStable
+        }
         release {
             minifyEnabled false
+            if (hasStableSigning) signingConfig signingConfigs.daytraceStable
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

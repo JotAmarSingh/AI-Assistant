@@ -40,11 +40,11 @@ export const RewardsVaultModal: React.FC<RewardsVaultModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   const gamification = state.gamification || {
-    points: 120,
-    currentStreakDays: 1,
-    longestStreakDays: 1,
-    totalFocusMinutes: 25,
-    totalTasksCompleted: 3,
+    points: 0,
+    currentStreakDays: 0,
+    longestStreakDays: 0,
+    totalFocusMinutes: 0,
+    totalTasksCompleted: 0,
     totalReviewsCompleted: 0,
     claimedRewards: [],
     customRewards: [],

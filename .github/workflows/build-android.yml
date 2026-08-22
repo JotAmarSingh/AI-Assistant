@@ -11,6 +11,11 @@ jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
+    env:
+      DAYTRACE_KEYSTORE_BASE64: ${{ secrets.DAYTRACE_KEYSTORE_BASE64 }}
+      DAYTRACE_KEYSTORE_PASSWORD: ${{ secrets.DAYTRACE_KEYSTORE_PASSWORD }}
+      DAYTRACE_KEY_ALIAS: ${{ secrets.DAYTRACE_KEY_ALIAS }}
+      DAYTRACE_KEY_PASSWORD: ${{ secrets.DAYTRACE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -63,16 +68,27 @@ jobs:
       - name: Run Linter
         run: npm run lint
 
-      - name: Run Accountability and Daily History Tests
+      - name: Run DayTrace Regression Tests
         run: |
-          node --import tsx scripts/test-native-accountability.ts
+          npm run test:native-accountability
           npm run test:day-history
+          npm run test:state-migrations
+          npm run test:multi-triggers
+          npm run test:meetings
 
       - name: Build Web Application
         run: npm run build
 
       - name: Sync Capacitor Android
         run: npx cap sync android
+
+      - name: Prepare Stable DayTrace Signing Identity
+        if: ${{ env.DAYTRACE_KEYSTORE_BASE64 != '' }}
+        run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/daytrace-stable.jks"
+          printf '%s' "$DAYTRACE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "DAYTRACE_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Verify Toolchain Versions
         run: |
@@ -92,16 +108,23 @@ jobs:
           cd android
           ./gradlew :app:signingReport
 
-      - name: Build Android Debug APK
+      - name: Build Android APK
         run: |
           cd android
           chmod +x ./gradlew
-          ./gradlew clean assembleDebug --stacktrace
+          if [ -n "$DAYTRACE_KEYSTORE_PATH" ]; then
+            ./gradlew clean assembleRelease --stacktrace
+            cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/DayTrace.apk
+          else
+            echo "::warning::Stable signing secrets are missing. This debug APK may not update an APK signed by another runner."
+            ./gradlew clean assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/DayTrace.apk
+          fi
 
-      - name: Upload Debug APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DayTrace-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: DayTrace-apk
+          path: android/app/build/outputs/apk/DayTrace.apk
           if-no-files-found: error
           retention-days: 30

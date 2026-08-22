@@ -314,7 +314,7 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
             <span className="text-[10px] text-[#C4C6D0]/70">Pomodoro & Stopwatch</span>
           </button>
 
-          {/* Voice Memo */}
+          {/* Meeting Mode */}
           <button
             onClick={() => setIsVoiceModalOpen(true)}
             className="bg-[#1D2026] hover:bg-[#2E3036] border border-[#44474E]/40 p-3 rounded-2xl flex flex-col items-start transition text-left group"
@@ -323,10 +323,10 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
               <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF] group-hover:scale-110 transition">
                 <Mic className="w-4 h-4" />
               </div>
-              <span className="text-[10px] font-mono text-[#86EFAC]">Hands-free</span>
+              <span className="text-[10px] font-mono text-[#F87171]">Confirmed</span>
             </div>
-            <span className="text-xs font-bold text-[#E2E2E6]">Voice Capture</span>
-            <span className="text-[10px] text-[#C4C6D0]/70">Speech to action</span>
+            <span className="text-xs font-bold text-[#E2E2E6]">Meeting Mode</span>
+            <span className="text-[10px] text-[#C4C6D0]/70">Record, review, extract</span>
           </button>
 
           {/* Rewards & Streak */}
@@ -338,7 +338,7 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
               <div className="p-1.5 rounded-xl bg-[#FBBF24]/20 text-[#FBBF24] group-hover:scale-110 transition">
                 <Flame className="w-4 h-4 fill-current text-[#F87171]" />
               </div>
-              <span className="text-[10px] font-bold font-mono text-[#FBBF24]">🪙 {state.gamification?.points || 120}</span>
+              <span className="text-[10px] font-bold font-mono text-[#FBBF24]">🪙 {state.gamification?.points || 0}</span>
             </div>
             <span className="text-xs font-bold text-[#E2E2E6]">Streak & Vault</span>
             <span className="text-[10px] text-[#C4C6D0]/70">Candies, iPhone</span>
@@ -370,7 +370,7 @@ export const TodayHubView: React.FC<TodayHubViewProps> = ({ onNavigateToTimetabl
               <div>
                 <div className="text-xs font-bold text-[#E2E2E6]">{nextFixedEvent.title}</div>
                 <div className="text-[11px] text-[#C4C6D0]">
-                  Starts at <span className="font-semibold text-[#D1E1FF]">{nextFixedEvent.time}</span> • {nextFixedEvent.location || 'Office'}
+                  Starts at <span className="font-semibold text-[#D1E1FF]">{nextFixedEvent.time}</span> • {nextFixedEvent.location || 'No location'}
                 </div>
               </div>
             </div>

@@ -89,6 +89,10 @@ export const createEmptyHistoricalState = (date: string, liveState: DailyState):
   ...createFreshDailyState(date),
   userSettings: { ...DEFAULT_USER_SETTINGS, ...liveState.userSettings },
   geofenceLocations: liveState.geofenceLocations,
+  ignoredLocationClusters: liveState.ignoredLocationClusters,
+  taskCategories: liveState.taskCategories,
+  meetings: (liveState.meetings || []).filter((meeting) => meeting.date === date),
+  migrationMetadata: liveState.migrationMetadata,
   gamification: liveState.gamification,
   current: {
     ...createFreshDailyState(date).current,
@@ -136,6 +140,10 @@ export const createNextDailyState = (previousInput: DailyState, nextDate: string
       status: 'PENDING',
     })),
     geofenceLocations: previous.geofenceLocations,
+    ignoredLocationClusters: previous.ignoredLocationClusters,
+    taskCategories: previous.taskCategories,
+    meetings: previous.meetings,
+    migrationMetadata: previous.migrationMetadata,
     gamification: previous.gamification,
     nativeAccountability: previous.nativeAccountability,
   };

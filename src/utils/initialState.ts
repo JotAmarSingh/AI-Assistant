@@ -1,43 +1,49 @@
-import { DailyState, GeofenceLocation } from '../types';
+import { DailyState, GeofenceLocation, TaskCategoryDefinition } from '../types';
 import { INITIAL_GAMIFICATION_STATE } from '../services/rewardsCatalog';
 
-export const DEFAULT_GEOFENCE_LOCATIONS: GeofenceLocation[] = [
-  {
-    id: 'geo-office',
-    name: 'Office',
-    latitude: 37.7899,
-    longitude: -122.4008,
-    radiusMeters: 250,
-    arrivalMessage: 'Welcome to Office. Reviewing priority tasks for today.',
-    departureMessage: 'Departing Office. Time to wrap up tasks and start evening transition!',
-    targetDepartureTime: '18:30',
-  },
-  {
-    id: 'geo-home',
-    name: 'Home',
-    latitude: 37.7749,
-    longitude: -122.4194,
-    radiusMeters: 200,
-    arrivalMessage: 'Arrived Home. Shift mode to family and recharge.',
-    departureMessage: 'Leaving Home for the day.',
-  },
-  {
-    id: 'geo-gym',
-    name: 'Gym',
-    latitude: 37.7833,
-    longitude: -122.4167,
-    radiusMeters: 150,
-    arrivalMessage: 'Arrived at Gym. Time to power through workout routine!',
-    departureMessage: 'Workout complete. Log hydration and post-workout meal.',
-  },
+export const CURRENT_STATE_SCHEMA_VERSION = 5;
+export const UNCATEGORISED_CATEGORY_ID = 'UNCATEGORISED';
+
+const category = (
+  id: string,
+  label: string,
+  color: string,
+  icon: string,
+  isSystem = false,
+): TaskCategoryDefinition => ({
+  id,
+  label,
+  color,
+  icon,
+  isSystem,
+  createdAt: '2026-08-22T00:00:00.000Z',
+  updatedAt: '2026-08-22T00:00:00.000Z',
+});
+
+/** Neutral category definitions are configuration, not pre-filled user data. */
+export const DEFAULT_TASK_CATEGORIES: TaskCategoryDefinition[] = [
+  category(UNCATEGORISED_CATEGORY_ID, 'Uncategorised', '#6B7280', 'inbox', true),
+  category('OFFICE', 'Office', '#60A5FA', 'briefcase'),
+  category('CAREER', 'Career', '#A78BFA', 'graduation-cap'),
+  category('CLIENT', 'Client', '#22D3EE', 'users'),
+  category('CONTENT', 'Content', '#F472B6', 'file-text'),
+  category('KHABARZAAR', 'Khabarzaar', '#F59E0B', 'newspaper'),
+  category('HOME', 'Home', '#34D399', 'home'),
+  category('FAMILY', 'Family', '#FB7185', 'heart'),
+  category('HEALTH', 'Health', '#4ADE80', 'activity'),
+  category('PERSONAL', 'Personal', '#FBBF24', 'user'),
+  category('IDEAS', 'Ideas', '#C084FC', 'lightbulb'),
 ];
+
+/** Retained only as a compatibility export. No fake locations are created. */
+export const DEFAULT_GEOFENCE_LOCATIONS: GeofenceLocation[] = [];
 
 export const DEFAULT_USER_SETTINGS = {
   officeStartTime: '09:30',
   officeLeavingTime: '18:30',
   wakeUpTime: '07:00',
   bedTime: '23:30',
-  periodicPromptEnabled: true,
+  periodicPromptEnabled: false,
   periodicPromptIntervalMinutes: 30,
   gamingModeActive: false,
   snoozedUntil: null,
@@ -45,29 +51,37 @@ export const DEFAULT_USER_SETTINGS = {
   enableNightlySync: true,
   nightlySyncHour: 2,
   lastNightlyBackupAt: null,
-  geofenceEnabled: true,
-  geofenceRadiusMeters: 250,
+  geofenceEnabled: false,
+  geofenceRadiusMeters: 200,
+  locationLearningEnabled: false,
+  locationDwellMinutes: 10,
+  meetingAudioRetention: 'KEEP' as const,
+  googleAuthStatus: 'DISCONNECTED' as const,
+  googleAuthError: null,
 };
 
-/**
- * Creates a genuine fresh start state for DayTrace (Section 8)
- * Starts with no pre-filled demonstration tasks, timeline entries, or fake records.
- */
+const localDateKey = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/** A real fresh installation contains no personal examples or inferred places. */
 export const createFreshDailyState = (date?: string): DailyState => ({
-  date: date || (() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  })(),
+  schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+  date: date || localDateKey(),
   userSettings: { ...DEFAULT_USER_SETTINGS },
   current: {
-    location: 'Home',
-    activity: 'Ready to track your day',
+    location: 'Unknown',
+    activity: '',
     energy: 'NORMAL',
     focusTaskId: null,
-    updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+    updatedAt: new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
   },
   fixedEvents: [],
   timeline: [],
@@ -75,285 +89,21 @@ export const createFreshDailyState = (date?: string): DailyState => ({
   reminders: [],
   automations: [],
   timetable: [],
-  geofenceLocations: DEFAULT_GEOFENCE_LOCATIONS,
-  gamification: { ...INITIAL_GAMIFICATION_STATE },
+  geofenceLocations: [],
+  ignoredLocationClusters: [],
+  taskCategories: DEFAULT_TASK_CATEGORIES.map((item) => ({ ...item })),
+  meetings: [],
+  migrationMetadata: { appliedVersions: [CURRENT_STATE_SCHEMA_VERSION] },
+  gamification: {
+    ...INITIAL_GAMIFICATION_STATE,
+    claimedRewards: [],
+    customRewards: [],
+  },
   nextBestAction: null,
   conversationHistory: [],
+  nativeAccountability: { processedEventIds: [] },
 });
 
-/**
- * Sample template state (can be loaded optionally by the user via Settings / Reset)
- */
-export const SAMPLE_TEMPLATE_STATE: DailyState = {
-  date: new Date().toISOString().split('T')[0],
-  userSettings: { ...DEFAULT_USER_SETTINGS },
-  current: {
-    location: 'Office',
-    activity: 'Morning planning & review',
-    energy: 'NORMAL',
-    focusTaskId: 'task-3',
-    updatedAt: '09:38',
-  },
-  fixedEvents: [
-    {
-      id: 'fix-1',
-      time: '11:30',
-      endTime: '12:30',
-      title: 'Boss Meeting',
-      category: 'OFFICE',
-      location: 'Conference Room B',
-      notes: 'Review Q3 workflow submission & team goals',
-    },
-    {
-      id: 'fix-2',
-      time: '16:00',
-      endTime: '16:45',
-      title: 'Client Strategy Call',
-      category: 'CLIENT',
-      location: 'Google Meet',
-      notes: 'Review updated contract and onboarding milestones',
-    },
-  ],
-  timeline: [
-    {
-      id: 'time-1',
-      time: '07:30',
-      type: 'EVENT',
-      description: 'Woke up & morning routine',
-      location: 'Home',
-    },
-    {
-      id: 'time-2',
-      time: '09:10',
-      type: 'DEPARTURE',
-      description: 'Reached office (10 min traffic delay)',
-      location: 'Office',
-      plannedTime: '09:00',
-      varianceMinutes: 10,
-    },
-    {
-      id: 'time-3',
-      time: '09:38',
-      type: 'UPDATE',
-      description: 'Logged morning update & task alignment',
-      location: 'Office',
-    },
-  ],
-  tasks: [
-    {
-      id: 'task-1',
-      title: 'Morning content post',
-      category: 'CONTENT',
-      owner: 'ME',
-      status: 'DONE',
-      priority: 8,
-      createdAt: '07:30',
-      completedAt: '09:40',
-      recurring: true,
-      recurrenceRule: 'DAILY',
-      notes: 'Published daily insights post to LinkedIn/Twitter',
-    },
-    {
-      id: 'task-2',
-      title: 'Prepare and submit final workflow',
-      category: 'OFFICE',
-      owner: 'ME',
-      status: 'DONE',
-      priority: 9,
-      createdAt: '09:15',
-      completedAt: '12:30',
-      notes: 'Handed off to IT for CRM implementation',
-    },
-    {
-      id: 'task-3',
-      title: 'Job/recruiter correspondence & follow-ups',
-      category: 'CAREER',
-      owner: 'ME',
-      status: 'ACTIVE',
-      priority: 9,
-      createdAt: '09:38',
-      estimatedMinutes: 45,
-      location: 'OFFICE',
-      context: 'COMPUTER',
-      notes: 'Review pending applications and schedule screening calls before lunch',
-    },
-    {
-      id: 'task-4',
-      title: 'Client work proposal revision',
-      category: 'CLIENT',
-      owner: 'ME',
-      status: 'NEXT',
-      priority: 8,
-      createdAt: '09:38',
-      estimatedMinutes: 40,
-      location: 'OFFICE',
-      context: 'COMPUTER',
-      notes: 'Update fee structure for enterprise proposal',
-    },
-    {
-      id: 'task-5',
-      title: 'Implement workflow in CRM',
-      category: 'OFFICE',
-      owner: 'IT_TEAM',
-      status: 'WAITING',
-      priority: 7,
-      createdAt: '12:30',
-      notes: 'Waiting for IT team implementation (~24 hours estimate)',
-    },
-    {
-      id: 'task-6',
-      title: 'Test CRM workflow',
-      category: 'OFFICE',
-      owner: 'ME',
-      status: 'BLOCKED',
-      priority: 8,
-      createdAt: '12:30',
-      estimatedMinutes: 30,
-      blockedBy: 'Implement workflow in CRM (IT_TEAM)',
-      trigger: 'IT confirms CRM workflow is live',
-      notes: 'Verify pipeline stages, permissions, and email automation triggers',
-    },
-    {
-      id: 'task-7',
-      title: 'Pillow and Curd',
-      category: 'PERSONAL',
-      owner: 'ME',
-      status: 'NEXT',
-      priority: 6,
-      createdAt: '09:45',
-      notes: 'Bring pillow and curd along when going home',
-    },
-  ],
-  reminders: [
-    {
-      id: 'rem-1',
-      type: 'TIME_BASED',
-      triggerCondition: '13:00',
-      message: 'Grab water bottle when going home for lunch',
-      isDone: true,
-      createdAt: '09:38',
-    },
-    {
-      id: 'rem-2',
-      type: 'EVENT_TRIGGERED',
-      triggerCondition: 'When IT confirms CRM workflow is ready',
-      message: 'Run full verification tests on CRM automation flow',
-      isDone: false,
-      createdAt: '12:30',
-      relatedTaskId: 'task-6',
-    },
-    {
-      id: 'rem-3',
-      type: 'LOCATION_BASED',
-      triggerCondition: 'Arriving home this evening',
-      message: 'Take laptop charger and notebook',
-      isDone: false,
-      createdAt: '10:00',
-    },
-  ],
-  automations: [],
-  timetable: [
-    {
-      id: 'slot-1',
-      title: 'Morning Fuel & Breakfast',
-      category: 'HEALTH',
-      startTime: '07:30',
-      endTime: '08:15',
-      durationMinutes: 45,
-      days: 'DAILY',
-      status: 'COMPLETED',
-      location: 'HOME',
-      isRegularHabit: true,
-      targetMetric: 'Hydration + High-protein breakfast',
-      iconKey: 'breakfast',
-    },
-    {
-      id: 'slot-2',
-      title: 'Gym & Physical Fitness',
-      category: 'HEALTH',
-      startTime: '08:15',
-      endTime: '09:15',
-      durationMinutes: 60,
-      days: 'MON_WED_FRI',
-      status: 'COMPLETED',
-      location: 'GYM',
-      isRegularHabit: true,
-      targetMetric: 'Strength training + 15m stretch',
-      iconKey: 'gym',
-    },
-    {
-      id: 'slot-3',
-      title: 'Social Media & Content Posting',
-      category: 'CONTENT',
-      startTime: '09:40',
-      endTime: '10:15',
-      durationMinutes: 35,
-      days: 'WEEKDAYS',
-      status: 'COMPLETED',
-      location: 'OFFICE',
-      isRegularHabit: true,
-      targetMetric: '1 LinkedIn/Twitter post + engage with 10 replies',
-      iconKey: 'social',
-    },
-    {
-      id: 'slot-4',
-      title: 'Core Office & Deep Work Block',
-      category: 'OFFICE',
-      startTime: '10:15',
-      endTime: '13:00',
-      durationMinutes: 165,
-      days: 'WEEKDAYS',
-      status: 'ACTIVE',
-      location: 'OFFICE',
-      isRegularHabit: true,
-      targetMetric: 'High-leverage tasks & Boss sync at 11:30',
-      iconKey: 'work',
-    },
-    {
-      id: 'slot-5',
-      title: 'Healthy Lunch Break & Walk',
-      category: 'HEALTH',
-      startTime: '13:00',
-      endTime: '14:00',
-      durationMinutes: 60,
-      days: 'DAILY',
-      status: 'PENDING',
-      location: 'HOME',
-      isRegularHabit: true,
-      targetMetric: 'Nutritious lunch + 15 min walk',
-      iconKey: 'lunch',
-    },
-  ],
-  nextBestAction: {
-    taskId: 'task-3',
-    title: 'Job/recruiter correspondence & follow-ups',
-    rationale: 'High priority career momentum window (45 min) before upcoming 11:30 Boss meeting.',
-    category: 'CAREER',
-    estimatedMinutes: 45,
-    urgencyReason: 'Available window before 11:30 Boss Meeting; avoids switching cost',
-    secondaryRecommendations: [
-      'Client work proposal revision (40 mins)',
-    ],
-  },
-  conversationHistory: [
-    {
-      id: 'msg-1',
-      sender: 'user',
-      text: 'I reached office at 9:10. Morning content post is already done. Boss meeting at 11:30.',
-      timestamp: '09:38',
-    },
-    {
-      id: 'msg-2',
-      sender: 'ai',
-      text: 'Logged arrival at office at 9:10 and marked Morning Content Post as DONE. Added Boss Meeting at 11:30 as planning anchor. Next best action: Focus on Job/recruiter correspondence.',
-      timestamp: '09:38',
-      changesSummary: {
-        tasksDone: ['Morning content post'],
-        timelineAdded: ['Reached office at 09:10', 'Morning content post published'],
-        nextAction: 'Job/recruiter correspondence',
-      },
-    },
-  ],
-};
-
+/** Deprecated compatibility constant. It deliberately contains no example data. */
+export const SAMPLE_TEMPLATE_STATE: DailyState = createFreshDailyState();
 export const INITIAL_DAILY_STATE = createFreshDailyState();

@@ -17,17 +17,18 @@ export type TaskOwner =
   | 'RECRUITER'
   | 'OTHER';
 
-export type TaskCategory = 
-  | 'OFFICE'
-  | 'CAREER'
-  | 'CLIENT'
-  | 'CONTENT'
-  | 'KHABARZAAR'
-  | 'HOME'
-  | 'FAMILY'
-  | 'HEALTH'
-  | 'PERSONAL'
-  | 'IDEAS';
+/** Category IDs are durable strings so users can add and rename categories. */
+export type TaskCategory = string;
+
+export interface TaskCategoryDefinition {
+  id: string;
+  label: string;
+  color: string;
+  icon: string;
+  isSystem?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type EnergyLevel = 
   | 'HIGH_FOCUS'
@@ -209,6 +210,11 @@ export interface UserSettings {
   // Geofence configuration
   geofenceEnabled?: boolean;
   geofenceRadiusMeters?: number;
+  locationLearningEnabled?: boolean;
+  locationDwellMinutes?: number;
+  meetingAudioRetention?: 'KEEP' | 'DELETE_AFTER_PROCESSING';
+  googleAuthStatus?: 'DISCONNECTED' | 'CONNECTED' | 'CANCELLED' | 'ERROR';
+  googleAuthError?: string | null;
   homeCoords?: { latitude: number; longitude: number };
   officeCoords?: { latitude: number; longitude: number };
   gymCoords?: { latitude: number; longitude: number };
@@ -237,6 +243,47 @@ export interface GeofenceLocation {
   arrivalMessage?: string;
   departureMessage?: string;
   targetDepartureTime?: string; // e.g. "18:30"
+  createdAt?: string;
+  updatedAt?: string;
+  source?: 'USER' | 'LEARNED' | 'IMPORTED';
+  /** Present only on records that were created by an app seed migration. */
+  seededExampleId?: string;
+}
+
+export interface IgnoredLocationCluster {
+  id: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  ignoredAt: string;
+  label?: string;
+}
+
+export type MeetingStatus = 'RECORDING' | 'PAUSED' | 'PROCESSING' | 'READY' | 'NEEDS_TRANSCRIPT' | 'INTERRUPTED' | 'FAILED';
+
+export interface MeetingActionItem {
+  id: string;
+  text: string;
+  selected: boolean;
+  taskId?: string;
+}
+
+export interface MeetingRecord {
+  id: string;
+  title: string;
+  objective?: string;
+  date: string;
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds: number;
+  status: MeetingStatus;
+  audioPath?: string;
+  transcript?: string;
+  summary?: string;
+  actionItems: MeetingActionItem[];
+  processingMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type RewardTier = 'MICRO' | 'WEEKLY' | 'GRAND';
@@ -278,6 +325,7 @@ export interface UserGamification {
 }
 
 export interface DailyState {
+  schemaVersion?: number;
   date: string; // YYYY-MM-DD
   userSettings: UserSettings;
   current: {
@@ -294,6 +342,13 @@ export interface DailyState {
   automations?: Automation[];
   timetable: TimetableSlot[];
   geofenceLocations?: GeofenceLocation[];
+  ignoredLocationClusters?: IgnoredLocationCluster[];
+  taskCategories?: TaskCategoryDefinition[];
+  meetings?: MeetingRecord[];
+  migrationMetadata?: {
+    seededExamplesPurgedAt?: string;
+    appliedVersions?: number[];
+  };
   gamification?: UserGamification;
   nextBestAction: {
     taskId: string | null;

@@ -9,7 +9,7 @@
  */
 import { DailyState, EndOfDayReview, TimelineEvent, TaskItem, ReminderItem } from '../types';
 import { getLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
-import { isNativeAndroid, requestNativeGoogleSheetsAccess } from './nativeBridge';
+import { clearNativeGoogleSheetsAccess, isNativeAndroid, requestNativeGoogleSheetsAccess, revokeNativeGoogleSheetsAccess } from './nativeBridge';
 
 declare global {
   interface Window {
@@ -79,6 +79,7 @@ export async function getGoogleAccessToken(forcePrompt = false): Promise<string>
 
   if (isNativeAndroid()) {
     try {
+      if (forcePrompt) await clearNativeGoogleSheetsAccess();
       cachedAccessToken = await requestNativeGoogleSheetsAccess();
       tokenExpiresAt = Date.now() + 50 * 60 * 1000;
       return cachedAccessToken;
@@ -128,6 +129,29 @@ export async function getGoogleAccessToken(forcePrompt = false): Promise<string>
   });
 }
 
+async function googleApiFetch(token: string, url: string, init: RequestInit = {}): Promise<Response> {
+  const withToken = (accessToken: string): RequestInit => ({
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  let response = await fetch(url, withToken(token));
+  if (response.status === 401) {
+    cachedAccessToken = null;
+    tokenExpiresAt = 0;
+    const refreshedToken = await getGoogleAccessToken(true);
+    response = await fetch(url, withToken(refreshedToken));
+  }
+  return response;
+}
+
+async function googleApiError(response: Response, fallback: string): Promise<Error> {
+  const detail = await response.text().catch(() => '');
+  return new Error(`${fallback} (${response.status})${detail ? `: ${detail.slice(0, 240)}` : ''}`);
+}
+
 /**
  * Checks if we have an active or cached Google token
  */
@@ -138,9 +162,14 @@ export function hasGoogleAuth(): boolean {
 /**
  * Signs out / clears cached token
  */
-export function disconnectGoogle(): void {
+export async function disconnectGoogle(): Promise<void> {
   cachedAccessToken = null;
   tokenExpiresAt = 0;
+  if (isNativeAndroid()) {
+    await revokeNativeGoogleSheetsAccess();
+  } else {
+    await clearNativeGoogleSheetsAccess();
+  }
 }
 
 export interface SyncSheetsResult {
@@ -191,10 +220,9 @@ export async function createDayTraceSpreadsheet(
     ],
   };
 
-  const response = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+  const response = await googleApiFetch(token, 'https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -258,10 +286,9 @@ async function initializeSheetHeaders(token: string, spreadsheetId: string): Pro
     },
   ];
 
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+  const response = await googleApiFetch(token, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -269,6 +296,7 @@ async function initializeSheetHeaders(token: string, spreadsheetId: string): Pro
       data: valueRanges,
     }),
   });
+  if (!response.ok) throw await googleApiError(response, 'Failed to initialize DayTrace sheet headers');
 }
 
 /**
@@ -276,18 +304,18 @@ async function initializeSheetHeaders(token: string, spreadsheetId: string): Pro
  */
 async function fetchSheetValues(token: string, spreadsheetId: string, range: string): Promise<any[][]> {
   try {
-    const response = await fetch(
+    const response = await googleApiFetch(token,
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {},
       }
     );
-    if (!response.ok) return [];
+    if (!response.ok) throw await googleApiError(response, `Could not fetch ${range}`);
     const data = await response.json();
     return data.values || [];
   } catch (e) {
     console.warn(`Could not fetch range ${range}:`, e);
-    return [];
+    throw e;
   }
 }
 
@@ -624,10 +652,9 @@ export async function syncStateToGoogleSheets(
 
   // Execute Batch Updates for modified records
   if (batchUpdateValues.length > 0) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+    const batchResponse = await googleApiFetch(token, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -635,6 +662,7 @@ export async function syncStateToGoogleSheets(
         data: batchUpdateValues,
       }),
     });
+    if (!batchResponse.ok) throw await googleApiError(batchResponse, 'Failed to update changed DayTrace rows');
   }
 
   const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -657,21 +685,21 @@ export async function syncStateToGoogleSheets(
  */
 async function appendToSheet(token: string, spreadsheetId: string, range: string, values: any[][]): Promise<boolean> {
   try {
-    const res = await fetch(
+    const res = await googleApiFetch(token,
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ values }),
       }
     );
-    return res.ok;
+    if (!res.ok) throw await googleApiError(res, `Failed to append ${range}`);
+    return true;
   } catch (e) {
     console.warn(`Failed to append to ${range}:`, e);
-    return false;
+    throw e;
   }
 }
 
@@ -684,12 +712,10 @@ export async function fetchLatestBackupFromGoogleSheets(
   const token = await getGoogleAccessToken();
   const range = "'Full State Backups'!A2:G";
 
-  const response = await fetch(
+  const response = await googleApiFetch(token,
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
     {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: {},
     }
   );
 
@@ -720,9 +746,9 @@ export async function fetchBackupForDateFromGoogleSheets(
 ): Promise<FullBackupSnapshot | null> {
   const token = await getGoogleAccessToken();
   const range = "'Full State Backups'!A2:G";
-  const response = await fetch(
+  const response = await googleApiFetch(token,
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    { headers: {} }
   );
   if (!response.ok) {
     const detail = await response.text();

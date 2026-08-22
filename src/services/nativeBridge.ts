@@ -25,6 +25,7 @@ export interface DayTraceNativePluginInterface {
   // Geofencing
   registerGeofences(options: { locations: GeofenceLocation[] }): Promise<{ success: boolean; registeredCount: number }>;
   removeAllGeofences(): Promise<{ success: boolean }>;
+  getCurrentLocation(): Promise<{ latitude: number; longitude: number; accuracyMeters: number }>;
 
   // Native Automation Persistence (Dead-Process Geofence Matching)
   syncNativeAutomations(options: { automations: Automation[] }): Promise<{ success: boolean; count: number }>;
@@ -64,6 +65,16 @@ export interface DayTraceNativePluginInterface {
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   openNotificationSettings(): Promise<{ success: boolean }>;
   requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
+  clearGoogleSheetsAccess(): Promise<{ success: boolean }>;
+  revokeGoogleSheetsAccess(): Promise<{ success: boolean; revoked: boolean }>;
+
+  // Meeting Mode foreground recording
+  startMeetingRecording(options: { meetingId: string; title: string }): Promise<NativeMeetingRecordingState>;
+  pauseMeetingRecording(): Promise<NativeMeetingRecordingState>;
+  resumeMeetingRecording(): Promise<NativeMeetingRecordingState>;
+  stopMeetingRecording(): Promise<NativeMeetingRecordingState>;
+  getMeetingRecordingState(): Promise<NativeMeetingRecordingState>;
+  deleteMeetingAudio(options: { audioPath: string }): Promise<{ deleted: boolean }>;
 
   // Event Listeners
   addListener(
@@ -101,6 +112,17 @@ export interface NativeNotificationPermissionStatus {
   notificationsEnabled: boolean;
   channelEnabled: boolean;
   canRequest: boolean;
+}
+
+export interface NativeMeetingRecordingState {
+  meetingId: string;
+  title: string;
+  status: 'IDLE' | 'RECORDING' | 'PAUSED' | 'STOPPED' | 'INTERRUPTED' | 'FAILED';
+  startedAtMillis: number;
+  endedAtMillis?: number;
+  durationSeconds: number;
+  audioPath?: string;
+  error?: string;
 }
 
 /**
@@ -391,6 +413,16 @@ export const requestNativeGoogleSheetsAccess = async (): Promise<string> => {
   return result.accessToken;
 };
 
+export const clearNativeGoogleSheetsAccess = async (): Promise<void> => {
+  if (!isNativeAndroid()) return;
+  await DayTraceNative.clearGoogleSheetsAccess();
+};
+
+export const revokeNativeGoogleSheetsAccess = async (): Promise<void> => {
+  if (!isNativeAndroid()) return;
+  await DayTraceNative.revokeGoogleSheetsAccess();
+};
+
 export const checkNativeNotificationPermission = async (): Promise<NativeNotificationPermissionStatus> => {
   if (!isNativeAndroid()) {
     return { granted: true, status: 'GRANTED', runtimeGranted: true, notificationsEnabled: true, channelEnabled: true, canRequest: false };
@@ -414,3 +446,42 @@ export const openNativeNotificationSettings = async (): Promise<boolean> => {
   }
 };
 
+export const getCurrentCoordinates = async (): Promise<{ latitude: number; longitude: number; accuracyMeters: number }> => {
+  if (isNativeAndroid()) return DayTraceNative.getCurrentLocation();
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    throw new Error('Location is not available on this device.');
+  }
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracyMeters: position.coords.accuracy,
+      }),
+      (error) => reject(new Error(error.message || 'Could not get current location.')),
+      { enableHighAccuracy: false, maximumAge: 30_000, timeout: 15_000 },
+    );
+  });
+};
+
+export const getNativeMeetingRecordingState = async (): Promise<NativeMeetingRecordingState> => {
+  if (!isNativeAndroid()) {
+    return { meetingId: '', title: '', status: 'IDLE', startedAtMillis: 0, durationSeconds: 0 };
+  }
+  return DayTraceNative.getMeetingRecordingState();
+};
+
+export const startNativeMeetingRecording = async (meetingId: string, title: string): Promise<NativeMeetingRecordingState> => {
+  if (!isNativeAndroid()) throw new Error('Background Meeting Mode recording requires the Android app.');
+  return DayTraceNative.startMeetingRecording({ meetingId, title });
+};
+
+export const pauseNativeMeetingRecording = async (): Promise<NativeMeetingRecordingState> => DayTraceNative.pauseMeetingRecording();
+export const resumeNativeMeetingRecording = async (): Promise<NativeMeetingRecordingState> => DayTraceNative.resumeMeetingRecording();
+export const stopNativeMeetingRecording = async (): Promise<NativeMeetingRecordingState> => DayTraceNative.stopMeetingRecording();
+
+export const deleteNativeMeetingAudio = async (audioPath: string): Promise<boolean> => {
+  if (!isNativeAndroid() || !audioPath) return false;
+  const result = await DayTraceNative.deleteMeetingAudio({ audioPath });
+  return result.deleted;
+};

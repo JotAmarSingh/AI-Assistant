@@ -103,19 +103,24 @@ export function parseVoiceAutomations(
     sharedContext = contextKeywords.join(', ');
   }
 
-  for (let i = 0; i < rawClauses.length; i++) {
-    const clause = rawClauses[i].trim();
-    if (!clause) continue;
+  const timedAgenda = parseTimedAgendaAutomations(rawInput, now);
+  if (timedAgenda.length >= 2) {
+    detectedAutomations.push(...timedAgenda);
+  } else {
+    for (let i = 0; i < rawClauses.length; i++) {
+      const clause = rawClauses[i].trim();
+      if (!clause) continue;
 
-    const parsedClause = parseSingleAutomationClause(clause, lastSeenLocation, savedLocations, now, rawInput);
-    if (parsedClause) {
-      if (parsedClause.locationName) {
-        lastSeenLocation = { name: parsedClause.locationName, id: parsedClause.locationId };
+      const parsedClause = parseSingleAutomationClause(clause, lastSeenLocation, savedLocations, now, rawInput);
+      if (parsedClause) {
+        if (parsedClause.locationName) {
+          lastSeenLocation = { name: parsedClause.locationName, id: parsedClause.locationId };
+        }
+        if (sharedContext) {
+          parsedClause.relatedContext = sharedContext;
+        }
+        detectedAutomations.push(parsedClause);
       }
-      if (sharedContext) {
-        parsedClause.relatedContext = sharedContext;
-      }
-      detectedAutomations.push(parsedClause);
     }
   }
 
@@ -171,6 +176,79 @@ export function parseVoiceAutomations(
       items: confirmationItems,
     },
   };
+}
+
+interface TimedAgendaMatch {
+  index: number;
+  endIndex: number;
+  raw: string;
+  startHour: number;
+  startMinute: number;
+  startMeridiem?: string;
+  endHour?: number;
+  endMinute?: number;
+  endMeridiem?: string;
+}
+
+/** Splits agenda dictation containing repeated time markers into one automation per marker. */
+export function parseTimedAgendaAutomations(input: string, now: string): Omit<Automation, 'id'>[] {
+  const matcher = /\b(?:(?:today|tomorrow)\s+)?(?:(?:at|from)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/gi;
+  const matches: TimedAgendaMatch[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(input)) !== null) {
+    const raw = match[0];
+    const hasTriggerShape = /\b(?:at|from)\b/i.test(raw) || !!match[3] || !!match[4];
+    if (!hasTriggerShape) continue;
+    const startHour = Number(match[1]);
+    const endHour = match[4] ? Number(match[4]) : undefined;
+    if (startHour > 23 || (endHour !== undefined && endHour > 23)) continue;
+    matches.push({
+      index: match.index,
+      endIndex: matcher.lastIndex,
+      raw,
+      startHour,
+      startMinute: Number(match[2] || 0),
+      startMeridiem: match[3]?.toLowerCase(),
+      endHour,
+      endMinute: match[5] ? Number(match[5]) : undefined,
+      endMeridiem: match[6]?.toLowerCase(),
+    });
+  }
+  if (matches.length < 2) return [];
+
+  const sharedMeridiem = matches.find((item) => item.startMeridiem)?.startMeridiem
+    || matches.find((item) => item.endMeridiem)?.endMeridiem;
+  const to24Hour = (hour: number, minute: number, meridiem?: string) => {
+    let normalizedHour = hour;
+    const effectiveMeridiem = meridiem || sharedMeridiem;
+    if (effectiveMeridiem === 'pm' && normalizedHour < 12) normalizedHour += 12;
+    if (effectiveMeridiem === 'am' && normalizedHour === 12) normalizedHour = 0;
+    return `${String(normalizedHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  };
+
+  return matches.map((item, index) => {
+    const nextIndex = matches[index + 1]?.index ?? input.length;
+    let description = input.slice(item.endIndex, nextIndex)
+      .replace(/^[\s,;:–—-]*(?:we\s+have\s+|it(?:'|’)s\s+|is\s+)?/i, '')
+      .replace(/[\s,;:–—-]*(?:and|then|and\s+then|from)\s*$/i, '')
+      .trim();
+    if (!description) description = `Scheduled item at ${item.raw.trim()}`;
+    description = description.charAt(0).toUpperCase() + description.slice(1);
+    const scheduledTime = to24Hour(item.startHour, item.startMinute, item.startMeridiem);
+    const endTime = item.endHour === undefined
+      ? undefined
+      : to24Hour(item.endHour, item.endMinute || 0, item.endMeridiem || item.startMeridiem);
+    const reminderText = endTime ? `${description} (${scheduledTime}–${endTime})` : description;
+    return {
+      title: generateCleanTitle(description),
+      originalVoiceText: input,
+      triggerType: 'TIME' as const,
+      scheduledTime,
+      reminderText,
+      status: 'PENDING' as const,
+      createdAt: now,
+    };
+  });
 }
 
 /**

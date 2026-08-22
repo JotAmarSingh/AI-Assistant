@@ -4,6 +4,7 @@ import { extractExplicitTime } from './offlineParser';
 
 export type UserIntentType =
   | 'QUERY'
+  | 'SAVE_CURRENT_LOCATION'
   | 'CREATE_AUTOMATION'
   | 'LOG_ACTIVITY'
   | 'COMPLETE_TASK'
@@ -29,6 +30,26 @@ export interface QueryResponse {
   matchedCount: number;
 }
 
+export interface SaveCurrentLocationIntent {
+  label: string;
+}
+
+/** Must run before question detection so “Can you log my current location as Office?” is an action. */
+export function extractSaveCurrentLocationIntent(rawInput: string): SaveCurrentLocationIntent | null {
+  const input = rawInput.trim();
+  const patterns = [
+    /^(?:can|could|would)\s+you\s+(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:my\s+|the\s+)?current\s+location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
+    /^(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:this|my|the)\s+(?:current\s+)?location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
+    /^(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:my\s+|the\s+)?current\s+location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = input.match(pattern);
+    const label = match?.[1]?.trim().replace(/^["']|["']$/g, '');
+    if (label) return { label };
+  }
+  return null;
+}
+
 /**
  * Normalizes input text for intent matching
  */
@@ -49,6 +70,10 @@ export function classifyUserIntent(
   const input = rawInput.trim();
   const lower = input.toLowerCase();
   const cleaned = cleanQueryText(input);
+
+  if (extractSaveCurrentLocationIntent(input)) {
+    return { type: 'SAVE_CURRENT_LOCATION', confidence: 0.99, isQuestion: false };
+  }
 
   // 1. Explicit Query / Question Patterns
   const questionPrefixes = [

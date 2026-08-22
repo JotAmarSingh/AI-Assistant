@@ -1017,7 +1017,7 @@ public class DayTraceNativePlugin extends Plugin {
 
     @PluginMethod
     public void getMeetingRecordingState(PluginCall call) {
-        call.resolve(new JSObject(MeetingRecordingService.readState(getContext()).toString()));
+        call.resolve(readMeetingRecordingStateForBridge());
     }
 
     @PluginMethod
@@ -1042,12 +1042,28 @@ public class DayTraceNativePlugin extends Plugin {
         try {
             Intent intent = new Intent(getContext(), MeetingRecordingService.class).setAction(action);
             ContextCompat.startForegroundService(getContext(), intent);
-            JSObject result = new JSObject(MeetingRecordingService.readState(getContext()).toString());
+            JSObject result = readMeetingRecordingStateForBridge();
             result.put("status", expectedStatus);
             call.resolve(result);
         } catch (Exception error) {
             call.reject("Meeting Mode action failed: " + error.getMessage());
         }
+    }
+
+    /** Converts the recorder's JSONObject without invoking JSObject(String),
+     * whose constructor exposes a checked JSONException to Java callers. */
+    private JSObject readMeetingRecordingStateForBridge() {
+        JSONObject state = MeetingRecordingService.readState(getContext());
+        JSObject result = new JSObject();
+        result.put("meetingId", state.optString("meetingId", ""));
+        result.put("title", state.optString("title", ""));
+        result.put("status", state.optString("status", "IDLE"));
+        result.put("startedAtMillis", state.optLong("startedAtMillis", 0L));
+        result.put("endedAtMillis", state.optLong("endedAtMillis", 0L));
+        result.put("durationSeconds", state.optLong("durationSeconds", 0L));
+        result.put("audioPath", state.optString("audioPath", ""));
+        result.put("error", state.optString("error", ""));
+        return result;
     }
 
     // ==========================================

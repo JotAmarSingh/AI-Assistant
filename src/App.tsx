@@ -4,6 +4,7 @@ import { AndroidStatusBar } from './components/android/AndroidStatusBar';
 import { AndroidNotificationCenter } from './components/android/AndroidNotificationCenter';
 import { AndroidTopAppBar } from './components/android/AndroidTopAppBar';
 import { AndroidNavigationBar, AndroidTab } from './components/android/AndroidNavigationBar';
+import { GeminiLiveHubView } from './components/views/GeminiLiveHubView';
 import { TodayHubView } from './components/views/TodayHubView';
 import { TimetableView } from './components/views/TimetableView';
 import { TaskBoardView } from './components/views/TaskBoardView';
@@ -63,7 +64,7 @@ const MainScreen: React.FC = () => {
   const renderActiveView = () => {
     switch (activeTab) {
       case 'hub':
-        return <TodayHubView onNavigateToTimetable={() => setActiveTab('timetable')} />;
+        return <GeminiLiveHubView />;
       case 'timetable':
         return <TimetableView />;
       case 'board':

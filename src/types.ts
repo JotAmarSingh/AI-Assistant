@@ -435,3 +435,53 @@ export interface EndOfDayReview {
   tomorrowAnchors: FixedEvent[];
   summaryNarrative: string;
 }
+
+export interface UserMemoryItem {
+  id: string;
+  category: 'FAMILY' | 'HEALTH' | 'WORK' | 'PREFERENCE' | 'VEHICLE' | 'FINANCE' | 'GENERAL';
+  fact: string;
+  source?: string;
+  createdAt: number;
+}
+
+export type SmartAICardType = 
+  | 'PRICE_COMPARISON'
+  | 'MULTI_STEP_ROADMAP'
+  | 'CONFLICT_WARNING'
+  | 'PERSISTENT_MEMORY'
+  | 'EXPERT_ADVICE';
+
+export interface SmartAICard {
+  id: string;
+  type: SmartAICardType;
+  title: string;
+  subtitle?: string;
+  createdAt: number;
+  data: {
+    // For Price Comparison
+    comparisonRows?: { seller: string; price: string; stock?: string; link?: string; rating?: string }[];
+    safetyWarning?: string;
+    
+    // For Multi-Step Roadmap
+    goalTitle?: string;
+    steps?: { id: string; title: string; estimatedMinutes?: number; isDone?: boolean; deadlineTime?: string }[];
+
+    // For Conflict Warning
+    conflictingTitle?: string;
+    routineTitle?: string;
+    conflictingTime?: string;
+    suggestedFreeSlot?: { startTime: string; endTime: string };
+
+    // For Persistent Memory
+    memoryFact?: string;
+    memoryCategory?: string;
+  };
+}
+
+export interface ScheduleConflict {
+  hasConflict: boolean;
+  routineTitle?: string;
+  conflictTime?: string;
+  suggestedFreeWindow?: { startTime: string; endTime: string };
+  reason?: string;
+}

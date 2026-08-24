@@ -31,6 +31,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   const rainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isGlitching, setIsGlitching] = useState(false);
   const [isAppVisible, setIsAppVisible] = useState(true);
@@ -243,31 +244,30 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       <div className="daytrace-ai-ring ring-middle" />
       <div className="daytrace-ai-ring ring-inner" />
 
-      {/* Layer 4: Humanoid Visual Asset OR Subtle Projection Field (NO Vector Fallback) */}
+      {/* Layer 4: Humanoid Visual Asset OR Clean Holographic Projection Field */}
       <div className="daytrace-ai-humanoid-wrapper">
-        {!imageError ? (
+        {!imageError && (
           <img
             src={assetPath}
-            alt="DayTrace AI Holographic Humanoid"
-            className="daytrace-ai-image"
-            onError={() => setImageError(true)}
+            alt=""
+            className={`daytrace-ai-image ${imageLoaded ? 'loaded' : ''}`}
+            onLoad={() => setImageLoaded(true)}
+            onError={() => {
+              setImageError(true);
+              console.warn('DayTrace AI Asset Not Found (/assets/daytrace-ai.webp) - Rendering empty holographic field');
+            }}
           />
-        ) : (
-          /* Subtle Empty Holographic Projection Field when asset is absent - NO FABRICATED VECTOR FACE */
+        )}
+
+        {imageError && (
+          /* Clean Empty Holographic Projection Field (NO TEXT, NO BROKEN ICON, NO FABRICATED VECTOR FACE) */
           <div className="relative w-full h-full flex flex-col items-center justify-center text-center p-4">
-            <div className="w-28 h-28 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/5 flex items-center justify-center shadow-[0_0_25px_rgba(0,240,255,0.15)] animate-pulse">
-              <span className="text-[10px] font-mono text-[#00F0FF]/70 tracking-widest uppercase">
-                PROJECTION FIELD
-              </span>
-            </div>
-            <span className="text-[9px] font-mono text-[#C4C6D0]/50 mt-2 block">
-              Waiting for asset: /assets/daytrace-ai.webp
-            </span>
+            <div className="w-24 h-24 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/5 flex items-center justify-center shadow-[0_0_25px_rgba(0,240,255,0.15)] animate-pulse" />
           </div>
         )}
 
         {/* Layer 7: Extremely Subtle Chest Core */}
-        {!imageError && (
+        {!imageError && imageLoaded && (
           <div className="daytrace-ai-core" style={{ backgroundColor: isAlert ? '#F87171' : '#00F0FF' }}>
             <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert ? '#F87171' : '#00F0FF' }} />
           </div>
@@ -295,7 +295,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
             'bg-[#00F0FF] animate-pulse'
           }`} />
           <span className="text-[11px] font-bold text-[#E2E2E6]">
-            {!isFullyActive ? 'AI CORE STANDBY (PAUSED)' : statusText}
+            {statusText}
           </span>
         </div>
 

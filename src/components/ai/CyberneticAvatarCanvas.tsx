@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Terminal, ShieldAlert, Cpu, CheckCircle2 } from 'lucide-react';
+import { Cpu } from 'lucide-react';
 
 interface CyberneticAvatarCanvasProps {
   mode?: 'idle' | 'listening' | 'thinking' | 'talking' | 'processing_task';
@@ -15,7 +15,54 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
   codeLogs = [],
   height = 240
 }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [matrixLines, setMatrixLines] = useState<string[]>([]);
+
+  // Matrix Digital Rain Effect (Falling Letters/Numbers in Background)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    const width = (canvas.width = canvas.parentElement?.clientWidth || 340);
+    const heightNum = (canvas.height = typeof height === 'number' ? height : 240);
+
+    const chars = '010101010101ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$&*<>[]{}';
+    const fontSize = 10;
+    const columns = Math.floor(width / fontSize);
+    const drops: number[] = Array(columns).fill(1);
+
+    const draw = () => {
+      ctx.fillStyle = 'rgba(7, 10, 16, 0.2)';
+      ctx.fillRect(0, 0, width, heightNum);
+
+      ctx.fillStyle = '#00F0FF';
+      ctx.font = `${fontSize}px monospace`;
+
+      for (let i = 0; i < drops.length; i++) {
+        const text = chars[Math.floor(Math.random() * chars.length)];
+        const x = i * fontSize;
+        const y = drops[i] * fontSize;
+
+        ctx.fillStyle = Math.random() > 0.85 ? '#0088FF' : '#00F0FF';
+        ctx.fillText(text, x, y);
+
+        if (y > heightNum && Math.random() > 0.975) {
+          drops[i] = 0;
+        }
+        drops[i]++;
+      }
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [height]);
 
   useEffect(() => {
     if (mode === 'processing_task' || mode === 'thinking') {
@@ -37,59 +84,66 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
 
   return (
     <div 
-      className="relative w-full rounded-[32px] overflow-hidden bg-[#070A10] border border-[#00F0FF]/30 shadow-[0_0_40px_rgba(0,240,255,0.15)] flex flex-col items-center justify-center p-4 transition-all duration-500"
+      className="relative w-full rounded-[32px] overflow-hidden bg-[#070A10] border border-[#00F0FF]/40 shadow-[0_0_45px_rgba(0,240,255,0.2)] flex flex-col items-center justify-center p-4 transition-all duration-500"
       style={{ height }}
     >
-      {/* Background Cyber Grid */}
-      <div 
-        className="absolute inset-0 opacity-15 pointer-events-none"
-        style={{
-          backgroundImage: `radial-gradient(#00F0FF 1px, transparent 1px), linear-gradient(to right, rgba(0,240,255,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,240,255,0.05) 1px, transparent 1px)`,
-          backgroundSize: '24px 24px, 16px 16px, 16px 16px'
-        }}
+      {/* Falling Code Matrix Background Canvas */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 opacity-30 pointer-events-none z-0"
       />
 
-      {/* Cybernetic AI Avatar Hologram */}
+      {/* Cybernetic Frontal Humanoid Face Mesh (Matching Reference Image) */}
       <div className="relative flex items-center justify-center z-10 my-auto">
-        {/* Outer Pulsing Aura Rings */}
+        {/* Holographic Ring Aura */}
         <motion.div
           animate={{
-            scale: isWorking ? [1, 1.25, 1] : isListening ? [1, 1.4, 1] : [1, 1.08, 1],
-            opacity: isWorking ? [0.3, 0.7, 0.3] : [0.2, 0.4, 0.2],
-            rotate: isWorking ? 360 : 0
+            scale: isWorking ? [1, 1.25, 1] : isListening ? [1, 1.35, 1] : [1, 1.05, 1],
+            opacity: isWorking ? [0.4, 0.8, 0.4] : [0.25, 0.5, 0.25],
           }}
-          transition={{ repeat: Infinity, duration: isWorking ? 4 : isListening ? 1.5 : 6, ease: 'easeInOut' }}
-          className="absolute w-44 h-44 rounded-full border border-[#00F0FF]/40 shadow-[0_0_30px_rgba(0,240,255,0.3)]"
+          transition={{ repeat: Infinity, duration: isWorking ? 2 : 4, ease: 'easeInOut' }}
+          className="absolute w-44 h-44 rounded-full border border-[#00F0FF]/30 shadow-[0_0_35px_rgba(0,240,255,0.25)]"
         />
 
-        <motion.div
-          animate={{
-            scale: isTalking ? [1, 1.2, 1] : [1, 1.05, 1],
-            rotate: isWorking ? -360 : 0
-          }}
-          transition={{ repeat: Infinity, duration: isWorking ? 6 : 8, ease: 'linear' }}
-          className="absolute w-36 h-36 rounded-full border border-dashed border-[#0088FF]/60"
-        />
+        {/* Cyber Face Silhouette Core */}
+        <div className="relative w-28 h-32 rounded-[40%] bg-gradient-to-b from-[#0088FF]/30 via-[#00F0FF]/15 to-[#070A10] border border-[#00F0FF]/60 shadow-[0_0_40px_rgba(0,240,255,0.4)] flex flex-col items-center justify-center overflow-hidden">
+          {/* Cybernetic Face Line Art Vector */}
+          <svg className="w-24 h-28 text-[#00F0FF]" viewBox="0 0 100 120" fill="none">
+            {/* Head Contour */}
+            <path d="M50 10 C25 10, 18 35, 18 60 C18 90, 35 110, 50 110 C65 110, 82 90, 82 60 C82 35, 75 10, 50 10 Z" stroke="#00F0FF" strokeWidth="1.5" strokeOpacity="0.8" fill="rgba(0, 240, 255, 0.05)" />
+            
+            {/* Left Eye & Ocular HUD Target (Matching Reference Image) */}
+            <circle cx="36" cy="48" r="6" stroke="#00F0FF" strokeWidth="1.5" />
+            <circle cx="36" cy="48" r="2" fill="#FBBF24" />
 
-        {/* Central Glowing Cyber Humanoid Avatar Core */}
-        <div className="relative w-24 h-24 rounded-full bg-gradient-to-b from-[#00F0FF]/20 via-[#0088FF]/10 to-[#070A10] border-2 border-[#00F0FF] shadow-[0_0_35px_rgba(0,240,255,0.5)] flex items-center justify-center overflow-hidden">
-          {/* Cybernetic Skeleton Grid Simulation */}
-          <svg className="w-16 h-16 text-[#00F0FF] opacity-90" viewBox="0 0 100 100" fill="none">
-            <circle cx="50" cy="30" r="14" stroke="#00F0FF" strokeWidth="2" fill="rgba(0,240,255,0.15)" />
-            <path d="M50 44 L50 78 M32 54 L68 54 M36 78 L50 64 L64 78" stroke="#00F0FF" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M40 30 L60 30 M50 20 L50 40" stroke="#0088FF" strokeWidth="1.5" />
-            <circle cx="50" cy="30" r="3" fill="#FBBF24" />
-            <circle cx="32" cy="54" r="2.5" fill="#00F0FF" />
-            <circle cx="68" cy="54" r="2.5" fill="#00F0FF" />
-            <circle cx="50" cy="64" r="2.5" fill="#FBBF24" />
+            {/* Right Ocular Targeting HUD */}
+            <circle cx="64" cy="48" r="8" stroke="#0088FF" strokeWidth="1.5" strokeDasharray="3 2" />
+            <circle cx="64" cy="48" r="4" stroke="#00F0FF" strokeWidth="1" />
+            <circle cx="64" cy="48" r="1.5" fill="#00F0FF" />
+
+            {/* Nose & Jaw Nodes */}
+            <path d="M50 48 L50 68 L56 70" stroke="#00F0FF" strokeWidth="1.2" strokeOpacity="0.7" />
+            
+            {/* Reactive Mouth / Equalizer Line */}
+            <motion.path 
+              d="M38 84 Q50 88 62 84" 
+              stroke={isTalking ? '#FBBF24' : '#00F0FF'} 
+              strokeWidth="2" 
+              strokeLinecap="round" 
+              animate={{ d: isTalking ? ["M38 82 Q50 92 62 82", "M38 85 Q50 80 62 85"] : "M38 84 Q50 88 62 84" }}
+              transition={{ repeat: Infinity, duration: 0.3 }}
+            />
+
+            {/* Digital Node Lines */}
+            <path d="M22 48 L30 48 M70 48 L78 48 M50 20 L50 35 M28 85 L38 84 M62 84 L72 85" stroke="#00F0FF" strokeWidth="1" strokeOpacity="0.5" />
           </svg>
 
-          {/* Active Processing Scanning Line */}
+          {/* Active Processing Scanning Beam */}
           {isWorking && (
             <motion.div
-              animate={{ y: [-40, 40, -40] }}
-              transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
-              className="absolute left-0 right-0 h-1 bg-[#00F0FF] shadow-[0_0_15px_#00F0FF]"
+              animate={{ y: [-50, 50, -50] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
+              className="absolute left-0 right-0 h-1 bg-[#00F0FF] shadow-[0_0_20px_#00F0FF]"
             />
           )}
         </div>
@@ -102,14 +156,14 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute inset-x-3 top-3 bottom-10 bg-[#070A10]/95 backdrop-blur-md rounded-2xl border border-[#00F0FF]/40 p-3 font-mono text-[10px] text-[#00F0FF] space-y-1.5 overflow-hidden z-20 shadow-2xl"
+            className="absolute inset-x-3 top-3 bottom-10 bg-[#070A10]/95 backdrop-blur-md rounded-2xl border border-[#00F0FF]/50 p-3 font-mono text-[10px] text-[#00F0FF] space-y-1.5 overflow-hidden z-20 shadow-2xl"
           >
             <div className="flex items-center justify-between pb-1 border-b border-[#00F0FF]/30">
               <span className="font-bold text-[#FBBF24] flex items-center gap-1">
                 <Cpu className="w-3 h-3 animate-spin text-[#FBBF24]" />
                 CYBERNETIC AI EXECUTING TASK...
               </span>
-              <span className="text-[9px] text-[#00F0FF]/70">GEMINI PRO HYBRID</span>
+              <span className="text-[9px] text-[#00F0FF]/70">GEMINI PRO 2.5</span>
             </div>
 
             <div className="space-y-1 max-h-32 overflow-y-auto">
@@ -144,7 +198,7 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
         </div>
 
         <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40">
-          PRO AI 2.5
+          MATRIX AI
         </span>
       </div>
     </div>

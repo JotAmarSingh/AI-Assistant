@@ -19,7 +19,9 @@ import {
   Smartphone,
   BellRing,
   Unplug,
-  Copy
+  Copy,
+  Download,
+  CloudDownload
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
@@ -44,6 +46,8 @@ export const RemindersAnchorsView: React.FC = () => {
     markAutomationComplete,
     deleteAutomation,
     snoozeAutomation,
+    exportDataJSON,
+    importDataJSON,
   } = useDay();
   const [isAddAnchorModalOpen, setIsAddAnchorModalOpen] = useState(false);
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);

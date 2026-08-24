@@ -36,50 +36,82 @@ export const getGeminiClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
-/** Verify if a Gemini API Key is valid and functional */
+const CANDIDATE_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
+  'gemini-pro'
+];
+
+/** Verify if a Gemini API Key is valid and functional across all current Gemini models */
 export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boolean; message: string }> => {
   const key = rawKey?.trim();
   if (!key) {
     return { success: false, message: 'Please enter a Gemini API Key.' };
   }
 
-  // 1. Try official SDK test
+  let lastErrorMessage = '';
+
+  // 1. Try official SDK with candidate models
   try {
     const ai = new GoogleGenAI({ apiKey: key });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: 'Respond with OK',
-    });
-    if (response && response.text && response.text.trim()) {
-      setGeminiApiKey(key);
-      return { success: true, message: 'Gemini 2.0 Flash / Pro Connected & Verified!' };
+    for (const modelName of CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: 'Respond with OK',
+        });
+        if (response && response.text && response.text.trim()) {
+          setGeminiApiKey(key);
+          return { success: true, message: `Gemini Connected & Verified (${modelName})!` };
+        }
+      } catch (mErr: any) {
+        lastErrorMessage = mErr?.message || '';
+        console.warn(`SDK verify failed on ${modelName}, trying next:`, mErr);
+      }
     }
   } catch (sdkErr: any) {
-    console.warn('SDK key verification error, trying REST:', sdkErr);
+    lastErrorMessage = sdkErr?.message || '';
+    console.warn('SDK init error:', sdkErr);
   }
 
-  // 2. Direct REST endpoint verification
-  try {
-    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-    const res = await fetch(restEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Respond with OK' }] }]
-      })
-    });
+  // 2. Direct REST endpoint verification across models & API versions (v1beta and v1)
+  const apiVersions = ['v1beta', 'v1'];
+  for (const version of apiVersions) {
+    for (const model of CANDIDATE_MODELS) {
+      try {
+        const restEndpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+        const res = await fetch(restEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with OK' }] }]
+          })
+        });
 
-    if (res.ok) {
-      setGeminiApiKey(key);
-      return { success: true, message: 'Gemini API Key Verified Successfully!' };
+        if (res.ok) {
+          setGeminiApiKey(key);
+          return { success: true, message: `Gemini Key Verified Successfully (${model})!` };
+        }
+
+        const errJson = await res.json().catch(() => null);
+        if (errJson?.error?.message) {
+          lastErrorMessage = errJson.error.message;
+        }
+      } catch (netErr: any) {
+        lastErrorMessage = netErr?.message || 'Network error connecting to Gemini API.';
+      }
     }
-
-    const errorJson = await res.json().catch(() => null);
-    const errorMessage = errorJson?.error?.message || `Google API returned status ${res.status}`;
-    return { success: false, message: errorMessage };
-  } catch (netErr: any) {
-    return { success: false, message: netErr?.message || 'Network error connecting to Gemini API.' };
   }
+
+  return { 
+    success: false, 
+    message: lastErrorMessage || 'Unable to connect to Gemini API. Please check your API key and internet connection.' 
+  };
 };
 
 /** Direct Gemini Pro API Query with Intelligent Fallbacks & Multi-Model Resolution */
@@ -89,12 +121,10 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
     throw new Error('No Gemini API Key configured. Please enter your API key to connect to online AI.');
   }
 
-  // 1. Try official SDK with Gemini Flash models
+  // 1. Try official SDK with candidate models
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-
-    for (const modelName of modelsToTry) {
+    for (const modelName of CANDIDATE_MODELS) {
       try {
         const response = await ai.models.generateContent({
           model: modelName,
@@ -111,34 +141,39 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
     console.warn('Gemini SDK initialization error:', sdkErr);
   }
 
-  // 2. Direct REST HTTP API Query Fallback (Guaranteed to work with valid API key)
-  try {
-    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(restEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
+  // 2. Direct REST HTTP API Query Fallback across API versions & candidate models
+  const apiVersions = ['v1beta', 'v1'];
+  for (const version of apiVersions) {
+    for (const model of CANDIDATE_MODELS) {
+      try {
+        const restEndpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(restEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
               {
-                text: `You are Gemini Pro, an intelligent AI assistant embedded inside the DayTrace Android productivity app. Answer the user's question directly, clearly, and concisely with bullet points and friendly formatting:\n\nUser Question: ${prompt}`
+                parts: [
+                  {
+                    text: `You are Gemini Pro, an intelligent AI assistant embedded inside the DayTrace Android productivity app. Answer the user's question directly, clearly, and concisely with bullet points and friendly formatting:\n\nUser Question: ${prompt}`
+                  }
+                ]
               }
             ]
-          }
-        ]
-      })
-    });
+          })
+        });
 
-    if (res.ok) {
-      const data = await res.json();
-      const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (answerText && answerText.trim()) {
-        return answerText.trim();
+        if (res.ok) {
+          const data = await res.json();
+          const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (answerText && answerText.trim()) {
+            return answerText.trim();
+          }
+        }
+      } catch (restErr) {
+        console.warn(`Gemini REST fallback (${version}/${model}) error:`, restErr);
       }
     }
-  } catch (restErr) {
-    console.warn('Gemini REST API fallback error:', restErr);
   }
 
   throw new Error('Gemini API query failed across SDK and REST endpoints');

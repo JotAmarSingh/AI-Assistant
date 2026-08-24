@@ -456,6 +456,7 @@ export interface SmartAICard {
   type: SmartAICardType;
   title: string;
   subtitle?: string;
+  engineMode?: 'ONLINE_CLOUD' | 'OFFLINE_LOCAL';
   createdAt: number;
   data: {
     // For Price Comparison

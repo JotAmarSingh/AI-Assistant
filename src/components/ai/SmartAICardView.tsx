@@ -63,14 +63,28 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
           </div>
         </div>
 
-        {onDismissCard && (
-          <button
-            onClick={() => onDismissCard(card.id)}
-            className="text-[10px] text-[#C4C6D0]/50 hover:text-[#E2E2E6] font-bold px-2 py-1"
-          >
-            ✕
-          </button>
-        )}
+        <div className="flex items-center space-x-1.5">
+          {card.engineMode === 'ONLINE_CLOUD' ? (
+            <span className="flex items-center space-x-1 text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#10B981]/15 text-[#34D399] border border-[#10B981]/40 shadow-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#34D399] animate-pulse" />
+              <span>ONLINE CLOUD</span>
+            </span>
+          ) : (
+            <span className="flex items-center space-x-1 text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#C084FC] border border-[#8B5CF6]/40 shadow-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#C084FC]" />
+              <span>OFFLINE ON-DEVICE</span>
+            </span>
+          )}
+
+          {onDismissCard && (
+            <button
+              onClick={() => onDismissCard(card.id)}
+              className="text-[10px] text-[#C4C6D0]/50 hover:text-[#E2E2E6] font-bold px-1.5 py-1 transition"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PRICE COMPARISON CARD */}

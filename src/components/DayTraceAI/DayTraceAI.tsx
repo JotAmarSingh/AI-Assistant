@@ -8,6 +8,7 @@ export interface DayTraceAIProps {
   statusText?: string;
   height?: number | string;
   assetPath?: string;
+  onClick?: () => void;
 }
 
 interface Particle {
@@ -25,7 +26,8 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   mode = 'idle',
   statusText = 'CYBERNETIC AI CORE ACTIVE',
   height = 360,
-  assetPath = '/assets/daytrace-ai.webp'
+  assetPath = '/assets/daytrace-ai.webp',
+  onClick
 }) => {
   const rainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -320,8 +322,10 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
 
   return (
     <div 
-      className={`daytrace-ai-container ${!isFullyActive ? 'paused' : ''} ${isGlitching ? 'glitching' : ''}`} 
+      onClick={onClick}
+      className={`daytrace-ai-container ${!isFullyActive ? 'paused' : ''} ${isGlitching ? 'glitching' : ''} ${isListening ? 'mode-listening' : ''} ${onClick ? 'interactive' : ''}`} 
       style={{ height }}
+      title={onClick ? (isListening ? "Listening... Tap to stop" : "Tap AI to speak") : undefined}
     >
       {/* Layer 2: Matrix Code Rain Canvas */}
       <canvas
@@ -330,9 +334,9 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       />
 
       {/* Layer 3: Rotating Holographic Energy Rings */}
-      <div className="daytrace-ai-ring ring-outer" />
-      <div className="daytrace-ai-ring ring-middle" />
-      <div className="daytrace-ai-ring ring-inner" />
+      <div className={`daytrace-ai-ring ring-outer ${isListening ? 'border-[#FF8D80] animate-pulse' : ''}`} />
+      <div className={`daytrace-ai-ring ring-middle ${isListening ? 'border-[#FFB4AB]' : ''}`} />
+      <div className={`daytrace-ai-ring ring-inner ${isListening ? 'border-[#FF8D80]' : ''}`} />
 
       {/* Layer 4: 3D Sensor Motion Tilt Wrapper */}
       <div className="daytrace-ai-tilt-wrapper" style={tiltStyle}>
@@ -360,8 +364,8 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
 
           {/* Layer 7: Extremely Subtle Chest Core */}
           {!imageError && imageLoaded && (
-            <div className="daytrace-ai-core" style={{ backgroundColor: isAlert ? '#F87171' : '#00F0FF' }}>
-              <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert ? '#F87171' : '#00F0FF' }} />
+            <div className="daytrace-ai-core" style={{ backgroundColor: isAlert || isListening ? '#F87171' : '#00F0FF' }}>
+              <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert || isListening ? '#F87171' : '#00F0FF' }} />
             </div>
           )}
         </div>
@@ -378,22 +382,30 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       />
 
       {/* Bottom AI Status Bar */}
-      <div className="absolute bottom-3 left-4 right-4 z-30 flex items-center justify-between px-3.5 py-1.5 rounded-full bg-[#070A10]/90 border border-[#00F0FF]/30 backdrop-blur-md text-xs font-mono">
-        <div className="flex items-center space-x-2">
-          <span className={`w-2 h-2 rounded-full ${
+      <div className={`absolute bottom-3 left-4 right-4 z-30 flex items-center justify-between px-3.5 py-1.5 rounded-full backdrop-blur-md text-xs font-mono transition ${
+        isListening 
+          ? 'bg-[#1D0A0A]/90 border border-[#FF8D80]/60 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+          : 'bg-[#070A10]/90 border border-[#00F0FF]/30'
+      }`}>
+        <div className="flex items-center space-x-2 truncate">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${
             !isFullyActive ? 'bg-[#C4C6D0]/40' :
             isAlert ? 'bg-[#F87171] animate-ping' :
-            isListening ? 'bg-[#FBBF24] animate-ping' :
+            isListening ? 'bg-[#FF8D80] animate-ping' :
             isThinking ? 'bg-[#C084FC] animate-pulse' :
             'bg-[#00F0FF] animate-pulse'
           }`} />
-          <span className="text-[11px] font-bold text-[#E2E2E6]">
+          <span className={`text-[11px] font-bold truncate ${isListening ? 'text-[#FFD8D3]' : 'text-[#E2E2E6]'}`}>
             {statusText}
           </span>
         </div>
 
-        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40">
-          DAYTRACE V2.5
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ml-2 border ${
+          isListening
+            ? 'bg-[#BA1A1A]/30 text-[#FF8D80] border-[#FF8D80]/50 animate-pulse'
+            : 'bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40'
+        }`}>
+          {isListening ? '🔴 MIC LIVE' : 'DAYTRACE V2.5'}
         </span>
       </div>
     </div>

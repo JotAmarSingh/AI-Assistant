@@ -3,6 +3,29 @@ import { GoogleGenAI } from '@google/genai';
 // Hardwired Gemini API Key for user's Google Pixel 10a
 const HARDWIRED_GEMINI_API_KEY = 'AIzaSyCcHh0HQa5zILpus_BGjzZG1POqaNOZaBs';
 
+export const getStoredGeminiApiKey = (): string => {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem('daytrace_gemini_api_key') || '';
+  }
+  return '';
+};
+
+export const setGeminiApiKey = (key: string): void => {
+  if (typeof localStorage !== 'undefined') {
+    if (key && key.trim()) {
+      localStorage.setItem('daytrace_gemini_api_key', key.trim());
+    } else {
+      localStorage.removeItem('daytrace_gemini_api_key');
+    }
+  }
+};
+
+export const clearGeminiApiKey = (): void => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('daytrace_gemini_api_key');
+  }
+};
+
 export const getGeminiApiKey = (): string => {
   if (typeof localStorage !== 'undefined') {
     const savedKey = localStorage.getItem('daytrace_gemini_api_key');

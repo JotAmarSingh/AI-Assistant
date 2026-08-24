@@ -23,7 +23,12 @@ import { CyberneticAvatarCanvas, MiniCyberneticFaceIcon } from '../ai/Cybernetic
 import { SmartAICardView } from '../ai/SmartAICardView';
 import { calculateGamificationStats } from '../../utils/gamificationEngine';
 import { detectScheduleConflicts } from '../../utils/scheduleConflictEngine';
-import { queryGeminiAPI } from '../../services/geminiService';
+import { 
+  queryGeminiAPI, 
+  getStoredGeminiApiKey, 
+  setGeminiApiKey, 
+  clearGeminiApiKey 
+} from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
 import { SmartAICard, UserMemoryItem } from '../../types';
 
@@ -48,12 +53,27 @@ export const GeminiLiveHubView: React.FC = () => {
   const [smartCards, setSmartCards] = useState<SmartAICard[]>([]);
   const [memories, setMemories] = useState<UserMemoryItem[]>(state.userMemoryBank || []);
 
+  // Online / Offline Network & Engine State
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [customKeyInput, setCustomKeyInput] = useState('');
+  const [keyTestStatus, setKeyTestStatus] = useState<string | null>(null);
+
   const silenceTimerRef = useRef<number | null>(null);
   const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
 
-  // Clean up timers on unmount
+  // Network & lifecycle listeners
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    setCustomKeyInput(getStoredGeminiApiKey());
+
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       speechService.stopListening();
     };
@@ -84,9 +104,12 @@ export const GeminiLiveHubView: React.FC = () => {
     const query = queryText.trim();
     if (!query || isProcessing) return;
 
+    // Immediately clear input box
+    setInputText('');
+    setInterimText('');
     setIsProcessing(true);
     setAvatarMode('processing_task');
-    setStatusText('Connected to Gemini 2.5 Pro Grounding...');
+    setStatusText('Processing with DayTrace AI...');
 
     const logs = [
       `> RECEIVING USER COMMAND: "${query}"`,
@@ -94,12 +117,80 @@ export const GeminiLiveHubView: React.FC = () => {
     ];
     const lower = query.toLowerCase();
 
+    // 0. Account / Login / Auth Inquiry
+    if (
+      lower.includes('log in') || 
+      lower.includes('login') || 
+      lower.includes('sign in') || 
+      lower.includes('signin') || 
+      lower.includes('account') || 
+      lower.includes('password')
+    ) {
+      logs.push('> INTENT: ACCOUNT / AUTHENTICATION QUERY');
+      logs.push('> GENERATING OFFLINE PRIVACY & SYNC ADVISORY...');
+      setCodeLogs([...logs]);
+
+      const authCard: SmartAICard = {
+        id: `card-${Date.now()}`,
+        type: 'EXPERT_ADVICE',
+        title: 'DayTrace Offline & Cloud Sync Advisory',
+        subtitle: 'Privacy & Storage Architecture',
+        engineMode: 'OFFLINE_LOCAL',
+        createdAt: Date.now(),
+        data: {
+          safetyWarning: `🔒 DayTrace is 100% Offline-First & Private:\n\n• No account or login required: All your tasks, habits, daily history, and timeline are stored securely on this phone.\n• Optional Google Sheets Sync: To backup or sync your data to Google Sheets, tap the Backup/Download icon (📥) in the top app bar.\n• Data Export: You can export or import complete JSON backups anytime from the top app bar.`
+        }
+      };
+
+      setSmartCards((prev) => [authCard, ...prev]);
+      setIsProcessing(false);
+      setAvatarMode('talking');
+      setStatusText('Offline privacy advisory ready!');
+      setTimeout(() => setAvatarMode('idle'), 4000);
+      return;
+    }
+
+    // 1. Assistant Greeting / Capabilities Inquiry
+    if (
+      lower === 'hi' || 
+      lower === 'hello' || 
+      lower === 'hey' || 
+      lower.startsWith('hi ') || 
+      lower.startsWith('hello ') || 
+      lower.startsWith('hey ') ||
+      lower.includes('who are you') || 
+      lower.includes('what can you do') || 
+      lower.includes('help')
+    ) {
+      logs.push('> INTENT: ASSISTANT GREETING & CAPABILITIES');
+      setCodeLogs([...logs]);
+
+      const greetingCard: SmartAICard = {
+        id: `card-${Date.now()}`,
+        type: 'EXPERT_ADVICE',
+        title: 'DayTrace Cybernetic Assistant',
+        subtitle: 'Core Capabilities & Voice Commands',
+        engineMode: 'OFFLINE_LOCAL',
+        createdAt: Date.now(),
+        data: {
+          safetyWarning: `👋 Greetings! I am DayTrace AI, your accountability assistant.\n\nHere is what you can do:\n• Add Tasks & Alarms: Speak "Gym workout at 6pm" or "Review client deck"\n• Ask Knowledge & Advice: "Is banana or orange better for a child?"\n• Check Schedule & Reminders: "What is pending today?" or "What's next?"\n• Smart Roadmaps: "Plan Amritsar weekend trip" or "Buy Calpol for son"\n• Meeting Mode: Tap the top mic icon to record meetings with offline summaries!`
+        }
+      };
+
+      setSmartCards((prev) => [greetingCard, ...prev]);
+      setIsProcessing(false);
+      setAvatarMode('talking');
+      setStatusText('Assistant ready!');
+      setTimeout(() => setAvatarMode('idle'), 4000);
+      return;
+    }
+
     // Intent Classification: Question / Advice vs Task Assignment
     const isQuestion = isQuestionOrAdvice(query);
 
     if (isQuestion) {
       logs.push('> INTENT: CONVERSATIONAL KNOWLEDGE & ADVICE REQUEST');
-      logs.push('> CALLING HARDWIRED GEMINI 2.5 PRO API WITH GOOGLE SEARCH GROUNDING...');
+      logs.push('> CALLING GEMINI PRO API WITH GROUNDING...');
       setCodeLogs([...logs]);
 
       try {
@@ -112,6 +203,7 @@ export const GeminiLiveHubView: React.FC = () => {
           type: 'EXPERT_ADVICE',
           title: `Gemini Pro AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
           subtitle: 'Verified Grounded Response',
+          engineMode: 'ONLINE_CLOUD',
           createdAt: Date.now(),
           data: {
             safetyWarning: aiResponse || `Information generated for: "${query}".`
@@ -121,31 +213,37 @@ export const GeminiLiveHubView: React.FC = () => {
         setSmartCards((prev) => [answerCard, ...prev]);
         setIsProcessing(false);
         setAvatarMode('talking');
-        setStatusText('Gemini 2.5 Pro Answer Ready!');
+        setStatusText('Gemini Pro Answer Ready!');
         setTimeout(() => setAvatarMode('idle'), 4000);
       } catch (err) {
-        logs.push('> OFFLINE FALLBACK ENGINE ENGAGED');
+        logs.push('> OFFLINE INTELLIGENCE ENGINE ENGAGED');
         setCodeLogs([...logs]);
+
+        let fallbackAnswer = '';
+        if (lower.includes('festival')) {
+          fallbackAnswer = `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`;
+        } else if (lower.includes('banana') || lower.includes('orange')) {
+          fallbackAnswer = `🍌 Banana vs 🍊 Orange for Children:\n\n• Banana: Rich in potassium, Vitamin B6, and dietary fiber. Very gentle on digestion, ideal for quick energy before play or bedtime.\n• Orange: High in Vitamin C, antioxidants, and water content. Great for immunity, but higher citric acid.\n\nRecommendation: Both are excellent! Offer banana for energy/toddlers, and orange slices for immunity hydration.`;
+        } else {
+          fallbackAnswer = `💡 DayTrace On-Device Intelligence:\n\n• Query received: "${query}"\n• Tip: You can schedule this as a task, check your timetable, or ask specific productivity questions.\n• To enable live cloud searches with Gemini Pro, configure your personal API key in the AI Engine settings (tap the ONLINE/OFFLINE badge in the top bar).`;
+        }
 
         const fallbackCard: SmartAICard = {
           id: `card-${Date.now()}`,
           type: 'EXPERT_ADVICE',
-          title: `Gemini Pro AI: ${query}`,
-          subtitle: 'Knowledge Answer',
+          title: `DayTrace AI: ${query.length > 36 ? query.substring(0, 36) + '...' : query}`,
+          subtitle: 'On-Device Response',
+          engineMode: 'OFFLINE_LOCAL',
           createdAt: Date.now(),
           data: {
-            safetyWarning: lower.includes('festival') 
-              ? `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`
-              : lower.includes('banana') || lower.includes('orange')
-              ? `🍌 Banana vs 🍊 Orange for Children:\n\n• Banana: Rich in potassium, Vitamin B6, and dietary fiber. Very gentle on digestion, ideal for quick energy before play or bedtime.\n• Orange: High in Vitamin C, antioxidants, and water content. Great for immunity, but higher citric acid.\n\nRecommendation: Both are excellent! Offer banana for energy/toddlers, and orange slices for immunity hydration.`
-              : `Grounded Answer for: "${query}"\n\n• Results generated with Gemini 2.5 Pro Search Engine.`
+            safetyWarning: fallbackAnswer
           }
         };
 
         setSmartCards((prev) => [fallbackCard, ...prev]);
         setIsProcessing(false);
         setAvatarMode('talking');
-        setStatusText('Answer generated!');
+        setStatusText('Answer ready!');
         setTimeout(() => setAvatarMode('idle'), 4000);
       }
       return;
@@ -166,6 +264,7 @@ export const GeminiLiveHubView: React.FC = () => {
           type: 'PRICE_COMPARISON',
           title: 'Medicine Price & Pediatric Safety Audit',
           subtitle: 'Apollo vs Netmeds Live Grounding',
+          engineMode: 'OFFLINE_LOCAL',
           createdAt: Date.now(),
           data: {
             comparisonRows: [
@@ -199,6 +298,7 @@ export const GeminiLiveHubView: React.FC = () => {
           type: 'MULTI_STEP_ROADMAP',
           title: 'Amritsar Weekend Trip Roadmap',
           subtitle: '4 Automated Sub-Tasks & Travel Cards',
+          engineMode: 'OFFLINE_LOCAL',
           createdAt: Date.now(),
           data: {
             goalTitle: 'Amritsar Trip',
@@ -376,18 +476,41 @@ export const GeminiLiveHubView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-2xl bg-[#070A10] border border-[#FBBF24]/40 text-[#FBBF24] text-xs font-mono font-bold">
-            <Flame className="w-4 h-4 fill-current text-[#FBBF24]" />
-            <span>{stats.streakDays}d Streak</span>
+          <div className="flex items-center space-x-2">
+            {/* Streak Pill */}
+            <div className="flex items-center space-x-1 px-2.5 py-1.5 rounded-2xl bg-[#070A10] border border-[#FBBF24]/40 text-[#FBBF24] text-xs font-mono font-bold">
+              <Flame className="w-3.5 h-3.5 fill-current text-[#FBBF24]" />
+              <span>{stats.streakDays}d</span>
+            </div>
+
+            {/* AI Engine & Network Status Badge (Clickable to open AI Config Modal) */}
+            <button
+              type="button"
+              onClick={() => setShowConfigModal(true)}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-2xl bg-[#070A10] border transition text-[10px] font-mono font-bold shadow-xs hover:scale-105 active:scale-95"
+              style={{
+                borderColor: isOnline ? 'rgba(52, 211, 153, 0.4)' : 'rgba(192, 132, 252, 0.4)',
+                color: isOnline ? '#34D399' : '#C084FC'
+              }}
+              title="Click to check AI Engine Status & Gemini API Key"
+            >
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[#34D399] animate-pulse' : 'bg-[#C084FC]'}`} />
+              <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Center Futuristic AI Holographic Humanoid (DayTraceAI Hero Component) */}
+        {/* Center Futuristic AI Holographic Humanoid (DayTraceAI Hero Component - Tap to Speak) */}
         <DayTraceAI
           active={true}
           mode={avatarMode === 'processing_task' ? 'thinking' : (avatarMode as any)}
-          statusText={statusText}
+          statusText={
+            isListening
+              ? (interimText ? `Hearing: "${interimText.length > 20 ? interimText.substring(0, 20) + '...' : interimText}"` : '🎙️ LISTENING... (TAP TO STOP)')
+              : (avatarMode === 'idle' ? 'CYBERNETIC AI CORE ACTIVE • TAP TO SPEAK' : statusText)
+          }
           height={360}
+          onClick={handleVoiceDictation}
         />
 
         {/* Smart AI Cards Feed */}
@@ -503,6 +626,116 @@ export const GeminiLiveHubView: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* AI Engine & API Key Configuration Modal */}
+      {showConfigModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setShowConfigModal(false)}
+        >
+          <div 
+            className="bg-[#1D2026] text-[#E2E2E6] border border-[#00F0FF]/40 rounded-[32px] p-6 max-w-sm w-full shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#44474E]/40">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 rounded-xl bg-[#00F0FF]/20 text-[#00F0FF]">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-[#E2E2E6]">AI Engine Status</h3>
+                  <p className="text-[10px] text-[#C4C6D0]/70">Online Cloud vs On-Device Offline</p>
+                </div>
+              </div>
+              <button onClick={() => setShowConfigModal(false)} className="text-[#C4C6D0] hover:text-[#E2E2E6] p-1 font-bold">
+                ✕
+              </button>
+            </div>
+
+            {/* Current Engine Status */}
+            <div className="p-3 rounded-2xl bg-[#111318] border border-[#00F0FF]/20 space-y-2">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-[#C4C6D0]">Network Status:</span>
+                <span className={`font-bold flex items-center space-x-1 ${isOnline ? 'text-[#34D399]' : 'text-[#FBBF24]'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[#34D399]' : 'bg-[#FBBF24]'}`} />
+                  <span>{isOnline ? 'Connected (Internet Available)' : 'Offline (No Internet)'}</span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-[#C4C6D0]">AI Engine Mode:</span>
+                <span className="font-bold text-[#00F0FF]">
+                  {customKeyInput.trim() ? 'Gemini Pro (Custom API Key)' : 'Hybrid (Cloud + On-Device)'}
+                </span>
+              </div>
+            </div>
+
+            {/* Custom Gemini API Key Form */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-[#00F0FF] uppercase tracking-wider block">
+                Google Gemini API Key (Optional)
+              </label>
+              <p className="text-[10px] text-[#C4C6D0]/80">
+                DayTrace works 100% offline for tasks, routines, and alarms. You can optionally add your personal Gemini API key for live internet grounding & conversational reasoning:
+              </p>
+              <input
+                type="password"
+                value={customKeyInput}
+                onChange={(e) => setCustomKeyInput(e.target.value)}
+                placeholder="Paste Gemini API key (AIzaSy...)"
+                className="w-full p-2.5 rounded-xl bg-[#111318] border border-[#00F0FF]/30 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/30 focus:outline-none focus:ring-1 focus:ring-[#00F0FF]"
+              />
+
+              {keyTestStatus && (
+                <div className={`p-2 rounded-xl text-xs font-mono ${
+                  keyTestStatus.startsWith('✓') ? 'bg-[#10B981]/15 text-[#34D399] border border-[#10B981]/40' : 'bg-[#EF4444]/15 text-[#F87171] border border-[#EF4444]/40'
+                }`}>
+                  {keyTestStatus}
+                </div>
+              )}
+
+              <div className="flex space-x-2 pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!customKeyInput.trim()) {
+                      clearGeminiApiKey();
+                      setKeyTestStatus('✓ Custom key cleared. Using built-in engine.');
+                      return;
+                    }
+                    setKeyTestStatus('Testing API Key with Gemini...');
+                    setGeminiApiKey(customKeyInput.trim());
+                    try {
+                      const res = await queryGeminiAPI('Test ping');
+                      if (res) {
+                        setKeyTestStatus('✓ Key verified! Gemini Pro connected.');
+                      }
+                    } catch (err: any) {
+                      setKeyTestStatus(`❌ Verification failed: ${err?.message || 'Check key'}`);
+                    }
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-[#00F0FF] text-[#070A10] text-xs font-bold transition hover:bg-cyan-300"
+                >
+                  Save & Verify Key
+                </button>
+
+                {customKeyInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearGeminiApiKey();
+                      setCustomKeyInput('');
+                      setKeyTestStatus('Cleared API key');
+                    }}
+                    className="px-3 py-2 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-xs text-[#C4C6D0]"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

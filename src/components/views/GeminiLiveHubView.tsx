@@ -24,6 +24,8 @@ import { detectScheduleConflicts } from '../../utils/scheduleConflictEngine';
 import { queryGeminiAPI } from '../../services/geminiService';
 import { SmartAICard, UserMemoryItem } from '../../types';
 
+import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
+
 export const GeminiLiveHubView: React.FC = () => {
   const { 
     state, 
@@ -258,12 +260,11 @@ export const GeminiLiveHubView: React.FC = () => {
           </div>
         </div>
 
-        {/* Center Cybernetic AI Face Avatar Canvas (Matrix Code Rain + 3D Face Contour) */}
-        <CyberneticAvatarCanvas
-          mode={avatarMode}
-          processingStatusText={statusText}
-          codeLogs={codeLogs}
-          height={230}
+        {/* Center Futuristic AI Holographic Humanoid (DayTraceAI Hero Component) */}
+        <DayTraceAI
+          mode={avatarMode === 'processing_task' ? 'thinking' : (avatarMode as any)}
+          statusText={statusText}
+          height={360}
         />
 
         {/* Smart AI Cards Feed */}

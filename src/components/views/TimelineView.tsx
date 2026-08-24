@@ -161,8 +161,8 @@ export const TimelineView: React.FC = () => {
                       )}
                     </div>
 
-                    {/* AI Generated Dynamic Icon Badge */}
-                    <div className="text-xl p-1.5 rounded-xl bg-[#070A10]/60 border border-[#00F0FF]/20 shadow-inner">
+                    {/* AI Generated Dynamic Icon Badge (Small & Minimal) */}
+                    <div className="text-xs px-1.5 py-0.5 rounded-lg bg-[#070A10]/80 border border-[#00F0FF]/30 shadow-xs shrink-0 opacity-90 font-mono">
                       {icon}
                     </div>
                   </div>

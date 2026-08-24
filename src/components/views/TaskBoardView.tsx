@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TaskStatus, TaskCategory, TaskItem } from '../../types';
-import { resolveContextualIcon } from '../../services/geminiService';
+import { resolveContextualIcon, resolveCategoryIslandIcon } from '../../services/geminiService';
 import { ManageCategoriesModal } from '../tasks/ManageCategoriesModal';
 
 export const TaskBoardView: React.FC = () => {
@@ -47,13 +47,15 @@ export const TaskBoardView: React.FC = () => {
   const doneCount = completedTasks.length;
   const progressRatio = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  // Category Island Data
-  const islandCategories = [
-    { id: 'OFFICE', label: 'Work Island', icon: Building2, color: '#00F0FF', border: 'border-[#00F0FF]/40', bg: 'bg-[#00F0FF]/10' },
-    { id: 'HEALTH', label: 'Health Island', icon: Trees, color: '#10B981', border: 'border-[#10B981]/40', bg: 'bg-[#10B981]/10' },
-    { id: 'LEARNING', label: 'Learning Island', icon: BookOpen, color: '#C084FC', border: 'border-[#C084FC]/40', bg: 'bg-[#C084FC]/10' },
-    { id: 'PERSONAL', label: 'Personal Island', icon: Home, color: '#FBBF24', border: 'border-[#FBBF24]/40', bg: 'bg-[#FBBF24]/10' },
-  ];
+  // Dynamic Category Island Data (Fully Editable & Automatically Resolved Icons)
+  const islandCategories = taskCategories.map((cat) => ({
+    id: cat.id,
+    label: cat.label.includes('Island') ? cat.label : `${cat.label} Island`,
+    icon: resolveCategoryIslandIcon(cat.label),
+    color: cat.color || '#00F0FF',
+    border: 'border-[#00F0FF]/40',
+    bg: 'bg-[#00F0FF]/10'
+  }));
 
   const getTaskXpBadge = (priority?: any) => {
     if (priority === 'HIGH' || priority >= 8) {
@@ -152,7 +154,6 @@ export const TaskBoardView: React.FC = () => {
         {/* 3D RPG Category Islands Selector Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {islandCategories.map((island) => {
-            const IslandIcon = island.icon;
             const islandTasksCount = allTasks.filter((t) => t.category === island.id && t.status !== 'DONE').length;
             const isSelected = selectedCategory === island.id;
 
@@ -166,7 +167,7 @@ export const TaskBoardView: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <IslandIcon className="w-5 h-5" style={{ color: island.color }} />
+                  <span className="text-lg p-1 rounded-xl bg-[#070A10]/70 border border-[#00F0FF]/30">{island.icon}</span>
                   <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-[#070A10] text-[#E2E2E6]">
                     {islandTasksCount} tasks
                   </span>
@@ -353,10 +354,11 @@ export const TaskBoardView: React.FC = () => {
                       onChange={(e) => setNewCategory(e.target.value)}
                       className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
                     >
-                      <option value="OFFICE">Work Island</option>
-                      <option value="HEALTH">Health Island</option>
-                      <option value="LEARNING">Learning Island</option>
-                      <option value="PERSONAL">Personal Island</option>
+                      {taskCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.label.includes('Island') ? cat.label : `${cat.label} Island`}
+                        </option>
+                      ))}
                     </select>
                   </div>
 

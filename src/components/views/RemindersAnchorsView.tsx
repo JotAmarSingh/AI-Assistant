@@ -352,88 +352,66 @@ export const RemindersAnchorsView: React.FC = () => {
               </button>
             </div>
 
-            {/* Google Sheets Cloud Auto-Sync Section */}
-            <div className="p-3 rounded-2xl bg-[#111318] border border-[#44474E]/30 space-y-2 mt-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <FileSpreadsheet className="w-4 h-4 text-[#D1E1FF]" />
-                  <div>
-                    <span className="text-xs font-semibold text-[#E2E2E6] block">Google Sheets Backup</span>
-                    <span className="text-[10px] text-[#C4C6D0]/60 block">
-                      {settings.lastSyncedAt ? `Last synced: ${settings.lastSyncedAt}` : 'Not synced yet today'}
-                    </span>
-                  </div>
+            {/* Offline JSON Data Backup & File Restore Section */}
+            <div className="p-4 rounded-2xl bg-[#111318] border border-[#D1E1FF]/30 space-y-3 mt-2">
+              <div className="flex items-center space-x-2">
+                <Download className="w-4 h-4 text-[#D1E1FF]" />
+                <div>
+                  <span className="text-xs font-bold text-[#E2E2E6] block">Data Backup & Restore (.json)</span>
+                  <span className="text-[10px] text-[#C4C6D0]/70 block">Export or import your complete DayTrace backup</span>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([exportDataJSON()], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `daytrace-backup-${state.date}.json`;
+                    a.click();
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-xs font-bold flex items-center justify-center space-x-1.5 transition border border-[#D1E1FF]/30"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export JSON</span>
+                </button>
+
+                <input
+                  type="file"
+                  id="tab-json-file-input"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const content = event.target?.result as string;
+                      if (content) {
+                        const success = importDataJSON(content);
+                        if (success) {
+                          alert('DayTrace data restored successfully!');
+                        } else {
+                          alert('Invalid JSON backup file format.');
+                        }
+                      }
+                    };
+                    reader.readAsText(file);
+                  }}
+                />
 
                 <button
                   type="button"
-                  onClick={() => syncToGoogleSheets()}
-                  disabled={isSyncingSheets}
-                  className="py-1.5 px-3 rounded-xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-xs font-bold flex items-center space-x-1.5 transition disabled:opacity-50"
+                  onClick={() => document.getElementById('tab-json-file-input')?.click()}
+                  className="py-2.5 px-3 rounded-xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-1.5 transition border border-[#86EFAC]/40"
                 >
-                  {isSyncingSheets ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D1E1FF]" />
-                  ) : (
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-[#D1E1FF]" />
-                  )}
-                  <span>{isSyncingSheets ? 'Syncing...' : 'Sync Now'}</span>
+                  <CloudDownload className="w-3.5 h-3.5" />
+                  <span>Import JSON</span>
                 </button>
               </div>
-
-              {settings.googleAuthStatus && settings.googleAuthStatus !== 'CONNECTED' && settings.googleAuthStatus !== 'DISCONNECTED' && (
-                <div className="rounded-xl border border-[#FCA5A5]/30 bg-[#7F1D1D]/15 p-2 text-[10px] text-[#FCA5A5]">
-                  <p>{settings.googleAuthError || (settings.googleAuthStatus === 'CANCELLED' ? 'Google authorization screen was closed. Local DayTrace data is unchanged.' : 'Google authorization failed.')}</p>
-                  {nativeAppIdentity && (
-                    <div className="mt-2 rounded-lg border border-[#D1E1FF]/20 bg-[#111318]/80 p-2 text-[#C4C6D0]">
-                      <p className="font-semibold text-[#D1E1FF]">Installed APK identity required by Google OAuth</p>
-                      <p className="mt-1 break-all font-mono">Package: {nativeAppIdentity.packageName}</p>
-                      <p className="break-all font-mono">SHA-1: {nativeAppIdentity.sha1}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(nativeAppIdentity.sha1).then(() => {
-                            setCopiedSigningSha1(true);
-                            window.setTimeout(() => setCopiedSigningSha1(false), 1800);
-                          });
-                        }}
-                        className="mt-1.5 inline-flex items-center rounded-lg border border-[#D1E1FF]/25 px-2 py-1 font-bold text-[#D1E1FF]"
-                      >
-                        <Copy className="mr-1 h-3 w-3" />
-                        {copiedSigningSha1 ? 'Copied SHA-1' : 'Copy SHA-1'}
-                      </button>
-                    </div>
-                  )}
-                  <button type="button" onClick={() => syncToGoogleSheets()} className="mt-1.5 rounded-lg bg-[#334867] px-2.5 py-1 font-bold text-[#D1E1FF]">Retry authorization</button>
-                </div>
-              )}
-
-              {settings.googleSpreadsheetUrl && (
-                <div className="pt-1 border-t border-[#44474E]/20 text-[10px] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#86EFAC] font-mono flex items-center">
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Sheet linked
-                    </span>
-                    <a
-                      href={settings.googleSpreadsheetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#D1E1FF] underline font-semibold flex items-center space-x-1"
-                    >
-                      <span>View Spreadsheet</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={disconnectGoogleSheets}
-                    className="flex items-center rounded-lg border border-[#FCA5A5]/30 px-2.5 py-1 text-[#FCA5A5] font-bold"
-                  >
-                    <Unplug className="mr-1 h-3 w-3" />
-                    Disconnect Google
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Temporary Snooze Quick Buttons */}

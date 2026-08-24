@@ -262,6 +262,7 @@ export const GeminiLiveHubView: React.FC = () => {
 
         {/* Center Futuristic AI Holographic Humanoid (DayTraceAI Hero Component) */}
         <DayTraceAI
+          active={true}
           mode={avatarMode === 'processing_task' ? 'thinking' : (avatarMode as any)}
           statusText={statusText}
           height={360}

@@ -1,16 +1,18 @@
-/* DayTraceAI Cybernetic Holographic Humanoid Styles */
+/* DayTraceAI Holographic Humanoid Styles */
 
 .daytrace-ai-container {
   position: relative;
   width: 100%;
   max-width: 500px;
-  height: 380px;
+  min-height: 320px;
+  height: 360px;
+  max-height: 420px;
   margin: 0 auto;
-  border-radius: 32px;
+  border-radius: 28px;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.14) 0%, rgba(7, 10, 16, 0.98) 75%);
-  border: 1px solid rgba(0, 240, 255, 0.35);
-  box-shadow: 0 0 40px rgba(0, 240, 255, 0.18), inset 0 0 20px rgba(0, 240, 255, 0.08);
+  background: radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.12) 0%, rgba(7, 10, 16, 0.98) 75%);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 35px rgba(0, 240, 255, 0.15), inset 0 0 20px rgba(0, 240, 255, 0.05);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -18,34 +20,40 @@
   user-select: none;
 }
 
+/* Pause ALL CSS animations when container is inactive or document/app is backgrounded */
+.daytrace-ai-container.paused *,
+.daytrace-ai-container.paused {
+  animation-play-state: paused !important;
+}
+
 /* Layer 3: Rotating Holographic Energy Rings */
 .daytrace-ai-ring {
   position: absolute;
   border-radius: 50%;
-  border: 1px dashed rgba(0, 240, 255, 0.3);
+  border: 1px dashed rgba(0, 240, 255, 0.25);
   pointer-events: none;
 }
 
 .ring-outer {
-  width: 260px;
-  height: 260px;
-  animation: daytrace-ring-spin 28s linear infinite;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.1);
+  width: 250px;
+  height: 250px;
+  animation: daytrace-ring-spin 32s linear infinite;
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.08);
 }
 
 .ring-middle {
-  width: 200px;
-  height: 200px;
+  width: 190px;
+  height: 190px;
   border-style: dotted;
-  border-color: rgba(0, 136, 255, 0.35);
-  animation: daytrace-ring-reverse 20s linear infinite;
+  border-color: rgba(0, 136, 255, 0.3);
+  animation: daytrace-ring-reverse 24s linear infinite;
 }
 
 .ring-inner {
-  width: 140px;
-  height: 140px;
-  border-color: rgba(0, 240, 255, 0.4);
-  animation: daytrace-ring-spin 14s linear infinite;
+  width: 130px;
+  height: 130px;
+  border-color: rgba(0, 240, 255, 0.35);
+  animation: daytrace-ring-spin 16s linear infinite;
 }
 
 @keyframes daytrace-ring-spin {
@@ -58,27 +66,27 @@
   to { transform: rotate(0deg); }
 }
 
-/* Layer 4: Humanoid Visual & Idle Breathing Float */
+/* Layer 4: Humanoid Visual Asset & Idle Breathing Float */
 .daytrace-ai-humanoid-wrapper {
   position: relative;
   width: 220px;
-  height: 270px;
+  height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10;
-  animation: daytrace-ai-breathe 6s ease-in-out infinite alternate;
+  animation: daytrace-ai-breathe 6.5s ease-in-out infinite alternate;
   will-change: transform;
 }
 
 @keyframes daytrace-ai-breathe {
   0% {
-    transform: translateY(2px) scale(1);
-    filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.3));
+    transform: translateY(2px);
+    filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.25));
   }
   100% {
-    transform: translateY(-4px) scale(1.02);
-    filter: drop-shadow(0 0 25px rgba(0, 240, 255, 0.5));
+    transform: translateY(-4px);
+    filter: drop-shadow(0 0 25px rgba(0, 240, 255, 0.45));
   }
 }
 
@@ -86,18 +94,18 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: brightness(1.1) contrast(1.1) drop-shadow(0 0 15px rgba(0, 240, 255, 0.4));
+  filter: brightness(1.08) contrast(1.08) drop-shadow(0 0 15px rgba(0, 240, 255, 0.35));
   pointer-events: none;
 }
 
-/* Layer 5: Fine Scanlines & Periodic Vertical Laser Scan */
+/* Layer 5: Fine Scanlines & Periodic Vertical Laser Scan Beam */
 .daytrace-ai-scanlines {
   position: absolute;
   inset: 0;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 240, 255, 0.04),
-    rgba(0, 240, 255, 0.04) 1px,
+    rgba(0, 240, 255, 0.03),
+    rgba(0, 240, 255, 0.03) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -109,12 +117,12 @@
   position: absolute;
   left: 0;
   right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.9), transparent);
-  box-shadow: 0 0 15px #00F0FF, 0 0 30px #00F0FF;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 5%, rgba(0, 240, 255, 0.95) 50%, transparent 95%);
+  box-shadow: 0 0 12px #00F0FF, 0 0 20px rgba(0, 240, 255, 0.6);
   z-index: 14;
   pointer-events: none;
-  animation: daytrace-laser-scan 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: daytrace-laser-scan 6.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 @keyframes daytrace-laser-scan {
@@ -122,10 +130,10 @@
     top: 5%;
     opacity: 0;
   }
-  15% {
+  12% {
     opacity: 1;
   }
-  85% {
+  88% {
     opacity: 1;
   }
   100% {
@@ -134,64 +142,55 @@
   }
 }
 
-/* Layer 7: Micro Digital Glitch Animation */
+/* Layer 7: Micro Digital Glitch Animation (60-160ms Duration) */
 .daytrace-ai-container.glitching .daytrace-ai-humanoid-wrapper {
-  animation: daytrace-glitch-flicker 0.15s steps(2, start) 1;
+  animation: daytrace-glitch-flicker 0.12s steps(2, start) 1;
 }
 
 @keyframes daytrace-glitch-flicker {
   0% {
-    transform: translate(0, 0) skewX(0deg);
-    filter: drop-shadow(-3px 0 red) drop-shadow(3px 0 cyan);
+    transform: translate(0, 0);
+    filter: drop-shadow(-2px 0 cyan) drop-shadow(2px 0 blue);
   }
-  20% {
-    transform: translate(-3px, 1px) skewX(4deg);
-    filter: drop-shadow(3px 0 blue);
-  }
-  40% {
-    transform: translate(2px, -2px) skewX(-3deg);
-  }
-  60% {
-    transform: translate(-1px, 2px);
-  }
-  80% {
-    transform: translate(1px, -1px);
+  50% {
+    transform: translate(-3px, 1px);
+    filter: drop-shadow(2px 0 cyan);
   }
   100% {
     transform: translate(0, 0);
   }
 }
 
-/* Layer 7: Chest AI Core Glow */
+/* Layer 7: Extremely Subtle Chest Core (No Iron Man Reactor) */
 .daytrace-ai-core {
   position: absolute;
   top: 68%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 12px;
-  height: 12px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: #00F0FF;
-  box-shadow: 0 0 12px #00F0FF, 0 0 24px #0088FF;
+  box-shadow: 0 0 8px #00F0FF;
   z-index: 15;
   pointer-events: none;
 }
 
 .daytrace-ai-core-pulse {
   position: absolute;
-  inset: -6px;
+  inset: -3px;
   border-radius: 50%;
-  border: 1px fill rgba(0, 240, 255, 0.5);
-  animation: daytrace-core-expand 2.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+  border: 1px fill rgba(0, 240, 255, 0.4);
+  animation: daytrace-core-expand 3s cubic-bezier(0, 0.2, 0.8, 1) infinite;
 }
 
 @keyframes daytrace-core-expand {
   0% {
     transform: scale(0.6);
-    opacity: 1;
+    opacity: 0.8;
   }
   100% {
-    transform: scale(2.4);
+    transform: scale(2);
     opacity: 0;
   }
 }

@@ -53,7 +53,8 @@ export class SpeechRecognitionService {
   public async startListening(
     onInterim: (text: string) => void,
     onFinal: (text: string) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    onEnd?: () => void
   ): Promise<boolean> {
     if (this.isListening) {
       await this.stopListening();
@@ -72,15 +73,24 @@ export class SpeechRecognitionService {
           if (data.isFinal) {
             onFinal(data.transcript);
             this.isListening = false;
+            if (onEnd) onEnd();
           } else {
             onInterim(data.transcript);
           }
         });
         this.nativeListeners.push(resultHandle);
 
+        const statusHandle = await DayTraceNative.addListener('speechStatus', (data) => {
+          if (data.status === 'processing' || data.status === 'ready') {
+            // status change
+          }
+        });
+        this.nativeListeners.push(statusHandle);
+
         const errorHandle = await DayTraceNative.addListener('speechError', (data) => {
           onError(data.error || 'Native speech recognition error');
           this.isListening = false;
+          if (onEnd) onEnd();
         });
         this.nativeListeners.push(errorHandle);
 
@@ -137,11 +147,13 @@ export class SpeechRecognitionService {
         }
         this.isListening = false;
         this.releaseMicStream();
+        if (onEnd) onEnd();
       };
 
       this.recognition.onend = () => {
         this.isListening = false;
         this.releaseMicStream();
+        if (onEnd) onEnd();
       };
 
       this.recognition.start();
@@ -152,6 +164,7 @@ export class SpeechRecognitionService {
       onError(e?.message || 'Could not start microphone');
       this.isListening = false;
       this.releaseMicStream();
+      if (onEnd) onEnd();
       return false;
     }
   }

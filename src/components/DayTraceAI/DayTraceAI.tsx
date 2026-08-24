@@ -41,24 +41,24 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   // Combine Active prop, Document visibility, and Window Focus
   const isFullyActive = active && isAppVisible && !document.hidden;
 
-  // 1. Comprehensive Lifecycle Listener (Native App Pause + Tab Switch + Background)
+  // 1. Lifecycle Listener (Native App Pause/Resume + Tab Visibility)
   useEffect(() => {
-    const handleFocus = () => setIsAppVisible(true);
-    const handleBlur = () => setIsAppVisible(false);
     const handleVisibility = () => setIsAppVisible(!document.hidden);
+    const handleResume = () => setIsAppVisible(true);
+    const handlePause = () => setIsAppVisible(false);
 
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibility);
+    document.addEventListener('resume', handleResume);
+    document.addEventListener('pause', handlePause);
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('resume', handleResume);
+      document.removeEventListener('pause', handlePause);
     };
   }, []);
 
-  // 2. 3D Gyroscope & Accelerometer Physical Mobile Sensor Parallax Motion Engine
+  // 2. 3D Gyroscope, Accelerometer Physical Mobile Sensor & Touch/Mouse Parallax Motion Engine
   useEffect(() => {
     if (!isFullyActive) return;
 
@@ -66,44 +66,78 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
     let targetRotateY = 0;
     let currentRotateX = 0;
     let currentRotateY = 0;
+    let hasSensorInput = false;
 
     // Mobile Sensor Orientation Handler (Device Gyroscope)
     const handleOrientation = (event: DeviceOrientationEvent) => {
       if (event.gamma !== null && event.beta !== null) {
-        // gamma: left-to-right tilt in degrees [-90, 90]
-        // beta: front-to-back tilt in degrees [-180, 180]
-        const clampedGamma = Math.max(-30, Math.min(30, event.gamma));
-        const clampedBeta = Math.max(-30, Math.min(30, event.beta - 45)); // Normalized around typical phone holding angle
+        hasSensorInput = true;
+        // gamma: left-to-right tilt in degrees [-90, 90] -> mapped to [-35, 35]
+        // beta: front-to-back tilt in degrees [-180, 180] -> normalized around 45-degree hand holding angle
+        const clampedGamma = Math.max(-35, Math.min(35, event.gamma));
+        const normalizedBeta = event.beta - 45;
+        const clampedBeta = Math.max(-35, Math.min(35, normalizedBeta));
 
-        targetRotateY = clampedGamma * 0.45; // Rotate Y axis for left/right tilt
-        targetRotateX = -clampedBeta * 0.35; // Rotate X axis for up/down tilt
+        targetRotateY = clampedGamma * 0.65; // Rotate Y axis for left/right tilt
+        targetRotateX = -clampedBeta * 0.55; // Rotate X axis for up/down tilt
       }
     };
 
-    // Fallback Mouse Parallax for Desktop / Web Testing
-    const handleMouseMove = (event: MouseEvent) => {
+    // Mouse & Touch Parallax for Desktop and Mobile Touch Interaction
+    const handlePointerCoord = (clientX: number, clientY: number) => {
       const { innerWidth, innerHeight } = window;
-      const xPercent = (event.clientX / innerWidth) - 0.5;
-      const yPercent = (event.clientY / innerHeight) - 0.5;
+      const xPercent = (clientX / (innerWidth || 360)) - 0.5;
+      const yPercent = (clientY / (innerHeight || 640)) - 0.5;
 
-      targetRotateY = xPercent * 18;
-      targetRotateX = -yPercent * 18;
+      targetRotateY = xPercent * 24;
+      targetRotateX = -yPercent * 24;
     };
 
-    if (window.DeviceOrientationEvent) {
+    const handleMouseMove = (event: MouseEvent) => {
+      handlePointerCoord(event.clientX, event.clientY);
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches && event.touches[0]) {
+        handlePointerCoord(event.touches[0].clientX, event.touches[0].clientY);
+      }
+    };
+
+    // Auto-request DeviceOrientation permission on iOS if available
+    if (typeof (DeviceOrientationEvent as any)?.requestPermission === 'function') {
+      const requestIOSPerm = () => {
+        (DeviceOrientationEvent as any).requestPermission().then((state: string) => {
+          if (state === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+          }
+        }).catch(() => {});
+        window.removeEventListener('click', requestIOSPerm);
+      };
+      window.addEventListener('click', requestIOSPerm);
+    } else if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
       window.addEventListener('deviceorientation', handleOrientation, true);
     }
-    window.addEventListener('mousemove', handleMouseMove);
 
-    // Smooth Lerp Animation Loop for 3D Motion
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    // Smooth Lerp Animation Loop for 3D Motion with subtle organic breathing oscillation
     let motionAnimFrame: number;
+    let startTime = Date.now();
+
     const animateMotion = () => {
-      currentRotateX += (targetRotateX - currentRotateX) * 0.1;
-      currentRotateY += (targetRotateY - currentRotateY) * 0.1;
+      const elapsed = (Date.now() - startTime) / 1000;
+      // Gentle organic micro-sway when sensor is stationary
+      const idleSwayX = hasSensorInput ? 0 : Math.sin(elapsed * 1.2) * 1.5;
+      const idleSwayY = hasSensorInput ? 0 : Math.cos(elapsed * 0.9) * 2.0;
+
+      currentRotateX += ((targetRotateX + idleSwayX) - currentRotateX) * 0.12;
+      currentRotateY += ((targetRotateY + idleSwayY) - currentRotateY) * 0.12;
 
       setTiltStyle({
         transform: `perspective(1000px) rotateX(${currentRotateX.toFixed(2)}deg) rotateY(${currentRotateY.toFixed(2)}deg) translateZ(12px)`,
-        transition: 'transform 0.05s ease-out'
+        transformStyle: 'preserve-3d',
+        transition: 'transform 0.04s ease-out'
       });
 
       motionAnimFrame = requestAnimationFrame(animateMotion);
@@ -112,10 +146,11 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
     motionAnimFrame = requestAnimationFrame(animateMotion);
 
     return () => {
-      if (window.DeviceOrientationEvent) {
+      if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
         window.removeEventListener('deviceorientation', handleOrientation, true);
       }
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('touchmove', handleTouchMove);
       cancelAnimationFrame(motionAnimFrame);
     };
   }, [isFullyActive]);
@@ -299,34 +334,37 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       <div className="daytrace-ai-ring ring-middle" />
       <div className="daytrace-ai-ring ring-inner" />
 
-      {/* Layer 4: Humanoid Visual Asset OR Clean Holographic Projection Field with 3D Gyro Motion */}
-      <div className="daytrace-ai-humanoid-wrapper" style={tiltStyle}>
-        {!imageError && (
-          <img
-            src={assetPath}
-            alt=""
-            className={`daytrace-ai-image ${imageLoaded ? 'loaded' : ''}`}
-            onLoad={() => setImageLoaded(true)}
-            onError={() => {
-              setImageError(true);
-              console.warn('DayTrace AI Asset Not Found (/assets/daytrace-ai.webp) - Rendering empty holographic field');
-            }}
-          />
-        )}
+      {/* Layer 4: 3D Sensor Motion Tilt Wrapper */}
+      <div className="daytrace-ai-tilt-wrapper" style={tiltStyle}>
+        {/* Layer 4b: Humanoid Visual Asset OR Clean Holographic Projection Field */}
+        <div className="daytrace-ai-humanoid-wrapper">
+          {!imageError && (
+            <img
+              src={assetPath}
+              alt=""
+              className={`daytrace-ai-image ${imageLoaded ? 'loaded' : ''}`}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => {
+                setImageError(true);
+                console.warn('DayTrace AI Asset Not Found (/assets/daytrace-ai.webp) - Rendering empty holographic field');
+              }}
+            />
+          )}
 
-        {imageError && (
-          /* Clean Empty Holographic Projection Field (NO TEXT, NO BROKEN ICON, NO FABRICATED VECTOR FACE) */
-          <div className="relative w-full h-full flex flex-col items-center justify-center text-center p-4">
-            <div className="w-24 h-24 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/5 flex items-center justify-center shadow-[0_0_25px_rgba(0,240,255,0.15)] animate-pulse" />
-          </div>
-        )}
+          {imageError && (
+            /* Clean Empty Holographic Projection Field (NO TEXT, NO BROKEN ICON, NO FABRICATED VECTOR FACE) */
+            <div className="relative w-full h-full flex flex-col items-center justify-center text-center p-4">
+              <div className="w-24 h-24 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/5 flex items-center justify-center shadow-[0_0_25px_rgba(0,240,255,0.15)] animate-pulse" />
+            </div>
+          )}
 
-        {/* Layer 7: Extremely Subtle Chest Core */}
-        {!imageError && imageLoaded && (
-          <div className="daytrace-ai-core" style={{ backgroundColor: isAlert ? '#F87171' : '#00F0FF' }}>
-            <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert ? '#F87171' : '#00F0FF' }} />
-          </div>
-        )}
+          {/* Layer 7: Extremely Subtle Chest Core */}
+          {!imageError && imageLoaded && (
+            <div className="daytrace-ai-core" style={{ backgroundColor: isAlert ? '#F87171' : '#00F0FF' }}>
+              <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert ? '#F87171' : '#00F0FF' }} />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Layer 5: Fine Scanlines & Periodic Vertical Laser Beam */}

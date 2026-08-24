@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, 
   Mic, 
+  MicOff,
+  Square,
   Sparkles, 
   Flame, 
   Trophy, 
@@ -22,6 +24,7 @@ import { SmartAICardView } from '../ai/SmartAICardView';
 import { calculateGamificationStats } from '../../utils/gamificationEngine';
 import { detectScheduleConflicts } from '../../utils/scheduleConflictEngine';
 import { queryGeminiAPI } from '../../services/geminiService';
+import { speechService } from '../../services/speechRecognition';
 import { SmartAICard, UserMemoryItem } from '../../types';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
@@ -32,19 +35,41 @@ export const GeminiLiveHubView: React.FC = () => {
     addTask, 
     updateTaskStatus, 
     addFixedEvent, 
-    updateUserSettings,
-    triggerSpeechCapture
+    updateUserSettings
   } = useDay();
 
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [interimText, setInterimText] = useState('');
   const [avatarMode, setAvatarMode] = useState<'idle' | 'listening' | 'thinking' | 'talking' | 'processing_task'>('idle');
   const [statusText, setStatusText] = useState('Cybernetic Core Active');
   const [codeLogs, setCodeLogs] = useState<string[]>([]);
   const [smartCards, setSmartCards] = useState<SmartAICard[]>([]);
   const [memories, setMemories] = useState<UserMemoryItem[]>(state.userMemoryBank || []);
 
+  const silenceTimerRef = useRef<number | null>(null);
   const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      speechService.stopListening();
+    };
+  }, []);
+
+  const clearSilenceTimer = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  };
+
+  const resetSilenceTimer = (callback: () => void) => {
+    clearSilenceTimer();
+    silenceTimerRef.current = window.setTimeout(callback, 6500);
+  };
 
   // Helper to detect if user input is an information/advice question vs a task schedule command
   const isQuestionOrAdvice = (query: string): boolean => {
@@ -54,13 +79,11 @@ export const GeminiLiveHubView: React.FC = () => {
     return questionStarters.some((starter) => text.startsWith(starter) || text.includes(starter));
   };
 
-  // 1st Priority: Typing Bar submission with Gemini 2.5 Pro Live Grounding & Intent Classification
-  const handleTaskSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!inputText.trim() || isProcessing) return;
+  // Primary Query & Task Execution Handler
+  const submitQuery = async (queryText: string) => {
+    const query = queryText.trim();
+    if (!query || isProcessing) return;
 
-    const query = inputText.trim();
-    setInputText('');
     setIsProcessing(true);
     setAvatarMode('processing_task');
     setStatusText('Connected to Gemini 2.5 Pro Grounding...');
@@ -209,16 +232,113 @@ export const GeminiLiveHubView: React.FC = () => {
     }, 1000);
   };
 
-  const handleVoiceDictation = () => {
-    setAvatarMode('listening');
-    setStatusText('Listening... Speak your task or ask advice');
-    triggerSpeechCapture((transcript) => {
-      if (transcript) {
-        setInputText(transcript);
+  // Form Submit from typing bar
+  const handleTaskSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!inputText.trim() || isProcessing) return;
+    const query = inputText.trim();
+    setInputText('');
+    void submitQuery(query);
+  };
+
+  // Voice Dictation Toggle & Speech Handler
+  const handleVoiceDictation = async () => {
+    if (isListening) {
+      // User tapped Stop button manually
+      clearSilenceTimer();
+      await speechService.stopListening();
+      setIsListening(false);
+      const captured = interimText.trim() || inputText.trim();
+      setInterimText('');
+      if (captured) {
+        setInputText(captured);
+        setStatusText(`Captured: "${captured}"`);
+        setAvatarMode('thinking');
+        setTimeout(() => void submitQuery(captured), 500);
+      } else {
+        setAvatarMode('idle');
+        setStatusText('Listening stopped');
       }
-      setAvatarMode('idle');
-      setStatusText('Voice captured');
+      return;
+    }
+
+    // Start listening
+    setIsListening(true);
+    setInterimText('');
+    setAvatarMode('listening');
+    setStatusText('Listening... Speak now (tap stop when done)');
+
+    resetSilenceTimer(async () => {
+      await speechService.stopListening();
+      setIsListening(false);
+      const textToSubmit = interimText.trim();
+      setInterimText('');
+      if (textToSubmit) {
+        setInputText(textToSubmit);
+        setStatusText(`Captured: "${textToSubmit}"`);
+        setAvatarMode('thinking');
+        void submitQuery(textToSubmit);
+      } else {
+        setAvatarMode('idle');
+        setStatusText('No speech detected. Tap mic to retry.');
+        setTimeout(() => setStatusText('Cybernetic Core Active'), 4000);
+      }
     });
+
+    const started = await speechService.startListening(
+      (interim) => {
+        setInterimText(interim);
+        setStatusText(`Hearing: "${interim.length > 25 ? interim.substring(0, 25) + '...' : interim}"`);
+        resetSilenceTimer(async () => {
+          await speechService.stopListening();
+          setIsListening(false);
+          setInterimText('');
+          if (interim.trim()) {
+            setInputText(interim.trim());
+            setStatusText(`Captured: "${interim.trim()}"`);
+            setAvatarMode('thinking');
+            void submitQuery(interim.trim());
+          }
+        });
+      },
+      (finalText) => {
+        clearSilenceTimer();
+        setIsListening(false);
+        setInterimText('');
+        if (finalText && finalText.trim()) {
+          const query = finalText.trim();
+          setInputText(query);
+          setStatusText(`Captured: "${query.length > 25 ? query.substring(0, 25) + '...' : query}"`);
+          setAvatarMode('thinking');
+          setTimeout(() => {
+            void submitQuery(query);
+          }, 400);
+        } else {
+          setAvatarMode('idle');
+          setStatusText('Voice input complete');
+        }
+      },
+      (err) => {
+        clearSilenceTimer();
+        setIsListening(false);
+        setInterimText('');
+        setAvatarMode('idle');
+        setStatusText(`Mic error: ${err}`);
+        setTimeout(() => setStatusText('Cybernetic Core Active'), 4000);
+      },
+      () => {
+        // onEnd callback
+        clearSilenceTimer();
+        setIsListening(false);
+      }
+    );
+
+    if (!started) {
+      clearSilenceTimer();
+      setIsListening(false);
+      setAvatarMode('idle');
+      setStatusText('Microphone unavailable or permission needed');
+    }
   };
 
   const handleConfirmReschedule = (cardId: string) => {
@@ -307,33 +427,73 @@ export const GeminiLiveHubView: React.FC = () => {
 
       {/* Bottom Fixed Command Bar (Pinned above Bottom Navigation Bar & Soft Keyboard) */}
       <div className="shrink-0 p-3 bg-[#070A10]/95 backdrop-blur-xl border-t border-[#00F0FF]/40 shadow-2xl sticky bottom-0 z-40 pb-safe">
+        {/* Floating live voice transcription banner when listening */}
+        {isListening && (
+          <div className="max-w-lg mx-auto mb-2 px-3 py-1.5 rounded-2xl bg-[#BA1A1A]/25 border border-[#FF8D80]/50 backdrop-blur-md flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center space-x-2 truncate">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#FF8D80] animate-ping shrink-0" />
+              <span className="text-[11px] font-mono text-[#FFD8D3] truncate">
+                {interimText ? `"${interimText}"` : 'Listening to your voice... Speak now'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleVoiceDictation}
+              className="px-2.5 py-1 rounded-xl bg-[#BA1A1A] hover:bg-[#DC2626] text-white text-[10px] font-mono font-bold flex items-center space-x-1 shrink-0 ml-2 shadow-md"
+            >
+              <Square className="w-2.5 h-2.5 fill-current" />
+              <span>Stop & Send</span>
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleTaskSubmit} className="flex items-center space-x-2 max-w-lg mx-auto">
-          {/* 2nd Priority: Voice Dictate Button */}
+          {/* Voice Dictate & Stop Button */}
           <button
             type="button"
             onClick={handleVoiceDictation}
-            className="p-3 rounded-2xl bg-[#0D1527] hover:bg-[#00F0FF]/20 border border-[#00F0FF]/40 text-[#00F0FF] transition shadow-md shrink-0"
-            title="2nd Priority: Dictate voice query"
+            className={`p-3 rounded-2xl transition shadow-md shrink-0 active:scale-95 relative ${
+              isListening
+                ? 'bg-[#BA1A1A] hover:bg-[#DC2626] border-2 border-[#FF8D80] text-white shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse'
+                : 'bg-[#0D1527] hover:bg-[#00F0FF]/20 border border-[#00F0FF]/40 text-[#00F0FF]'
+            }`}
+            title={isListening ? "Listening... Tap here to STOP recording" : "Dictate voice query (tap to speak)"}
           >
-            <Mic className="w-4 h-4" />
+            {isListening ? (
+              <>
+                <Square className="w-4 h-4 fill-current text-white" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#FF8D80] rounded-full animate-ping" />
+              </>
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
           </button>
 
-          {/* 1st Priority: Primary Typing Input Bar */}
+          {/* Primary Typing Input Bar */}
           <div className="relative flex-1">
             <input
               type="text"
-              value={inputText}
+              value={isListening && interimText ? interimText : inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Assign a task or ask Gemini Pro..."
+              placeholder={
+                isListening 
+                  ? '🎙️ Listening... Speak your query' 
+                  : 'Assign a task or ask Gemini Pro...'
+              }
               disabled={isProcessing}
-              className="w-full py-3 pl-4 pr-11 rounded-2xl bg-[#111827] border border-[#00F0FF]/40 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:ring-2 focus:ring-[#00F0FF] focus:outline-none shadow-inner"
+              className={`w-full py-3 pl-4 pr-11 rounded-2xl border text-xs font-mono placeholder-[#C4C6D0]/40 focus:outline-none shadow-inner transition ${
+                isListening
+                  ? 'bg-[#180A0A] border-[#FF8D80]/60 text-[#FFD8D3] focus:ring-2 focus:ring-[#FF8D80]'
+                  : 'bg-[#111827] border-[#00F0FF]/40 text-[#E2E2E6] focus:ring-2 focus:ring-[#00F0FF]'
+              }`}
             />
 
             <button
               type="submit"
-              disabled={!inputText.trim() || isProcessing}
+              disabled={(!inputText.trim() && !interimText.trim()) || isProcessing}
               className={`absolute right-1.5 top-1.5 p-2 rounded-xl transition ${
-                inputText.trim() && !isProcessing
+                (inputText.trim() || interimText.trim()) && !isProcessing
                   ? 'bg-[#00F0FF] text-[#070A10] shadow-[0_0_15px_#00F0FF]'
                   : 'bg-[#1D2026] text-[#C4C6D0]/30 cursor-not-allowed'
               }`}

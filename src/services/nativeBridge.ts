@@ -62,6 +62,7 @@ export interface DayTraceNativePluginInterface {
 
   triggerTestPeriodicPrompt(options?: { delaySeconds?: number }): Promise<{ scheduled: boolean; delaySeconds: number }>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
+  requestAllPermissions(): Promise<{ notifications: boolean; recordAudio: boolean; location: boolean; granted: boolean }>;
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   openNotificationSettings(): Promise<{ success: boolean }>;
   requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
@@ -402,11 +403,21 @@ export const triggerNativeTestPrompt = async (delaySeconds: number = 10): Promis
 export const requestNativeNotificationPermission = async (): Promise<boolean> => {
   if (!isNativeAndroid()) return true;
   try {
-    const res = await DayTraceNative.requestNotificationPermission();
-    return res.granted;
+    const result = await DayTraceNative.requestNotificationPermission();
+    return result.granted;
   } catch (e) {
     console.warn('Failed to request notification permission:', e);
     return false;
+  }
+};
+
+export const requestAllNativePermissions = async (): Promise<{ notifications: boolean; recordAudio: boolean; location: boolean; granted: boolean }> => {
+  if (!isNativeAndroid()) return { notifications: true, recordAudio: true, location: true, granted: true };
+  try {
+    return await DayTraceNative.requestAllPermissions();
+  } catch (e) {
+    console.warn('Failed to request all native permissions:', e);
+    return { notifications: false, recordAudio: false, location: false, granted: false };
   }
 };
 

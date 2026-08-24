@@ -454,7 +454,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
         </div>
       )}
 
-      {/* Sync & Sheets Modal */}
+      {/* Data Backup & JSON Restore Modal */}
       {showSyncModal && (
         <div 
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4" 
@@ -467,11 +467,11 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             <div className="flex items-center justify-between pb-3 border-b border-[#44474E]/30">
               <div className="flex items-center space-x-2">
                 <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
-                  <FileSpreadsheet className="w-5 h-5 text-[#D1E1FF]" />
+                  <Download className="w-5 h-5 text-[#D1E1FF]" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-[#E2E2E6]">Google Sheets Sync & Backup</h3>
-                  <p className="text-[10px] text-[#C4C6D0]/70">Auto-save timeline, tasks & journal</p>
+                  <h3 className="font-bold text-sm text-[#E2E2E6]">Data Backup & Restore (.json)</h3>
+                  <p className="text-[10px] text-[#C4C6D0]/70">Export or import your complete DayTrace backup</p>
                 </div>
               </div>
               <button onClick={() => setShowSyncModal(false)} className="text-[#C4C6D0] hover:text-[#E2E2E6]">
@@ -479,196 +479,18 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
               </button>
             </div>
 
-            {/* WhatsApp-Style Nightly Automated Sync Setting */}
-            <div className="p-4 rounded-3xl bg-[#111318] border border-[#FBBF24]/30 space-y-3 shadow-inner">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="p-1 rounded-lg bg-[#FBBF24]/20 text-[#FBBF24]">
-                    <Moon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-[#E2E2E6] block">Nightly Auto-Backup</span>
-                    <span className="text-[10px] text-[#C4C6D0]/70">WhatsApp-style automatic night sync</span>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.enableNightlySync !== false}
-                    onChange={(e) => updateUserSettings({ enableNightlySync: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-[#2E3036] peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#FBBF24]"></div>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-[#C4C6D0]/80 pt-1 border-t border-[#44474E]/20">
-                <span>Backup Schedule</span>
-                <select
-                  value={settings.nightlySyncHour ?? 2}
-                  onChange={(e) => updateUserSettings({ nightlySyncHour: parseInt(e.target.value, 10) })}
-                  className="bg-[#1D2026] text-[#D1E1FF] text-xs font-semibold px-2 py-1 rounded-xl border border-[#44474E]/40"
-                >
-                  <option value={0}>12:00 AM (Midnight)</option>
-                  <option value={1}>01:00 AM</option>
-                  <option value={2}>02:00 AM (Recommended)</option>
-                  <option value={3}>03:00 AM</option>
-                  <option value={4}>04:00 AM</option>
-                </select>
-              </div>
-
-              {settings.lastNightlyBackupAt && (
-                <div className="text-[10px] text-[#86EFAC] font-mono flex items-center pt-0.5">
-                  <CheckCircle2 className="w-3 h-3 mr-1 shrink-0" />
-                  <span>Last night sync: {new Date(settings.lastNightlyBackupAt).toLocaleString()}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Direct 1-Click Google Sheets Integration Section */}
+            {/* Export Section */}
             <div className="p-4 rounded-3xl bg-[#111318] border border-[#D1E1FF]/30 space-y-3 shadow-inner">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Table className="w-4 h-4 text-[#D1E1FF]" />
-                  <span className="text-xs font-bold text-[#E2E2E6]">Live Google Spreadsheet</span>
-                </div>
-                {settings.lastSyncedAt && (
-                  <span className="text-[10px] text-[#86EFAC] font-mono flex items-center">
-                    <CheckCircle2 className="w-3 h-3 mr-1" />
-                    Synced at {settings.lastSyncedAt}
-                  </span>
-                )}
-              </div>
-
-              <p className="text-[11px] text-[#C4C6D0]/80 leading-relaxed">
-                Appends daily summary, timeline entries, task board, reminders, and full JSON snapshot to Google Sheets.
-              </p>
-
-              {/* Connected Spreadsheet Link */}
-              {settings.googleSpreadsheetUrl && (
-                <div className="p-2.5 rounded-2xl bg-[#1D2026] border border-[#44474E]/40 flex items-center justify-between">
-                  <div className="truncate mr-2">
-                    <span className="text-[10px] text-[#C4C6D0]/60 block">Connected Sheet</span>
-                    <span className="text-xs font-semibold text-[#D1E1FF] truncate block">
-                      {settings.googleSpreadsheetTitle || 'DayTrace Journal'}
-                    </span>
-                  </div>
-                  <a
-                    href={settings.googleSpreadsheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-1.5 px-3 rounded-xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-[11px] font-bold flex items-center space-x-1 shrink-0 transition"
-                  >
-                    <span>Open</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
-              {/* Manual Sync Button */}
-              <button
-                id="one-click-sync-sheets-btn"
-                onClick={handleTriggerSync}
-                disabled={isSyncingSheets}
-                className="w-full py-3 px-4 rounded-2xl bg-[#D1E1FF] hover:bg-[#B6D4FE] text-[#003062] text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition disabled:opacity-50"
-              >
-                {isSyncingSheets ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-[#003062]" />
-                    <span>Syncing & Backing Up to Google Sheets...</span>
-                  </>
-                ) : (
-                  <>
-                    <FileSpreadsheet className="w-4 h-4 text-[#003062]" />
-                    <span>Sync & Backup Current State to Google Sheets</span>
-                  </>
-                )}
-              </button>
-
-              {syncFeedback?.error && (
-                <div className="text-[11px] text-[#F87171] font-semibold bg-[#7F1D1D]/20 p-2 rounded-xl border border-[#F87171]/30">
-                  {syncFeedback.error}
-                </div>
-              )}
-            </div>
-
-            {/* Cloud Restore (For Clean Installs or New Phone) */}
-            <div className="p-4 rounded-3xl bg-[#111318] border border-[#86EFAC]/30 space-y-3 shadow-inner">
               <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-xl bg-[#86EFAC]/20 text-[#86EFAC]">
-                  <CloudDownload className="w-4 h-4" />
+                <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
+                  <Download className="w-4 h-4 text-[#D1E1FF]" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-[#E2E2E6]">Restore from Google Sheets</h4>
-                  <p className="text-[10px] text-[#C4C6D0]/70">For new device or clean reinstall (Restores tasks, history, habits & AI learnings)</p>
+                  <h4 className="text-xs font-bold text-[#E2E2E6]">Export Backup File</h4>
+                  <p className="text-[10px] text-[#C4C6D0]/70">Saves all tasks, timeline, routines, categories & learnings to a .json file</p>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={restoreSheetInput}
-                  onChange={(e) => setRestoreSheetInput(e.target.value)}
-                  placeholder={settings.googleSpreadsheetId ? `Current ID: ${settings.googleSpreadsheetId.slice(0, 16)}...` : "Paste existing Spreadsheet ID or leave blank to use connected sheet"}
-                  className="w-full p-2.5 rounded-xl bg-[#1D2026] border border-[#44474E]/40 text-xs font-mono text-[#E2E2E6] placeholder:text-[#C4C6D0]/40 focus:outline-hidden focus:border-[#86EFAC]"
-                />
-
-                <button
-                  id="restore-sheets-btn"
-                  onClick={handleRestoreFromSheets}
-                  disabled={isRestoringBackup}
-                  className="w-full py-2.5 px-4 rounded-2xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-2 transition border border-[#86EFAC]/40 disabled:opacity-50"
-                >
-                  {isRestoringBackup ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-[#86EFAC]" />
-                      <span>Fetching & Restoring Full State...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4 text-[#86EFAC]" />
-                      <span>Restore All Data & Learnings from Google Sheets</span>
-                    </>
-                  )}
-                </button>
-
-                {restoreStatus && (
-                  <div className={`text-xs font-semibold p-2 rounded-xl border ${restoreStatus.success ? 'bg-[#86EFAC]/10 border-[#86EFAC]/30 text-[#86EFAC]' : 'bg-[#F87171]/10 border-[#F87171]/30 text-[#F87171]'}`}>
-                    {restoreStatus.message || (restoreStatus.success ? 'Restoration complete!' : 'Failed to restore')}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Google Sheets CSV Tables Copy Fallback */}
-            <div className="space-y-2 pt-1">
-              <h4 className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider">Quick CSV Copy Tables</h4>
-              <div className="grid grid-cols-2 gap-2 pt-0.5">
-                {Object.entries(sheetsData).map(([tabName, csvContent]) => (
-                  <button
-                    key={tabName}
-                    onClick={() => handleCopySheetsTab(tabName, String(csvContent))}
-                    className="p-2.5 rounded-2xl bg-[#2E3036] hover:bg-[#334867] border border-[#44474E]/40 text-left transition flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="font-bold text-xs text-[#E2E2E6]">{tabName}</div>
-                      <div className="text-[10px] text-[#C4C6D0]/60">Copy CSV</div>
-                    </div>
-                    {copiedTab === tabName ? (
-                      <Check className="w-4 h-4 text-[#86EFAC]" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5 text-[#D1E1FF]" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-
-
-            {/* JSON Download Backup */}
-            <div className="space-y-2 pt-2 border-t border-[#44474E]/30">
-              <h4 className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider">JSON Full State Backup</h4>
               <button
                 onClick={() => {
                   const blob = new Blob([exportDataJSON()], { type: 'application/json' });
@@ -678,34 +500,88 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
                   a.download = `daytrace-backup-${state.date}.json`;
                   a.click();
                 }}
-                className="w-full py-2.5 px-4 rounded-2xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-xs font-bold flex items-center justify-center space-x-2 transition border border-[#D1E1FF]/30"
+                className="w-full py-3 px-4 rounded-2xl bg-[#D1E1FF] hover:bg-white text-[#003062] text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition"
               >
-                <Download className="w-4 h-4" />
-                <span>Download DayTrace State (.json)</span>
+                <Download className="w-4 h-4 text-[#003062]" />
+                <span>Export & Save Backup (.json file)</span>
               </button>
             </div>
 
-            {/* Restore from JSON */}
-            <div className="space-y-2 pt-2 border-t border-[#44474E]/30">
-              <h4 className="text-xs font-bold text-[#D1E1FF] uppercase tracking-wider">Restore State from JSON</h4>
-              <textarea
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                placeholder="Paste backup JSON string here to restore..."
-                rows={2}
-                className="w-full p-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs font-mono text-[#E2E2E6] focus:outline-hidden focus:border-[#D1E1FF]"
+            {/* Import Section */}
+            <div className="p-4 rounded-3xl bg-[#111318] border border-[#86EFAC]/30 space-y-3 shadow-inner">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 rounded-xl bg-[#86EFAC]/20 text-[#86EFAC]">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-[#E2E2E6]">Import Backup File</h4>
+                  <p className="text-[10px] text-[#C4C6D0]/70">Select your saved .json backup file to restore your app data</p>
+                </div>
+              </div>
+
+              <input
+                type="file"
+                id="json-file-input"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const content = event.target?.result as string;
+                    if (content) {
+                      const success = importDataJSON(content);
+                      if (success) {
+                        setImportStatus('DayTrace data restored successfully!');
+                        setTimeout(() => {
+                          setShowSyncModal(false);
+                          setImportStatus(null);
+                        }, 1200);
+                      } else {
+                        setImportStatus('Invalid JSON backup file format.');
+                      }
+                    }
+                  };
+                  reader.readAsText(file);
+                }}
               />
+
+              <button
+                onClick={() => document.getElementById('json-file-input')?.click()}
+                className="w-full py-3 px-4 rounded-2xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-2 transition border border-[#86EFAC]/40"
+              >
+                <CloudDownload className="w-4 h-4 text-[#86EFAC]" />
+                <span>Select & Restore (.json File)</span>
+              </button>
+
               {importStatus && (
-                <div className={`text-xs font-semibold ${importStatus.includes('success') ? 'text-[#86EFAC]' : 'text-[#F87171]'}`}>
+                <div className={`text-xs font-semibold p-2.5 rounded-xl border ${importStatus.includes('success') ? 'bg-[#86EFAC]/10 border-[#86EFAC]/30 text-[#86EFAC]' : 'bg-[#F87171]/10 border-[#F87171]/30 text-[#F87171]'}`}>
                   {importStatus}
                 </div>
               )}
-              <button
-                onClick={handleImportSubmit}
-                className="w-full py-2 px-4 rounded-2xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] text-xs font-bold transition border border-[#44474E]/40"
-              >
-                Restore from JSON
-              </button>
+
+              {/* Text Area Fallback */}
+              <div className="pt-2 border-t border-[#44474E]/20 space-y-2">
+                <details className="text-[11px] text-[#C4C6D0]">
+                  <summary className="cursor-pointer font-semibold text-[#D1E1FF] hover:underline">Or paste JSON string manually</summary>
+                  <div className="pt-2 space-y-2">
+                    <textarea
+                      value={importText}
+                      onChange={(e) => setImportText(e.target.value)}
+                      placeholder="Paste backup JSON string here..."
+                      rows={3}
+                      className="w-full p-2.5 rounded-xl bg-[#1D2026] border border-[#44474E]/40 text-xs font-mono text-[#E2E2E6] focus:outline-hidden focus:border-[#D1E1FF]"
+                    />
+                    <button
+                      onClick={handleImportSubmit}
+                      className="w-full py-2 px-4 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] text-xs font-bold transition border border-[#44474E]/40"
+                    >
+                      Restore from Pasted JSON
+                    </button>
+                  </div>
+                </details>
+              </div>
             </div>
           </div>
         </div>

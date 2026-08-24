@@ -944,6 +944,32 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void requestAllPermissions(PluginCall call) {
+        getContext().getSharedPreferences(PREFS_PERMISSIONS, Context.MODE_PRIVATE)
+                .edit().putBoolean("notifications_asked", true).apply();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionForAliases(new String[]{"notifications", "recordAudio", "locationForeground"}, call, "allPermissionsCallback");
+        } else {
+            requestPermissionForAliases(new String[]{"recordAudio", "locationForeground"}, call, "allPermissionsCallback");
+        }
+    }
+
+    @PermissionCallback
+    private void allPermissionsCallback(PluginCall call) {
+        boolean notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED;
+        boolean audioGranted = getPermissionState("recordAudio") == com.getcapacitor.PermissionState.GRANTED;
+        boolean locationGranted = getPermissionState("locationForeground") == com.getcapacitor.PermissionState.GRANTED;
+        
+        JSObject ret = new JSObject();
+        ret.put("notifications", notificationsGranted);
+        ret.put("recordAudio", audioGranted);
+        ret.put("location", locationGranted);
+        ret.put("granted", notificationsGranted && audioGranted && locationGranted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void openNotificationSettings(PluginCall call) {
         try {
             Context context = getContext();

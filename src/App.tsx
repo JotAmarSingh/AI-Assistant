@@ -20,6 +20,8 @@ import { GeofenceManagerModal } from './components/geofence/GeofenceManagerModal
 import { LocationLearningPrompts } from './components/geofence/LocationLearningPrompts';
 import { DestructiveConfirmationModal } from './components/common/DestructiveConfirmationModal';
 
+import { isNativeAndroid, requestAllNativePermissions } from './services/nativeBridge';
+
 const MainScreen: React.FC = () => {
   const { 
     isPeriodicPromptOpen, 
@@ -45,6 +47,12 @@ const MainScreen: React.FC = () => {
   } = useDay();
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isNativeAndroid()) {
+      void requestAllNativePermissions();
+    }
+  }, []);
 
   useEffect(() => {
     const openMeetings = () => setActiveTab('meetings');

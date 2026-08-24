@@ -169,20 +169,32 @@ public class PeriodicPromptReceiver extends BroadcastReceiver {
         }
 
         builder.addAction(replyAction);
-        if (taskCount < 2) {
-            Intent snoozeIntent = new Intent(context, PeriodicPromptActionReceiver.class);
-            snoozeIntent.setAction(ACTION_SNOOZE);
-            snoozeIntent.putExtra("snoozeMinutes", 30);
-            addPromptIdentity(snoozeIntent, notificationId, promptInstanceId, isTest);
-            snoozeIntent.setData(Uri.parse("daytrace://accountability/snooze/" + (isTest ? "test" : "recurring")));
-            PendingIntent snoozePendingIntent = PendingIntent.getBroadcast(
-                    context, isTest ? 1104 : 1004, snoozeIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            );
-            builder.addAction(new NotificationCompat.Action.Builder(
-                    android.R.drawable.ic_lock_idle_alarm, "Snooze 30m", snoozePendingIntent
-            ).build());
-        }
+        
+        Intent snooze30Intent = new Intent(context, PeriodicPromptActionReceiver.class);
+        snooze30Intent.setAction(ACTION_SNOOZE);
+        snooze30Intent.putExtra("snoozeMinutes", 30);
+        addPromptIdentity(snooze30Intent, notificationId, promptInstanceId, isTest);
+        snooze30Intent.setData(Uri.parse("daytrace://accountability/snooze30/" + (isTest ? "test" : "recurring")));
+        PendingIntent snooze30PendingIntent = PendingIntent.getBroadcast(
+                context, isTest ? 1104 : 1004, snooze30Intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        builder.addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_lock_idle_alarm, "Delay 30m", snooze30PendingIntent
+        ).build());
+
+        Intent snooze60Intent = new Intent(context, PeriodicPromptActionReceiver.class);
+        snooze60Intent.setAction(ACTION_SNOOZE);
+        snooze60Intent.putExtra("snoozeMinutes", 60);
+        addPromptIdentity(snooze60Intent, notificationId, promptInstanceId, isTest);
+        snooze60Intent.setData(Uri.parse("daytrace://accountability/snooze60/" + (isTest ? "test" : "recurring")));
+        PendingIntent snooze60PendingIntent = PendingIntent.getBroadcast(
+                context, isTest ? 1105 : 1005, snooze60Intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        builder.addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_lock_idle_alarm, "Delay 1h", snooze60PendingIntent
+        ).build());
 
         try {
             notificationManager.notify(notificationId, builder.build());

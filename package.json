@@ -15,12 +15,14 @@
     "test:state-migrations": "node --import tsx scripts/test-state-migrations.ts",
     "test:multi-triggers": "node --import tsx scripts/test-multi-trigger-parser.ts",
     "test:meetings": "node --import tsx scripts/test-meeting-processor.ts",
-    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings"
+    "test:task-parsing": "node --import tsx scripts/test-task-parsing.ts",
+    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@esbuild/win32-x64": "^0.28.2",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/archiver": "^8.0.0",
@@ -30,6 +32,7 @@
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "lightningcss-win32-x64-msvc": "^1.33.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",

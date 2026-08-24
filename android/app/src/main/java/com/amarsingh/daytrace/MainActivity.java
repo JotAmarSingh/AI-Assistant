@@ -55,6 +55,12 @@ public class MainActivity extends BridgeActivity {
         handleIncomingIntent(getIntent());
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        PeriodicPromptReceiver.ensurePromptScheduled(this);
+    }
+
     /**
      * Android 15+ renders edge-to-edge by default. Apply the real status and
      * navigation bar insets to the WebView so DayTrace content cannot sit

@@ -233,19 +233,27 @@ export function parseOfflineUserInput(
     }
   }
 
-  // 8. General task creation
-  if (/\b(need to|have to|must|add task|todo:)\b/i.test(lower) && !newTasks.length && !completedTaskTitles.length) {
-    const taskTitle = rawInput.replace(/.*(need to|have to|must|add task|todo:)\s+/i, '').trim();
-    if (taskTitle) {
-      newTasks.push({
-        title: capitalizeFirst(taskTitle),
-        category: 'OFFICE',
-        owner: 'ME',
-        status: 'NEXT',
-        priority: 7,
-        createdAt: now,
-      });
-      responseNotes.push(`Added new task: "${taskTitle}"`);
+  // 8. General task creation (Supports multi-task lists, numbered items, bullet points, and single tasks)
+  const isTaskCreationIntent = /\b(these are the tasks|tasks (that|to)|my tasks|task list|todos?|add tasks?|need to|have to|must|should|plan to)\b/i.test(lower);
+
+  if (isTaskCreationIntent && !newTasks.length && !completedTaskTitles.length) {
+    const extractedTaskTitles = parseTaskListItems(rawInput);
+    
+    for (const title of extractedTaskTitles) {
+      const cleanTitle = title.replace(/^[-*•\d.\s\)]+/, '').trim();
+      if (cleanTitle.length >= 2) {
+        const capitalizedTitle = capitalizeFirst(cleanTitle);
+        const cat = inferTaskCategory(cleanTitle);
+        newTasks.push({
+          title: capitalizedTitle,
+          category: cat,
+          owner: 'ME',
+          status: 'NEXT',
+          priority: 7,
+          createdAt: now,
+        });
+        responseNotes.push(`Added new task: "${capitalizedTitle}"`);
+      }
     }
   }
 
@@ -407,6 +415,63 @@ function parseReminderSentence(text: string, createdAt: string, currentState?: D
     createdAt,
     isDone: false,
   };
+}
+
+export function parseTaskListItems(rawText: string): string[] {
+  let textToParse = rawText.trim();
+  if (!textToParse) return [];
+
+  textToParse = textToParse
+    .replace(/^.*?\b(these are the tasks|tasks (that|to)|my tasks|task list|todos?|add tasks?|i need to|i have to|must|should|plan to|following tasks)( (that|to) (i|we)? (need|have|want) to)?( (do|complete|handle|finish|add))?:?\s*/i, '')
+    .trim();
+
+  let items: string[] = [];
+
+  if (/\b\d+[\.\)]\s*/.test(rawText)) {
+    const parts = rawText
+      .split(/\b\d+[\.\)]\s*/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    items = parts.filter(p => !isHeaderPhrase(p));
+  } else if (/[\r\n]+|[\u2022\u25E6\u2023\u2043]|\s*[-*]\s+/.test(textToParse)) {
+    const parts = textToParse
+      .split(/[\r\n]+|[\u2022\u25E6\u2023\u2043]|\s*[-*]\s+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    items = parts.filter(p => !isHeaderPhrase(p));
+  } else if (textToParse.includes(',') || textToParse.includes(';') || /\b,?\s+and\s+/i.test(textToParse)) {
+    const parts = textToParse
+      .split(/;|\b,?\s+and\s+|,/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    items = parts.filter(p => !isHeaderPhrase(p));
+  } else if (textToParse && !isHeaderPhrase(textToParse)) {
+    items = [textToParse];
+  }
+
+  return items
+    .map(item => item.replace(/^[-*•\d.\s\)]+/, '').trim())
+    .filter(item => {
+      if (item.length < 2) return false;
+      if (isHeaderPhrase(item)) return false;
+      return true;
+    });
+}
+
+function isHeaderPhrase(text: string): boolean {
+  const l = text.toLowerCase().trim();
+  if (!l) return true;
+  if (/^(these are the tasks|tasks (that|to)?|my tasks|task list|todos?|add tasks?|i need to|i have to|must|should|plan to|following tasks|for today|today)$/i.test(l)) return true;
+  if (l.includes('tasks that i need to do') || l.includes('these are the tasks') || l.includes('my tasks for today')) return true;
+  return false;
+}
+
+function inferTaskCategory(title: string): TaskCategory {
+  const l = title.toLowerCase();
+  if (/\b(gym|workout|run|jog|exercise|meditate|health|doctor|walk|diet|water)\b/.test(l)) return 'HEALTH';
+  if (/\b(home|house|groceries|clean|kitchen|family|rent|bills|laundry)\b/.test(l)) return 'PERSONAL';
+  if (/\b(idea|feature|concept|project idea|draft)\b/.test(l)) return 'IDEAS';
+  return 'OFFICE';
 }
 
 function capitalizeFirst(str: string): string {

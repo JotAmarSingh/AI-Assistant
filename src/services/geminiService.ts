@@ -16,6 +16,24 @@ export const getGeminiClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
+/** Direct Gemini 2.5 Pro API Query with Google Search Grounding */
+export const queryGeminiAPI = async (prompt: string): Promise<string> => {
+  try {
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }] // Google Search Grounding
+      }
+    });
+    return response.text || '';
+  } catch (error) {
+    console.warn('Gemini API call warning:', error);
+    throw error;
+  }
+};
+
 /** Dynamic Ultra-Detailed Contextual Icon & Clipart Resolver */
 export const resolveContextualIcon = (title: string, description?: string): string => {
   const text = `${title} ${description || ''}`.toLowerCase();

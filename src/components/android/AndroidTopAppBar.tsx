@@ -22,6 +22,7 @@ import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
 import { isNativeAndroid, exportNativeJsonBackup } from '../../services/nativeBridge';
 import { TutorialModal } from './TutorialModal';
+import { MiniCyberneticFaceIcon } from '../ai/CyberneticAvatarCanvas';
 import { AndroidTab } from './AndroidNavigationBar';
 import { toLocalDateKey } from '../../utils/dailyHistory';
 
@@ -118,8 +119,8 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
       >
         {/* Left: App Identity & Geofence / Energy status */}
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-xl bg-[#334867] text-[#D1E1FF] flex items-center justify-center font-bold text-sm shadow-md border border-[#D1E1FF]/20 shrink-0">
-            <Sparkles className="w-4 h-4 text-[#D1E1FF]" />
+          <div className="w-8 h-8 rounded-xl bg-[#070A10] text-[#00F0FF] flex items-center justify-center font-bold text-sm shadow-md border border-[#00F0FF]/40 shrink-0">
+            <MiniCyberneticFaceIcon className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center space-x-1.5">

@@ -6,7 +6,6 @@ import {
   Flame, 
   Trophy, 
   Plus, 
-  Bot, 
   TrendingUp, 
   CheckCircle2, 
   Calendar,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { resolveContextualIcon } from '../../services/geminiService';
+import { MiniCyberneticFaceIcon } from '../ai/CyberneticAvatarCanvas';
 import { TimelineEvent } from '../../types';
 
 export const TimelineView: React.FC = () => {
@@ -50,8 +50,8 @@ export const TimelineView: React.FC = () => {
           <Calendar className="w-4 h-4 text-[#00F0FF]" />
           <span className="font-mono font-bold text-sm text-[#E2E2E6]">{selectedDate}</span>
         </div>
-        <div className="px-2.5 py-1 rounded-full bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] font-mono text-[10px] font-bold flex items-center space-x-1">
-          <Bot className="w-3 h-3 text-[#00F0FF]" />
+        <div className="px-2.5 py-1 rounded-full bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] font-mono text-[10px] font-bold flex items-center space-x-1.5">
+          <MiniCyberneticFaceIcon className="w-3.5 h-3.5" />
           <span>AI Day Map</span>
         </div>
       </div>
@@ -175,7 +175,7 @@ export const TimelineView: React.FC = () => {
         {/* Bottom AI Insight Box (Matching Reference Image) */}
         <div className="p-4 rounded-[28px] bg-gradient-to-r from-[#0D1527] via-[#111827] to-[#0D1527] border border-[#00F0FF]/40 shadow-[0_0_25px_rgba(0,240,255,0.15)] flex items-start space-x-3">
           <div className="w-9 h-9 rounded-2xl bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/40 flex items-center justify-center shrink-0">
-            <Bot className="w-5 h-5" />
+            <MiniCyberneticFaceIcon className="w-5 h-5" />
           </div>
           <div>
             <span className="text-xs font-bold text-[#00F0FF] font-mono block">AI Insight</span>

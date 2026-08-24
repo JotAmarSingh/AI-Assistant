@@ -4,28 +4,19 @@ import {
   MapPin, 
   Zap, 
   RefreshCw, 
-  FileSpreadsheet, 
-  Copy, 
   Check, 
   Download, 
   Smartphone, 
   HelpCircle, 
   X, 
   RotateCcw,
-  ExternalLink,
-  Loader2,
-  CheckCircle2,
-  Table,
   Mic,
   BrainCircuit,
   Flame,
-  Coins,
-  Radio,
-  Trophy,
-  Moon,
-  CloudDownload,
+  CalendarDays,
+  Copy,
   ShieldCheck,
-  CalendarDays
+  CloudDownload
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
@@ -46,12 +37,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
     setCurrentEnergy, 
     resetToFreshStart, 
     exportDataJSON, 
-    exportDataSheetsCSV, 
     importDataJSON,
-    syncToGoogleSheets,
-    isSyncingSheets,
-    restoreFromGoogleSheetsBackup,
-    isRestoringBackup,
     updateUserSettings,
     setIsFocusModalOpen,
     setIsVoiceModalOpen,
@@ -73,28 +59,11 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateInput, setDateInput] = useState(selectedDate);
   const [isNative, setIsNative] = useState(false);
-  const [copiedTab, setCopiedTab] = useState<string | null>(null);
   const [importText, setImportText] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [syncFeedback, setSyncFeedback] = useState<{ success?: boolean; url?: string; error?: string } | null>(null);
-  const [restoreSheetInput, setRestoreSheetInput] = useState('');
-  const [restoreStatus, setRestoreStatus] = useState<{ success?: boolean; message?: string } | null>(null);
 
   const settings = state.userSettings || {};
   const gamification = state.gamification || { points: 0, currentStreakDays: 0 };
-
-  const handleTriggerSync = async () => {
-    setSyncFeedback(null);
-    const res = await syncToGoogleSheets();
-    setSyncFeedback(res);
-  };
-
-  const handleRestoreFromSheets = async () => {
-    setRestoreStatus(null);
-    const targetId = restoreSheetInput.trim() || settings.googleSpreadsheetId || undefined;
-    const res = await restoreFromGoogleSheetsBackup(targetId);
-    setRestoreStatus(res);
-  };
 
   useEffect(() => {
     setIsNative(isNativeAndroid());
@@ -120,12 +89,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
     { mode: 'CREATIVE', label: 'Creative Mode', desc: 'Unstructured idea generation & drafts' },
   ];
 
-  const handleCopySheetsTab = (tabName: string, content: string) => {
-    navigator.clipboard.writeText(content);
-    setCopiedTab(tabName);
-    setTimeout(() => setCopiedTab(null), 2000);
-  };
-
   const handleImportSubmit = () => {
     if (!importText.trim()) return;
     const success = importDataJSON(importText);
@@ -140,8 +103,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
       setImportStatus('Invalid JSON data format. Please check structure.');
     }
   };
-
-  const sheetsData = exportDataSheetsCSV();
 
   return (
     <>
@@ -233,14 +194,14 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             )}
           </button>
 
-          {/* Backup & Sheets Sync Button */}
+          {/* Backup & Data Sync Button */}
           <button
             id="sync-sheets-btn"
             onClick={() => setShowSyncModal(true)}
             className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] transition shadow-xs"
-            title="Google Sheets & JSON Backup"
+            title="Data Backup & Restore (.json)"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5" />
           </button>
 
           {/* Guide & Tutorial Button */}

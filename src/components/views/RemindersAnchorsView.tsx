@@ -13,19 +13,14 @@ import {
   Volume2, 
   Sparkles, 
   VolumeX,
-  FileSpreadsheet,
-  ExternalLink,
-  Loader2,
   Smartphone,
   BellRing,
-  Unplug,
-  Copy,
   Download,
   CloudDownload
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
-import { NativeAppIdentity, NativeNotificationPermissionStatus, checkNativeNotificationPermission, getNativeAppIdentity, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission, exportNativeJsonBackup } from '../../services/nativeBridge';
+import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission, exportNativeJsonBackup } from '../../services/nativeBridge';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -40,9 +35,6 @@ export const RemindersAnchorsView: React.FC = () => {
     snoozePrompts,
     triggerManualPromptCheck,
     triggerNativePromptTest,
-    syncToGoogleSheets,
-    disconnectGoogleSheets,
-    isSyncingSheets,
     markAutomationComplete,
     deleteAutomation,
     snoozeAutomation,
@@ -53,8 +45,6 @@ export const RemindersAnchorsView: React.FC = () => {
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
   const [isTestingLockscreen, setIsTestingLockscreen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NativeNotificationPermissionStatus | null>(null);
-  const [nativeAppIdentity, setNativeAppIdentity] = useState<NativeAppIdentity | null>(null);
-  const [copiedSigningSha1, setCopiedSigningSha1] = useState(false);
 
   const refreshNotificationPermission = useCallback(async () => {
     if (!isNativeAndroid()) return;
@@ -63,7 +53,6 @@ export const RemindersAnchorsView: React.FC = () => {
 
   useEffect(() => {
     refreshNotificationPermission();
-    if (isNativeAndroid()) void getNativeAppIdentity().then(setNativeAppIdentity);
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refreshNotificationPermission();
     };

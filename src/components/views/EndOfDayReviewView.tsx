@@ -8,21 +8,15 @@ import {
   AlertCircle, 
   Calendar, 
   Copy, 
-  Check, 
-  FileSpreadsheet, 
-  ExternalLink, 
-  Loader2 
+  Check
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { generateOfflineEndOfDayReview } from '../../utils/offlineParser';
-import { syncStateToGoogleSheets } from '../../services/googleSheetsSync';
 import { soundEffects } from '../../services/soundEffects';
 
 export const EndOfDayReviewView: React.FC = () => {
   const { state, updateUserSettings } = useDay();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
-  const [sheetsSyncResult, setSheetsSyncResult] = useState<{ success?: boolean; url?: string; error?: string } | null>(null);
   const [reviewData, setReviewData] = useState<{
     summaryNarrative: string;
     plannedVsActual: { event: string; planned: string; actual: string; variance: string; notes?: string }[];
@@ -87,27 +81,6 @@ export const EndOfDayReviewView: React.FC = () => {
     return md;
   };
 
-  const handleSyncToSheets = async () => {
-    setIsSyncingSheets(true);
-    setSheetsSyncResult(null);
-    try {
-      const res = await syncStateToGoogleSheets(state, settings.googleSpreadsheetId, reviewData);
-      updateUserSettings({
-        googleSpreadsheetId: res.spreadsheetId,
-        googleSpreadsheetUrl: res.spreadsheetUrl,
-        googleSpreadsheetTitle: res.spreadsheetTitle,
-        lastSyncedAt: res.syncedAt,
-      });
-      setSheetsSyncResult({ success: true, url: res.spreadsheetUrl });
-      soundEffects.playTaskDone();
-    } catch (err: any) {
-      console.error('Failed to sync to sheets:', err);
-      setSheetsSyncResult({ success: false, error: err?.message || 'Sync failed.' });
-    } finally {
-      setIsSyncingSheets(false);
-    }
-  };
-
   const handleCopyReport = () => {
     navigator.clipboard.writeText(getFullMarkdownReport());
     setCopied(true);
@@ -145,54 +118,14 @@ export const EndOfDayReviewView: React.FC = () => {
             </button>
 
             <button
-              onClick={handleSyncToSheets}
-              disabled={isSyncingSheets}
-              className="py-3 px-4 bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] font-bold rounded-2xl text-xs flex items-center justify-center space-x-2 transition shadow-md disabled:opacity-50 border border-[#D1E1FF]/30"
-              title="Sync Day and Review to Google Sheets"
-            >
-              {isSyncingSheets ? (
-                <Loader2 className="w-4 h-4 animate-spin text-[#D1E1FF]" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4 text-[#D1E1FF]" />
-              )}
-              <span>Sync to Sheets</span>
-            </button>
-
-            <button
               onClick={handleCopyReport}
               className="py-3 px-3.5 bg-[#2E3036] hover:bg-[#44474E]/50 text-[#E2E2E6] rounded-2xl text-xs font-semibold flex items-center justify-center space-x-1 transition border border-[#44474E]/40"
               title="Copy Markdown Report"
             >
               {copied ? <Check className="w-4 h-4 text-[#D1E1FF]" /> : <Copy className="w-4 h-4" />}
+              <span className="text-xs ml-1 font-bold">Copy Report</span>
             </button>
           </div>
-
-          {/* Connected Sheets Feedback Banner */}
-          {sheetsSyncResult?.success && (
-            <div className="p-2.5 rounded-2xl bg-[#064E3B]/30 border border-[#059669]/40 flex items-center justify-between">
-              <span className="text-[11px] text-[#86EFAC] font-semibold flex items-center">
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-[#86EFAC]" />
-                Daily Review & State Saved to Google Sheets!
-              </span>
-              {settings.googleSpreadsheetUrl && (
-                <a
-                  href={settings.googleSpreadsheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] text-[#86EFAC] underline font-bold flex items-center space-x-0.5"
-                >
-                  <span>Open Sheet</span>
-                  <ExternalLink className="w-3 h-3 ml-0.5" />
-                </a>
-              )}
-            </div>
-          )}
-
-          {sheetsSyncResult?.error && (
-            <div className="p-2.5 rounded-2xl bg-[#7F1D1D]/30 border border-[#DC2626]/40 text-[11px] text-[#FCA5A5] font-semibold">
-              {sheetsSyncResult.error}
-            </div>
-          )}
         </div>
 
         {/* AI Synthesis Narrative */}

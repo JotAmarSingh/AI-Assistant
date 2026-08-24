@@ -42,19 +42,16 @@ const androidSplashDrawables = [
   { path: 'android/app/src/main/res/drawable-land-hdpi/splash.png', width: 800, height: 480 },
   { path: 'android/app/src/main/res/drawable-land-xhdpi/splash.png', width: 1280, height: 720 },
   { path: 'android/app/src/main/res/drawable-land-xxhdpi/splash.png', width: 1600, height: 960 },
-  { path: 'android/app/src/main/res/drawable-land-xxxhdpi/splash.png', width: 1920, height: 1280 },
 ];
 
 async function generateAll() {
-  // Generate Web Icons
-  for (const item of webIcons) {
-    const dest = path.resolve(item.path);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    await sharp(svgBuffer)
-      .resize(item.size, item.size)
-      .png()
-      .toFile(dest);
-    console.log(`   ✓ Generated ${item.path} (${item.size}x${item.size})`);
+  // Sync daytrace-ai.webp to public/assets/ if placed in root assets/
+  const rootAsset = path.resolve('assets/daytrace-ai.webp');
+  const publicAsset = path.resolve('public/assets/daytrace-ai.webp');
+  if (fs.existsSync(rootAsset)) {
+    fs.mkdirSync(path.dirname(publicAsset), { recursive: true });
+    fs.copyFileSync(rootAsset, publicAsset);
+    console.log('   ✓ Synced assets/daytrace-ai.webp -> public/assets/daytrace-ai.webp');
   }
 
   // Generate Android Mipmaps

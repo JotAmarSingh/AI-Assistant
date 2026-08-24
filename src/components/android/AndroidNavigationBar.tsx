@@ -30,7 +30,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
   return (
     <nav
       id="android-bottom-navigation-bar"
-      className="w-full bg-[#111318] border-t border-[#44474E]/30 px-1 py-1 flex items-center justify-around z-30 select-none pb-safe"
+      className="w-full bg-[#111318] border-t border-[#44474E]/30 px-1 py-1 flex items-center justify-around z-50 relative select-none pb-safe"
     >
       {tabs.map((tab) => {
         const Icon = tab.icon;

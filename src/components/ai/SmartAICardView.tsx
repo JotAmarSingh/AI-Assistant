@@ -48,11 +48,13 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
             type === 'PRICE_COMPARISON' ? 'bg-[#00F0FF]/20 text-[#00F0FF]' :
             type === 'MULTI_STEP_ROADMAP' ? 'bg-[#0088FF]/20 text-[#0088FF]' :
             type === 'CONFLICT_WARNING' ? 'bg-[#FBBF24]/20 text-[#FBBF24]' :
+            type === 'EXPERT_ADVICE' ? 'bg-[#00F0FF]/20 text-[#00F0FF]' :
             'bg-[#C084FC]/20 text-[#C084FC]'
           }`}>
             {type === 'PRICE_COMPARISON' && <ShoppingBag className="w-4 h-4" />}
             {type === 'MULTI_STEP_ROADMAP' && <CheckSquare className="w-4 h-4" />}
             {type === 'CONFLICT_WARNING' && <AlertTriangle className="w-4 h-4" />}
+            {type === 'EXPERT_ADVICE' && <Sparkles className="w-4 h-4" />}
             {type === 'PERSISTENT_MEMORY' && <Brain className="w-4 h-4" />}
           </div>
           <div>
@@ -191,6 +193,19 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+        </div>
+      )}
+
+      {/* EXPERT ADVICE / KNOWLEDGE ANSWER CARD */}
+      {type === 'EXPERT_ADVICE' && (
+        <div className="p-3.5 rounded-2xl bg-[#00F0FF]/10 border border-[#00F0FF]/40 text-xs text-[#E2E2E6] space-y-2">
+          <div className="flex items-center space-x-2 border-b border-[#00F0FF]/20 pb-2">
+            <Sparkles className="w-4 h-4 text-[#00F0FF] shrink-0" />
+            <span className="font-mono font-bold text-xs text-[#00F0FF]">Gemini 2.5 Pro Grounded Response</span>
+          </div>
+          <div className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-[#E2E2E6]">
+            {data.safetyWarning || (data as any).answer || 'Answer generated.'}
+          </div>
         </div>
       )}
     </motion.div>

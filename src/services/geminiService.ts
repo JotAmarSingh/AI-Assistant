@@ -76,29 +76,29 @@ export const resolveCategoryIslandIcon = (label: string): string => {
   const name = label.toLowerCase().trim();
 
   if (name.includes('family') || name.includes('parent') || name.includes('kid') || name.includes('child')) {
-    return '👪🏠';
+    return '👪';
   }
-  if (name.includes('work') || name.includes('office') || name.includes('job') || name.includes('business')) {
-    return '🏢⚡';
+  if (name.includes('work') || name.includes('office') || name.includes('job') || name.includes('business') || name.includes('career')) {
+    return '🏢';
   }
   if (name.includes('health') || name.includes('fitness') || name.includes('gym') || name.includes('wellness')) {
-    return '🌳🏋️‍♂️';
+    return '🌳';
   }
   if (name.includes('learn') || name.includes('study') || name.includes('skill') || name.includes('book') || name.includes('course')) {
-    return '📖✨';
+    return '📖';
   }
   if (name.includes('personal') || name.includes('home') || name.includes('house')) {
-    return '🏠🌿';
+    return '🏠';
   }
   if (name.includes('travel') || name.includes('trip') || name.includes('vacation') || name.includes('tour')) {
-    return '✈️🌍';
+    return '✈️';
   }
   if (name.includes('finance') || name.includes('money') || name.includes('tax') || name.includes('bank') || name.includes('budget')) {
-    return '💰🏦';
+    return '💰';
   }
   if (name.includes('vehicle') || name.includes('car') || name.includes('bike') || name.includes('auto')) {
-    return '🚗⚡';
+    return '🚗';
   }
 
-  return '🏝️⭐';
+  return '🏝️';
 };

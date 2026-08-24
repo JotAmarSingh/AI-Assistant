@@ -299,8 +299,8 @@ export const GeminiLiveHubView: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Floating Command Bar (1st Priority Typing + 2nd Priority Dictate Mic) */}
-      <div className="shrink-0 p-3 bg-[#070A10]/95 backdrop-blur-lg border-t border-[#00F0FF]/30 z-30">
+      {/* Bottom Floating Command Bar (1st Priority Typing + 2nd Priority Dictate Mic - Pinned above Soft Keyboard) */}
+      <div className="shrink-0 p-3 bg-[#070A10]/95 backdrop-blur-lg border-t border-[#00F0FF]/30 sticky bottom-0 z-30 pb-safe">
         <form onSubmit={handleTaskSubmit} className="flex items-center space-x-2">
           {/* 2nd Priority: Voice Dictate Button */}
           <button

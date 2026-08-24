@@ -93,7 +93,7 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
         className="absolute inset-0 opacity-30 pointer-events-none z-0"
       />
 
-      {/* Cybernetic Frontal Humanoid Face Mesh (Matching Reference Image) */}
+      {/* Cybernetic Frontal Human Face Mesh */}
       <div className="relative flex items-center justify-center z-10 my-auto">
         {/* Holographic Ring Aura */}
         <motion.div
@@ -105,43 +105,50 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
           className="absolute w-44 h-44 rounded-full border border-[#00F0FF]/30 shadow-[0_0_35px_rgba(0,240,255,0.25)]"
         />
 
-        {/* Cyber Face Silhouette Core */}
-        <div className="relative w-28 h-32 rounded-[40%] bg-gradient-to-b from-[#0088FF]/30 via-[#00F0FF]/15 to-[#070A10] border border-[#00F0FF]/60 shadow-[0_0_40px_rgba(0,240,255,0.4)] flex flex-col items-center justify-center overflow-hidden">
-          {/* Cybernetic Face Line Art Vector */}
-          <svg className="w-24 h-28 text-[#00F0FF]" viewBox="0 0 100 120" fill="none">
-            {/* Head Contour */}
-            <path d="M50 10 C25 10, 18 35, 18 60 C18 90, 35 110, 50 110 C65 110, 82 90, 82 60 C82 35, 75 10, 50 10 Z" stroke="#00F0FF" strokeWidth="1.5" strokeOpacity="0.8" fill="rgba(0, 240, 255, 0.05)" />
+        {/* High-Precision 3D Cybernetic Human Face Mesh */}
+        <div className="relative w-32 h-36 rounded-[40%] bg-gradient-to-b from-[#0088FF]/30 via-[#00F0FF]/15 to-[#070A10] border border-[#00F0FF]/60 shadow-[0_0_45px_rgba(0,240,255,0.45)] flex flex-col items-center justify-center overflow-hidden">
+          <svg className="w-28 h-32 text-[#00F0FF]" viewBox="0 0 100 120" fill="none">
+            {/* Anatomical Head Contour */}
+            <path d="M50 10 C26 10, 16 32, 16 58 C16 88, 34 112, 50 112 C66 112, 84 88, 84 58 C84 32, 74 10, 50 10 Z" stroke="#00F0FF" strokeWidth="1.6" strokeOpacity="0.9" fill="rgba(0, 240, 255, 0.08)" />
             
-            {/* Left Eye & Ocular HUD Target (Matching Reference Image) */}
-            <circle cx="36" cy="48" r="6" stroke="#00F0FF" strokeWidth="1.5" />
-            <circle cx="36" cy="48" r="2" fill="#FBBF24" />
+            {/* Forehead Wireframe Grid Lines */}
+            <path d="M30 24 Q50 30 70 24 M24 36 Q50 42 76 36" stroke="#0088FF" strokeWidth="0.8" strokeOpacity="0.6" />
 
-            {/* Right Ocular Targeting HUD */}
-            <circle cx="64" cy="48" r="8" stroke="#0088FF" strokeWidth="1.5" strokeDasharray="3 2" />
-            <circle cx="64" cy="48" r="4" stroke="#00F0FF" strokeWidth="1" />
-            <circle cx="64" cy="48" r="1.5" fill="#00F0FF" />
+            {/* Left Eye Anatomical Contour & Target Iris */}
+            <path d="M28 48 C32 42, 42 42, 46 48 C42 54, 32 54, 28 48 Z" stroke="#00F0FF" strokeWidth="1.2" fill="rgba(0, 240, 255, 0.15)" />
+            <circle cx="37" cy="48" r="4" fill="#00F0FF" />
+            <circle cx="37" cy="48" r="1.5" fill="#FBBF24" />
 
-            {/* Nose & Jaw Nodes */}
-            <path d="M50 48 L50 68 L56 70" stroke="#00F0FF" strokeWidth="1.2" strokeOpacity="0.7" />
+            {/* Right Eye Ocular HUD & Target Iris */}
+            <path d="M54 48 C58 42, 68 42, 72 48 C68 54, 58 54, 54 48 Z" stroke="#00F0FF" strokeWidth="1.2" fill="rgba(0, 240, 255, 0.15)" />
+            <circle cx="63" cy="48" r="5" stroke="#0088FF" strokeWidth="1" strokeDasharray="3 2" />
+            <circle cx="63" cy="48" r="2" fill="#00F0FF" />
+
+            {/* Anatomical Nose Bridge & Nostril Curves */}
+            <path d="M50 36 L50 66 C47 68, 44 69, 44 72 L56 72 C56 69, 53 68, 50 66" stroke="#00F0FF" strokeWidth="1.2" strokeOpacity="0.85" />
             
-            {/* Reactive Mouth / Equalizer Line */}
+            {/* Cheekbone Wireframe Lines */}
+            <path d="M20 58 Q34 66 44 68 M80 58 Q66 66 56 68" stroke="#0088FF" strokeWidth="0.8" strokeOpacity="0.5" />
+
+            {/* Anatomical Lip Contour Vector & Equalizer Mouth */}
+            <path d="M36 84 C42 81, 58 81, 64 84 C58 90, 42 90, 36 84 Z" stroke="#00F0FF" strokeWidth="1.2" fill="rgba(0, 240, 255, 0.15)" />
             <motion.path 
-              d="M38 84 Q50 88 62 84" 
+              d="M38 84 Q50 87 62 84" 
               stroke={isTalking ? '#FBBF24' : '#00F0FF'} 
               strokeWidth="2" 
               strokeLinecap="round" 
-              animate={{ d: isTalking ? ["M38 82 Q50 92 62 82", "M38 85 Q50 80 62 85"] : "M38 84 Q50 88 62 84" }}
+              animate={{ d: isTalking ? ["M38 82 Q50 92 62 82", "M38 85 Q50 80 62 85"] : "M38 84 Q50 87 62 84" }}
               transition={{ repeat: Infinity, duration: 0.3 }}
             />
 
-            {/* Digital Node Lines */}
-            <path d="M22 48 L30 48 M70 48 L78 48 M50 20 L50 35 M28 85 L38 84 M62 84 L72 85" stroke="#00F0FF" strokeWidth="1" strokeOpacity="0.5" />
+            {/* Jawline & Chin Structure Lines */}
+            <path d="M30 98 Q50 106 70 98" stroke="#00F0FF" strokeWidth="0.8" strokeOpacity="0.6" />
           </svg>
 
           {/* Active Processing Scanning Beam */}
           {isWorking && (
             <motion.div
-              animate={{ y: [-50, 50, -50] }}
+              animate={{ y: [-60, 60, -60] }}
               transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
               className="absolute left-0 right-0 h-1 bg-[#00F0FF] shadow-[0_0_20px_#00F0FF]"
             />
@@ -214,12 +221,11 @@ export const MiniCyberneticFaceIcon: React.FC<{ className?: string }> = ({ class
         className="absolute inset-0 rounded-full border border-[#00F0FF]/60 shadow-[0_0_8px_#00F0FF]"
       />
       <svg className="w-full h-full text-[#00F0FF]" viewBox="0 0 100 120" fill="none">
-        <path d="M50 10 C25 10, 18 35, 18 60 C18 90, 35 110, 50 110 C65 110, 82 90, 82 60 C82 35, 75 10, 50 10 Z" stroke="#00F0FF" strokeWidth="3" fill="rgba(0,240,255,0.2)" />
-        <circle cx="36" cy="48" r="6" stroke="#00F0FF" strokeWidth="2" />
-        <circle cx="36" cy="48" r="2" fill="#FBBF24" />
-        <circle cx="64" cy="48" r="8" stroke="#0088FF" strokeWidth="2" strokeDasharray="3 2" />
-        <circle cx="64" cy="48" r="1.5" fill="#00F0FF" />
-        <path d="M38 84 Q50 88 62 84" stroke="#00F0FF" strokeWidth="3" strokeLinecap="round" />
+        <path d="M50 10 C26 10, 16 32, 16 58 C16 88, 34 112, 50 112 C66 112, 84 88, 84 58 C84 32, 74 10, 50 10 Z" stroke="#00F0FF" strokeWidth="2.5" fill="rgba(0,240,255,0.2)" />
+        <circle cx="37" cy="48" r="4" fill="#00F0FF" />
+        <circle cx="63" cy="48" r="4" fill="#00F0FF" />
+        <path d="M50 36 L50 66 L54 66" stroke="#00F0FF" strokeWidth="1.5" />
+        <path d="M38 84 Q50 87 62 84" stroke="#00F0FF" strokeWidth="2.5" strokeLinecap="round" />
       </svg>
     </div>
   );

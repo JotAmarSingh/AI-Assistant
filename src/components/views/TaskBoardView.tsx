@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Lock,
   Award,
   Gift
@@ -30,6 +31,7 @@ export const TaskBoardView: React.FC = () => {
     state, 
     updateTaskStatus, 
     addTask, 
+    editTask,
     deleteTask, 
     taskCategories 
   } = useDay();
@@ -37,6 +39,8 @@ export const TaskBoardView: React.FC = () => {
   // Active Selected Island for Adventure Map Detail View (null = Overview Map)
   const [activeIslandId, setActiveIslandId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
 
@@ -241,38 +245,77 @@ export const TaskBoardView: React.FC = () => {
                           <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${xpInfo.badgeClass}`}>
                             {xpInfo.label}
                           </span>
+                          {isExpanded ? <ChevronUp className="w-4 h-4 text-[#00F0FF]" /> : <ChevronDown className="w-4 h-4 text-[#C4C6D0]/50" />}
                         </div>
                       </div>
 
-                      {/* Expanded Actions */}
+                      {/* Expanded Actions Toolbar (Edit, Mark Complete, Remove, Set Active) */}
                       {isExpanded && (
-                        <div className="mt-3 pt-2.5 border-t border-[#00F0FF]/15 flex items-center space-x-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => updateTaskStatus(task.id, isActive ? 'NEXT' : 'ACTIVE')}
-                            className={`flex-1 py-2 px-3 rounded-xl font-mono font-bold text-[11px] flex items-center justify-center space-x-1 transition ${
-                              isActive ? 'bg-[#FBBF24] text-[#070A10]' : 'bg-[#00F0FF] text-[#070A10]'
-                            }`}
-                          >
-                            <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>{isActive ? 'Pause' : 'Set Active'}</span>
-                          </button>
+                        <div className="mt-3 pt-2.5 border-t border-[#00F0FF]/15 space-y-2 text-xs">
+                          {editingTaskId === task.id ? (
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                className="flex-1 p-2 rounded-xl bg-[#111827] border border-[#00F0FF] text-xs font-mono text-[#E2E2E6]"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (editingTitle.trim()) {
+                                    editTask(task.id, { title: editingTitle.trim() });
+                                  }
+                                  setEditingTaskId(null);
+                                }}
+                                className="px-3 py-2 rounded-xl bg-[#10B981] text-[#070A10] font-mono font-bold text-xs"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => updateTaskStatus(task.id, isActive ? 'NEXT' : 'ACTIVE')}
+                                className={`flex-1 py-2 px-3 rounded-xl font-mono font-bold text-[11px] flex items-center justify-center space-x-1 transition ${
+                                  isActive ? 'bg-[#FBBF24] text-[#070A10]' : 'bg-[#00F0FF] text-[#070A10] shadow-[0_0_10px_#00F0FF]'
+                                }`}
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>{isActive ? 'Pause' : 'Set Active'}</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => updateTaskStatus(task.id, isDone ? 'NEXT' : 'DONE')}
-                            className="py-2 px-3 rounded-xl bg-[#10B981]/20 border border-[#10B981]/40 text-[#10B981] font-mono font-bold text-[11px]"
-                          >
-                            {isDone ? 'Undo' : 'Done'}
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTaskId(task.id);
+                                  setEditingTitle(task.title);
+                                }}
+                                className="py-2 px-3 rounded-xl bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] font-mono font-bold text-[11px] flex items-center space-x-1"
+                              >
+                                <span>Edit</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => deleteTask(task.id)}
-                            className="p-2 rounded-xl bg-[#F87171]/15 border border-[#F87171]/40 text-[#F87171]"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => updateTaskStatus(task.id, isDone ? 'NEXT' : 'DONE')}
+                                className="py-2 px-3 rounded-xl bg-[#10B981]/20 border border-[#10B981]/40 text-[#10B981] font-mono font-bold text-[11px] flex items-center space-x-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>{isDone ? 'Undo' : 'Done'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => deleteTask(task.id)}
+                                className="p-2 rounded-xl bg-[#F87171]/15 border border-[#F87171]/40 text-[#F87171]"
+                                title="Remove task"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -349,41 +392,35 @@ export const TaskBoardView: React.FC = () => {
               </div>
             </div>
 
-            {/* RPG Category Islands Map Grid */}
+            {/* 2x2 Grid RPG Category Islands Exploration Map (Matching Reference Image) */}
             <div className="space-y-2">
               <span className="text-xs font-mono font-bold text-[#00F0FF] uppercase block">
-                SELECT CATEGORY ISLAND TO EXPLORE ({islandCategories.length})
+                CATEGORY ISLANDS MAP EXPLORATION ({islandCategories.length})
               </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {islandCategories.map((island) => (
                   <button
                     key={island.id}
                     type="button"
                     onClick={() => setActiveIslandId(island.id)}
-                    className="p-4 rounded-[24px] bg-[#0D1527] border border-[#00F0FF]/30 hover:border-[#00F0FF] text-left transition relative overflow-hidden shadow-lg group"
+                    className="p-3.5 rounded-[24px] bg-[#0D1527] border border-[#00F0FF]/35 hover:border-[#00F0FF] text-center flex flex-col items-center justify-between transition relative overflow-hidden shadow-lg group hover:scale-[1.02]"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl p-2 rounded-2xl bg-[#070A10] border border-[#00F0FF]/30 group-hover:scale-110 transition">
-                          {island.icon}
-                        </span>
-                        <div>
-                          <h4 className="font-mono font-bold text-sm text-[#E2E2E6]">{island.label}</h4>
-                          <span className="text-[10px] text-[#C4C6D0]/60 font-mono">
-                            {island.doneCount} / {island.totalCount} Tasks Done
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-1 text-[#00F0FF]">
-                        <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition" />
-                      </div>
+                    {/* Floating 3D Island Graphic Icon */}
+                    <div className="w-14 h-14 rounded-2xl bg-[#070A10] border border-[#00F0FF]/40 flex items-center justify-center text-3xl shadow-[0_0_20px_rgba(0,240,255,0.2)] group-hover:scale-110 transition">
+                      {island.icon}
                     </div>
 
-                    {/* Island Mini Progress Bar */}
-                    <div className="w-full h-1.5 bg-[#111827] rounded-full overflow-hidden border border-[#00F0FF]/20 mt-3">
-                      <div className="h-full bg-[#00F0FF] transition-all duration-500" style={{ width: `${island.percent}%` }} />
+                    <div className="mt-2.5 w-full">
+                      <h4 className="font-mono font-bold text-xs text-[#E2E2E6] truncate">{island.label}</h4>
+                      <span className="text-[10px] text-[#C4C6D0]/70 font-mono block mt-0.5">
+                        {island.doneCount} / {island.totalCount} Tasks
+                      </span>
+
+                      {/* Island Mini Progress Bar */}
+                      <div className="w-full h-1.5 bg-[#111827] rounded-full overflow-hidden border border-[#00F0FF]/30 mt-2">
+                        <div className="h-full bg-[#00F0FF] transition-all duration-500" style={{ width: `${island.percent}%` }} />
+                      </div>
                     </div>
                   </button>
                 ))}

@@ -1,23 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Tag, Trash2, X, Check } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
+import { resolveCategoryIslandIcon } from '../../services/geminiService';
 
 interface ManageCategoriesModalProps {
-  isOpen: boolean;
   onClose: () => void;
+  isOpen?: boolean;
 }
 
-const ICON_OPTIONS = ['tag', 'briefcase', 'home', 'heart', 'activity', 'lightbulb', 'users', 'file-text'];
-
-export const ManageCategoriesModal: React.FC<ManageCategoriesModalProps> = ({ isOpen, onClose }) => {
+export const ManageCategoriesModal: React.FC<ManageCategoriesModalProps> = ({ onClose, isOpen = true }) => {
   const { state, taskCategories, createTaskCategory, updateTaskCategory, deleteTaskCategory } = useDay();
   const [newLabel, setNewLabel] = useState('');
-  const [newColor, setNewColor] = useState('#60A5FA');
-  const [newIcon, setNewIcon] = useState('tag');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [reassignToId, setReassignToId] = useState('UNCATEGORISED');
 
   const counts = useMemo(() => new Map(taskCategories.map((category) => [
     category.id,
@@ -27,75 +23,113 @@ export const ManageCategoriesModal: React.FC<ManageCategoriesModalProps> = ({ is
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[32px] border border-[#44474E] bg-[#1D2026] p-5" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-[#44474E]/40 pb-3">
-          <div className="flex items-center gap-2"><Tag className="h-5 w-5 text-[#D1E1FF]" /><h2 className="text-sm font-bold">Manage Categories</h2></div>
-          <button onClick={onClose} className="rounded-xl p-1 text-[#C4C6D0]"><X className="h-5 w-5" /></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#070A10]/80 backdrop-blur-md p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[28px] border border-[#00F0FF]/40 bg-[#0D1527] p-5 shadow-2xl space-y-4" onClick={(event) => event.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#00F0FF]/30 pb-3">
+          <div className="flex items-center space-x-2">
+            <Tag className="h-4 w-4 text-[#00F0FF]" />
+            <h2 className="text-sm font-bold font-mono text-[#E2E2E6]">Manage Category Islands</h2>
+          </div>
+          <button onClick={onClose} className="rounded-xl p-1 text-[#C4C6D0] hover:text-[#00F0FF] transition">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
+        {/* Create New Category Form */}
         <form
-          className="mt-4 grid grid-cols-[1fr_auto] gap-2 rounded-2xl bg-[#111318] p-3"
+          className="flex items-center space-x-2 rounded-2xl bg-[#111827] border border-[#00F0FF]/30 p-2"
           onSubmit={(event) => {
             event.preventDefault();
-            createTaskCategory(newLabel, newColor, newIcon);
+            if (!newLabel.trim()) return;
+            createTaskCategory(newLabel.trim(), '#00F0FF', 'tag');
             setNewLabel('');
           }}
         >
-          <input value={newLabel} onChange={(event) => setNewLabel(event.target.value)} placeholder="New category" className="rounded-xl border border-[#44474E] bg-[#1D2026] px-3 py-2 text-xs outline-none" />
-          <button disabled={!newLabel.trim()} className="rounded-xl bg-[#D1E1FF] px-3 text-[#003062] disabled:opacity-40"><Plus className="h-4 w-4" /></button>
-          <div className="col-span-2 flex items-center gap-2">
-            <input type="color" value={newColor} onChange={(event) => setNewColor(event.target.value)} className="h-8 w-10 rounded border-0 bg-transparent" aria-label="Category color" />
-            <select value={newIcon} onChange={(event) => setNewIcon(event.target.value)} className="flex-1 rounded-xl border border-[#44474E] bg-[#1D2026] px-2 py-1.5 text-xs">
-              {ICON_OPTIONS.map((icon) => <option key={icon} value={icon}>{icon}</option>)}
-            </select>
-          </div>
+          <input 
+            value={newLabel} 
+            onChange={(event) => setNewLabel(event.target.value)} 
+            placeholder="New Category (e.g. Family, Travel)..." 
+            className="flex-1 rounded-xl bg-transparent px-3 py-2 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/40 outline-none" 
+          />
+          <button 
+            type="submit"
+            disabled={!newLabel.trim()} 
+            className="rounded-xl bg-[#00F0FF] text-[#070A10] px-3 py-2 font-mono font-bold text-xs disabled:opacity-40 shadow-[0_0_10px_#00F0FF]"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </form>
 
-        <div className="mt-4 space-y-2">
-          {taskCategories.map((category) => (
-            <div key={category.id} className="rounded-2xl border border-[#44474E]/40 bg-[#111318] p-3">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
-                {editingId === category.id ? (
-                  <input autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} className="min-w-0 flex-1 rounded-lg bg-[#1D2026] px-2 py-1 text-xs" />
-                ) : (
-                  <span className="min-w-0 flex-1 text-xs font-bold">{category.label}</span>
-                )}
-                <span className="text-[10px] text-[#C4C6D0]">{counts.get(category.id) || 0} tasks</span>
-                {editingId === category.id ? (
-                  <button onClick={() => { updateTaskCategory(category.id, { label: editingLabel }); setEditingId(null); }} className="rounded-lg bg-[#334867] px-2 py-1 text-[10px] font-bold">Save</button>
-                ) : (
-                  <button onClick={() => { setEditingId(category.id); setEditingLabel(category.label); }} className="p-1 text-[#C4C6D0]" title="Rename category"><Pencil className="h-3.5 w-3.5" /></button>
-                )}
-                {!category.isSystem && (
-                  <button onClick={() => { setDeleteId(category.id); setReassignToId('UNCATEGORISED'); }} className="p-1 text-[#FCA5A5]" title="Delete category"><Trash2 className="h-3.5 w-3.5" /></button>
-                )}
-              </div>
-              {editingId === category.id && (
-                <div className="mt-2 flex gap-2">
-                  <input type="color" value={category.color} onChange={(event) => updateTaskCategory(category.id, { color: event.target.value })} className="h-7 w-10 bg-transparent" />
-                  <select value={category.icon} onChange={(event) => updateTaskCategory(category.id, { icon: event.target.value })} className="flex-1 rounded-lg bg-[#1D2026] px-2 text-[10px]">
-                    {ICON_OPTIONS.map((icon) => <option key={icon}>{icon}</option>)}
-                  </select>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        {/* Sleek Compact Single-Line Category List */}
+        <div className="space-y-2">
+          {taskCategories.map((category) => {
+            const isEditing = editingId === category.id;
+            const taskCount = counts.get(category.id) || 0;
+            const icon = resolveCategoryIslandIcon(category.label);
 
-        {deleteId && (
-          <div className="mt-4 rounded-2xl border border-[#FCA5A5]/30 bg-[#7F1D1D]/15 p-3">
-            <p className="text-xs font-bold">Move this category’s tasks before deletion</p>
-            <select value={reassignToId} onChange={(event) => setReassignToId(event.target.value)} className="mt-2 w-full rounded-xl bg-[#111318] px-3 py-2 text-xs">
-              {taskCategories.filter((category) => category.id !== deleteId).map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-            </select>
-            <div className="mt-2 flex gap-2">
-              <button className="flex-1 rounded-xl bg-[#2E3036] py-2 text-xs font-bold" onClick={() => setDeleteId(null)}>Cancel</button>
-              <button className="flex-1 rounded-xl bg-[#BA1A1A] py-2 text-xs font-bold text-white" onClick={() => { deleteTaskCategory(deleteId, reassignToId); setDeleteId(null); }}>Continue</button>
-            </div>
-          </div>
-        )}
+            return (
+              <div key={category.id} className="rounded-2xl border border-[#00F0FF]/25 bg-[#111827] px-3 py-2.5 flex items-center justify-between shadow-sm">
+                <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                  <span className="text-base p-1 rounded-xl bg-[#070A10] border border-[#00F0FF]/30 shrink-0 font-mono">
+                    {icon}
+                  </span>
+
+                  {isEditing ? (
+                    <input
+                      value={editingLabel}
+                      onChange={(e) => setEditingLabel(e.target.value)}
+                      className="rounded-lg bg-[#070A10] border border-[#00F0FF] px-2 py-1 text-xs text-[#E2E2E6] font-mono outline-none"
+                    />
+                  ) : (
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold font-mono text-[#E2E2E6] block truncate">
+                        {category.label}
+                      </span>
+                      <span className="text-[10px] text-[#C4C6D0]/60 font-mono block">
+                        {taskCount} tasks
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1 shrink-0">
+                  {isEditing ? (
+                    <button
+                      onClick={() => {
+                        if (editingLabel.trim()) {
+                          updateTaskCategory(category.id, { label: editingLabel.trim() });
+                        }
+                        setEditingId(null);
+                      }}
+                      className="p-1.5 rounded-lg bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setEditingId(category.id);
+                        setEditingLabel(category.label);
+                      }}
+                      className="p-1.5 rounded-lg text-[#C4C6D0] hover:text-[#00F0FF] hover:bg-[#00F0FF]/15 transition"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => deleteTaskCategory(category.id, 'UNCATEGORISED')}
+                    className="p-1.5 rounded-lg text-[#F87171] hover:bg-[#F87171]/20 transition"
+                    title="Delete category"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

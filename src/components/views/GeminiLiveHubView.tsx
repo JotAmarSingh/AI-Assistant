@@ -639,16 +639,13 @@ export const GeminiLiveHubView: React.FC = () => {
       {/* AI Engine & API Key Configuration Modal */}
       {showConfigModal && (
         <div 
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col justify-end sm:justify-center items-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200"
           onClick={() => setShowConfigModal(false)}
         >
           <div 
-            className="bg-[#1D2026] text-[#E2E2E6] border-t sm:border border-[#00F0FF]/40 rounded-t-[32px] sm:rounded-[32px] p-6 max-w-md w-full shadow-[0_-10px_35px_rgba(0,0,0,0.85)] space-y-4 max-h-[90dvh] overflow-y-auto shrink-0 pb-safe my-0 sm:my-auto"
+            className="bg-[#1D2026] text-[#E2E2E6] border border-[#00F0FF]/40 rounded-[28px] p-5 sm:p-6 max-w-sm w-full shadow-2xl space-y-4 my-auto max-h-[85vh] overflow-y-auto shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Top drag handle indicator for mobile bottom sheet */}
-            <div className="w-12 h-1 bg-[#44474E]/80 rounded-full mx-auto sm:hidden -mt-1 mb-2" />
-
             <div className="flex items-center justify-between pb-2 border-b border-[#44474E]/40">
               <div className="flex items-center space-x-2">
                 <div className={`p-2 rounded-xl ${hasCustomKey ? 'bg-[#10B981]/20 text-[#34D399]' : 'bg-[#FBBF24]/20 text-[#FBBF24]'}`}>

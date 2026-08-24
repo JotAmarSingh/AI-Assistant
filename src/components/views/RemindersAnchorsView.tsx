@@ -823,7 +823,7 @@ export const RemindersAnchorsView: React.FC = () => {
 
       {/* Add Anchor Modal */}
       {isAddAnchorModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setIsAddAnchorModalOpen(false)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => setIsAddAnchorModalOpen(false)}>
           <div className="bg-[#1D2026] text-[#E2E2E6] border border-[#44474E]/50 rounded-[36px] p-6 shadow-2xl max-w-md w-full space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-3 border-b border-[#44474E]/30">
               <h3 className="font-bold text-base text-[#E2E2E6]">Add Planning Anchor Event</h3>
@@ -889,7 +889,7 @@ export const RemindersAnchorsView: React.FC = () => {
 
       {/* Add Reminder Modal */}
       {isAddReminderModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setIsAddReminderModalOpen(false)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" onClick={() => setIsAddReminderModalOpen(false)}>
           <div className="bg-[#1D2026] text-[#E2E2E6] border border-[#44474E]/50 rounded-[36px] p-6 shadow-2xl max-w-md w-full space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-3 border-b border-[#44474E]/30">
               <h3 className="font-bold text-base text-[#E2E2E6]">Add Contextual Reminder</h3>

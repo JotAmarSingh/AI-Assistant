@@ -204,3 +204,23 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
     </div>
   );
 };
+
+export const MiniCyberneticFaceIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => {
+  return (
+    <div className={`relative flex items-center justify-center ${className}`}>
+      <motion.div
+        animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
+        transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+        className="absolute inset-0 rounded-full border border-[#00F0FF]/60 shadow-[0_0_8px_#00F0FF]"
+      />
+      <svg className="w-full h-full text-[#00F0FF]" viewBox="0 0 100 120" fill="none">
+        <path d="M50 10 C25 10, 18 35, 18 60 C18 90, 35 110, 50 110 C65 110, 82 90, 82 60 C82 35, 75 10, 50 10 Z" stroke="#00F0FF" strokeWidth="3" fill="rgba(0,240,255,0.2)" />
+        <circle cx="36" cy="48" r="6" stroke="#00F0FF" strokeWidth="2" />
+        <circle cx="36" cy="48" r="2" fill="#FBBF24" />
+        <circle cx="64" cy="48" r="8" stroke="#0088FF" strokeWidth="2" strokeDasharray="3 2" />
+        <circle cx="64" cy="48" r="1.5" fill="#00F0FF" />
+        <path d="M38 84 Q50 88 62 84" stroke="#00F0FF" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+};

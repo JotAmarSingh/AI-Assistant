@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { isNativeAndroid } from '../../services/nativeBridge';
 import './DayTraceAI.css';
 
 export interface DayTraceAIProps {
-  active?: boolean; // Controlled by Home Tab visibility
+  active?: boolean;
   mode?: 'idle' | 'listening' | 'thinking' | 'talking' | 'alert';
   statusText?: string;
   height?: number | string;
@@ -36,7 +35,10 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   const [isGlitching, setIsGlitching] = useState(false);
   const [isAppVisible, setIsAppVisible] = useState(true);
 
-  // Combine Active prop, Document visibility, and Capacitor Native App State
+  // 3D Gyroscope / Accelerator Motion State
+  const [tiltStyle, setTiltStyle] = useState<React.CSSProperties>({});
+
+  // Combine Active prop, Document visibility, and Window Focus
   const isFullyActive = active && isAppVisible && !document.hidden;
 
   // 1. Comprehensive Lifecycle Listener (Native App Pause + Tab Switch + Background)
@@ -56,17 +58,78 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
     };
   }, []);
 
-  // 2. Matrix Code Rain & Particles Canvas Engine (Capped at 30 FPS, Completely Stopped when Inactive)
+  // 2. 3D Gyroscope & Accelerometer Physical Mobile Sensor Parallax Motion Engine
+  useEffect(() => {
+    if (!isFullyActive) return;
+
+    let targetRotateX = 0;
+    let targetRotateY = 0;
+    let currentRotateX = 0;
+    let currentRotateY = 0;
+
+    // Mobile Sensor Orientation Handler (Device Gyroscope)
+    const handleOrientation = (event: DeviceOrientationEvent) => {
+      if (event.gamma !== null && event.beta !== null) {
+        // gamma: left-to-right tilt in degrees [-90, 90]
+        // beta: front-to-back tilt in degrees [-180, 180]
+        const clampedGamma = Math.max(-30, Math.min(30, event.gamma));
+        const clampedBeta = Math.max(-30, Math.min(30, event.beta - 45)); // Normalized around typical phone holding angle
+
+        targetRotateY = clampedGamma * 0.45; // Rotate Y axis for left/right tilt
+        targetRotateX = -clampedBeta * 0.35; // Rotate X axis for up/down tilt
+      }
+    };
+
+    // Fallback Mouse Parallax for Desktop / Web Testing
+    const handleMouseMove = (event: MouseEvent) => {
+      const { innerWidth, innerHeight } = window;
+      const xPercent = (event.clientX / innerWidth) - 0.5;
+      const yPercent = (event.clientY / innerHeight) - 0.5;
+
+      targetRotateY = xPercent * 18;
+      targetRotateX = -yPercent * 18;
+    };
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+    window.addEventListener('mousemove', handleMouseMove);
+
+    // Smooth Lerp Animation Loop for 3D Motion
+    let motionAnimFrame: number;
+    const animateMotion = () => {
+      currentRotateX += (targetRotateX - currentRotateX) * 0.1;
+      currentRotateY += (targetRotateY - currentRotateY) * 0.1;
+
+      setTiltStyle({
+        transform: `perspective(1000px) rotateX(${currentRotateX.toFixed(2)}deg) rotateY(${currentRotateY.toFixed(2)}deg) translateZ(12px)`,
+        transition: 'transform 0.05s ease-out'
+      });
+
+      motionAnimFrame = requestAnimationFrame(animateMotion);
+    };
+
+    motionAnimFrame = requestAnimationFrame(animateMotion);
+
+    return () => {
+      if (window.DeviceOrientationEvent) {
+        window.removeEventListener('deviceorientation', handleOrientation, true);
+      }
+      window.removeEventListener('mousemove', handleMouseMove);
+      cancelAnimationFrame(motionAnimFrame);
+    };
+  }, [isFullyActive]);
+
+  // 3. Matrix Code Rain & Particles Canvas Engine (Capped at 30 FPS, Completely Stopped when Inactive)
   useEffect(() => {
     if (!isFullyActive) return;
 
     let animFrameId: number;
     let lastFrameTime = 0;
-    const fpsInterval = 1000 / 30; // 30 FPS cap for battery saving
+    const fpsInterval = 1000 / 30;
 
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // Canvas Setup
     const rainCanvas = rainCanvasRef.current;
     const rainCtx = rainCanvas?.getContext('2d');
     const particleCanvas = particleCanvasRef.current;
@@ -85,28 +148,25 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       particleCtx.scale(dpr, dpr);
     }
 
-    // Matrix Rain Stream Setup (Cyan / Aqua / Electric Blue - NO bright Matrix green)
     const chars = '010101A7SYS<>[]{}0010';
     const fontSize = 11;
     const columns = Math.floor(width / fontSize);
     const drops: number[] = Array(columns).fill(1);
-    const streamDepths: number[] = Array.from({ length: columns }, () => (Math.random() > 0.5 ? 1 : 2)); // 1=Background, 2=Midground
+    const streamDepths: number[] = Array.from({ length: columns }, () => (Math.random() > 0.5 ? 1 : 2));
 
-    // Particle Setup (Depth layers: 1px, 2px, 3px)
     let particles: Particle[] = [];
     if (particleCanvas && particleCtx) {
       particles = Array.from({ length: 18 }, () => ({
         x: Math.random() * width,
         y: Math.random() * heightNum,
         vx: (Math.random() - 0.5) * 0.3,
-        vy: - (Math.random() * 0.3 + 0.1), // Slow upward drift
+        vy: - (Math.random() * 0.3 + 0.1),
         size: Math.random() > 0.7 ? 3 : Math.random() > 0.4 ? 2 : 1,
         alpha: Math.random() * 0.5 + 0.2,
         pulseSpeed: Math.random() * 0.015 + 0.005
       }));
     }
 
-    // Render Loop (30 FPS, stopped completely if isFullyActive is false)
     const render = (currentTime: number) => {
       animFrameId = requestAnimationFrame(render);
 
@@ -114,7 +174,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       if (delta < fpsInterval) return;
       lastFrameTime = currentTime - (delta % fpsInterval);
 
-      // --- Render Matrix Data Rain ---
+      // --- Matrix Code Rain ---
       rainCtx.fillStyle = 'rgba(7, 10, 16, 0.22)';
       rainCtx.fillRect(0, 0, width, heightNum);
 
@@ -128,19 +188,15 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
         const y = drops[i] * fontSize;
         const depth = streamDepths[i];
 
-        // Elliptical Face Exclusion Protection Zone (Keep code opacity near 0 over face)
         const dx = (x - faceCenterX) / faceRadiusX;
         const dy = (y - faceCenterY) / faceRadiusY;
         const isInsideFaceZone = dx * dx + dy * dy < 1.0;
 
         if (!isInsideFaceZone || Math.random() > 0.85) {
           const char = chars[Math.floor(Math.random() * chars.length)];
-          
-          // Color: Cyan / Aqua / Electric Blue with occasional white leading char
           const isLeading = Math.random() > 0.95;
           rainCtx.fillStyle = isLeading ? '#FFFFFF' : depth === 1 ? '#0088FF' : '#00F0FF';
           
-          // Depth & Protection opacity
           const baseAlpha = depth === 1 ? 0.25 : 0.55;
           rainCtx.globalAlpha = isInsideFaceZone ? 0.05 : baseAlpha;
           rainCtx.font = `${depth === 1 ? 9 : 11}px monospace`;
@@ -157,7 +213,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       }
       rainCtx.globalAlpha = 1.0;
 
-      // --- Render Cyan Floating Particles ---
+      // --- Floating Cyan Particles ---
       if (particleCtx && particleCanvas) {
         particleCtx.clearRect(0, 0, width, heightNum);
 
@@ -184,7 +240,6 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
           particleCtx.shadowBlur = 0;
         }
 
-        // Rare & Subtle Connecting Lines (Distance < 35px & rare random check)
         for (let i = 0; i < particles.length; i++) {
           for (let j = i + 1; j < particles.length; j++) {
             const dx = particles[i].x - particles[j].x;
@@ -210,7 +265,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
     };
   }, [isFullyActive, height]);
 
-  // 3. Micro Glitch Interval Controller (60-160ms Duration, Completely Stopped when Inactive)
+  // 4. Micro Glitch Controller
   useEffect(() => {
     if (!isFullyActive) return;
 
@@ -244,8 +299,8 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       <div className="daytrace-ai-ring ring-middle" />
       <div className="daytrace-ai-ring ring-inner" />
 
-      {/* Layer 4: Humanoid Visual Asset OR Clean Holographic Projection Field */}
-      <div className="daytrace-ai-humanoid-wrapper">
+      {/* Layer 4: Humanoid Visual Asset OR Clean Holographic Projection Field with 3D Gyro Motion */}
+      <div className="daytrace-ai-humanoid-wrapper" style={tiltStyle}>
         {!imageError && (
           <img
             src={assetPath}

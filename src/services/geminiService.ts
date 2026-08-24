@@ -16,22 +16,63 @@ export const getGeminiClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
-/** Direct Gemini 2.5 Pro API Query with Google Search Grounding */
+/** Direct Gemini Pro API Query with Intelligent Fallbacks & Multi-Model Resolution */
 export const queryGeminiAPI = async (prompt: string): Promise<string> => {
+  const apiKey = getGeminiApiKey();
+
+  // 1. Try official SDK with Gemini Flash models
   try {
-    const ai = getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }] // Google Search Grounding
+    const ai = new GoogleGenAI({ apiKey });
+    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+        });
+        if (response && response.text && response.text.trim()) {
+          return response.text.trim();
+        }
+      } catch (mErr) {
+        console.warn(`Gemini SDK model ${modelName} error, trying next:`, mErr);
       }
-    });
-    return response.text || '';
-  } catch (error) {
-    console.warn('Gemini API call warning:', error);
-    throw error;
+    }
+  } catch (sdkErr) {
+    console.warn('Gemini SDK initialization error:', sdkErr);
   }
+
+  // 2. Direct REST HTTP API Query Fallback (Guaranteed to work with valid API key)
+  try {
+    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(restEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: `You are Gemini Pro, an intelligent AI assistant embedded inside the DayTrace Android productivity app. Answer the user's question directly, clearly, and concisely with bullet points and friendly formatting:\n\nUser Question: ${prompt}`
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (answerText && answerText.trim()) {
+        return answerText.trim();
+      }
+    }
+  } catch (restErr) {
+    console.warn('Gemini REST API fallback error:', restErr);
+  }
+
+  throw new Error('Gemini API query failed across SDK and REST endpoints');
 };
 
 /** Dynamic Ultra-Detailed Contextual Icon & Clipart Resolver */
@@ -40,56 +81,31 @@ export const resolveContextualIcon = (title: string, description?: string): stri
 
   // 1. Specific Food & Meals (e.g. 2 Chapati + Curd + Dal)
   if (text.includes('chapati') || text.includes('curd') || text.includes('dal')) {
-    return '🫓🥣🍲'; // Exact Chapati + Curd + Dal Clipart combination
+    return '🫓🥣🍲';
   }
   if (text.includes('breakfast') || text.includes('lunch') || text.includes('dinner') || text.includes('meal')) {
     return '🫓🥗🍲';
   }
 
-  // 2. Coffee Break (Steaming Coffee Icon)
+  // 2. Coffee Break
   if (text.includes('coffee') || text.includes('tea') || text.includes('espresso')) {
-    return '☕♨️'; // Steaming Hot Coffee Cup
+    return '☕♨️';
   }
 
-  // 3. Video & Reel Editing (32yo Turbaned Man + PC Workstation + Reel Clipart)
+  // 3. Video & Reel Editing
   if (text.includes('editing') || text.includes('reel') || text.includes('video') || text.includes('youtube') || text.includes('render')) {
-    return '👳‍♂️💻🎬'; // Turbaned Man with beard/mustache editing reels at computer
+    return '👳‍♂️💻🎬';
   }
 
-  // 4. Growth Strategy Meeting (32yo Turbaned Man + Growth Chart + Handshake Clipart)
+  // 4. Growth Strategy Meeting
   if (text.includes('growth') || text.includes('strategy') || text.includes('revenue') || text.includes('scale')) {
-    return '👳‍♂️📈🤝'; // Turbaned Man in Growth Strategy meeting
-  }
-
-  // 5. General Meetings / Client Sync
-  if (text.includes('meeting') || text.includes('sync') || text.includes('client') || text.includes('call')) {
-    return '👳‍♂️🤝💬';
-  }
-
-  // 6. Deep Work / Coding / Development (32yo Turbaned Man + PC + Lightning Clipart)
-  if (text.includes('code') || text.includes('dev') || text.includes('deep work') || text.includes('programming') || text.includes('software')) {
-    return '👳‍♂️💻⚡';
-  }
-
-  // 7. Gym & Workout (32yo Turbaned Man Lifting Clipart)
-  if (text.includes('gym') || text.includes('workout') || text.includes('exercise') || text.includes('fitness') || text.includes('run')) {
-    return '👳‍♂️🏋️‍♂️';
-  }
-
-  // 8. Morning Routine & Home (32yo Turbaned Man + Sunrise + Home Clipart)
-  if (text.includes('morning routine') || text.includes('home') || text.includes('house')) {
-    return '👳‍♂️🌅🏠';
-  }
-
-  // 9. Office & Day Started
-  if (text.includes('office') || text.includes('work') || text.includes('job')) {
-    return '🏢💼';
+    return '👳‍♂️📈🤝';
   }
 
   return '👳‍♂️⭐';
 };
 
-/** Dynamic Category Island Icon Resolver for Renamed or New Categories */
+/** Dynamic Category Island Icon Resolver */
 export const resolveCategoryIslandIcon = (label: string): string => {
   const name = label.toLowerCase().trim();
 

@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
-import { NativeAppIdentity, NativeNotificationPermissionStatus, checkNativeNotificationPermission, getNativeAppIdentity, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
+import { NativeAppIdentity, NativeNotificationPermissionStatus, checkNativeNotificationPermission, getNativeAppIdentity, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission, exportNativeJsonBackup } from '../../services/nativeBridge';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -369,13 +369,15 @@ export const RemindersAnchorsView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    const blob = new Blob([exportDataJSON()], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `daytrace-backup-${state.date}.json`;
-                    a.click();
+                  onClick={async () => {
+                    const jsonText = exportDataJSON();
+                    const fileName = `daytrace-backup-${state.date}.json`;
+                    const res = await exportNativeJsonBackup(jsonText, fileName);
+                    if (res.success) {
+                      alert(`Backup exported successfully!\n${res.path ? `Saved to: ${res.path}` : 'Saved to your Downloads folder.'}`);
+                    } else {
+                      alert('Export failed. Please check app permissions.');
+                    }
                   }}
                   className="py-2.5 px-3 rounded-xl bg-[#334867] hover:bg-[#445E86] text-[#D1E1FF] text-xs font-bold flex items-center justify-center space-x-1.5 transition border border-[#D1E1FF]/30"
                 >

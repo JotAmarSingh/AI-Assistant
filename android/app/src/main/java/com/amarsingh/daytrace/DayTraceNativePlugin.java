@@ -970,6 +970,43 @@ public class DayTraceNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void exportJsonBackup(PluginCall call) {
+        String jsonText = call.getString("jsonText");
+        String fileName = call.getString("fileName", "daytrace-backup.json");
+        if (jsonText == null || jsonText.isEmpty()) {
+            call.reject("JSON text is required");
+            return;
+        }
+
+        try {
+            Context context = getContext();
+            java.io.File downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (!downloadsDir.exists()) downloadsDir.mkdirs();
+            java.io.File file = new java.io.File(downloadsDir, fileName);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
+            fos.write(jsonText.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            fos.close();
+
+            try {
+                Intent intent = new Intent(Intent.ACTION_SEND);
+                intent.setType("application/json");
+                intent.putExtra(Intent.EXTRA_TEXT, jsonText);
+                intent.putExtra(Intent.EXTRA_SUBJECT, fileName);
+                Intent chooser = Intent.createChooser(intent, "Save or Share DayTrace Backup");
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(chooser);
+            } catch (Exception ignored) {}
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("path", file.getAbsolutePath());
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to export backup file: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void openNotificationSettings(PluginCall call) {
         try {
             Context context = getContext();

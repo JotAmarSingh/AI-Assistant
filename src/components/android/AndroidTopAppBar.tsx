@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
-import { isNativeAndroid } from '../../services/nativeBridge';
+import { isNativeAndroid, exportNativeJsonBackup } from '../../services/nativeBridge';
 import { TutorialModal } from './TutorialModal';
 import { AndroidTab } from './AndroidNavigationBar';
 import { toLocalDateKey } from '../../utils/dailyHistory';
@@ -492,18 +492,33 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
               </div>
 
               <button
-                onClick={() => {
-                  const blob = new Blob([exportDataJSON()], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `daytrace-backup-${state.date}.json`;
-                  a.click();
+                onClick={async () => {
+                  const jsonText = exportDataJSON();
+                  const fileName = `daytrace-backup-${state.date}.json`;
+                  const res = await exportNativeJsonBackup(jsonText, fileName);
+                  if (res.success) {
+                    setImportStatus(`✅ Backup exported! ${res.path ? `Saved to: ${res.path}` : 'Saved to Downloads folder'}`);
+                  } else {
+                    setImportStatus('❌ Export failed. You can copy JSON below.');
+                  }
                 }}
                 className="w-full py-3 px-4 rounded-2xl bg-[#D1E1FF] hover:bg-white text-[#003062] text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition"
               >
                 <Download className="w-4 h-4 text-[#003062]" />
                 <span>Export & Save Backup (.json file)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const jsonText = exportDataJSON();
+                  void navigator.clipboard.writeText(jsonText);
+                  setImportStatus('📋 Backup JSON copied to clipboard!');
+                  setTimeout(() => setImportStatus(null), 2500);
+                }}
+                className="w-full py-2 px-4 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] text-xs font-semibold flex items-center justify-center space-x-1.5 transition border border-[#44474E]/40"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy JSON Backup to Clipboard</span>
               </button>
             </div>
 

@@ -63,6 +63,7 @@ export interface DayTraceNativePluginInterface {
   triggerTestPeriodicPrompt(options?: { delaySeconds?: number }): Promise<{ scheduled: boolean; delaySeconds: number }>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
   requestAllPermissions(): Promise<{ notifications: boolean; recordAudio: boolean; location: boolean; granted: boolean }>;
+  exportJsonBackup(options: { jsonText: string; fileName?: string }): Promise<{ success: boolean; path?: string }>;
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   openNotificationSettings(): Promise<{ success: boolean }>;
   requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
@@ -418,6 +419,27 @@ export const requestAllNativePermissions = async (): Promise<{ notifications: bo
   } catch (e) {
     console.warn('Failed to request all native permissions:', e);
     return { notifications: false, recordAudio: false, location: false, granted: false };
+  }
+};
+
+export const exportNativeJsonBackup = async (jsonText: string, fileName: string): Promise<{ success: boolean; path?: string }> => {
+  if (isNativeAndroid()) {
+    try {
+      return await DayTraceNative.exportJsonBackup({ jsonText, fileName });
+    } catch (e) {
+      console.warn('Native backup export error:', e);
+    }
+  }
+  try {
+    const blob = new Blob([jsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    return { success: true };
+  } catch (e) {
+    return { success: false };
   }
 };
 

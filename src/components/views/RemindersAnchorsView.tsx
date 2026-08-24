@@ -21,6 +21,7 @@ import {
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
 import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission, exportNativeJsonBackup } from '../../services/nativeBridge';
+import { getStoredGeminiApiKey, verifyGeminiApiKey, clearGeminiApiKey } from '../../services/geminiService';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -41,6 +42,12 @@ export const RemindersAnchorsView: React.FC = () => {
     exportDataJSON,
     importDataJSON,
   } = useDay();
+
+  // Google Gemini API Settings State
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [apiVerifyStatus, setApiVerifyStatus] = useState<string | null>(null);
+  const [isVerifyingKey, setIsVerifyingKey] = useState(false);
   const [isAddAnchorModalOpen, setIsAddAnchorModalOpen] = useState(false);
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
   const [isTestingLockscreen, setIsTestingLockscreen] = useState(false);
@@ -52,6 +59,10 @@ export const RemindersAnchorsView: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const savedKey = getStoredGeminiApiKey();
+    setApiKeyInput(savedKey);
+    setHasApiKey(Boolean(savedKey && savedKey.trim()));
+
     refreshNotificationPermission();
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refreshNotificationPermission();
@@ -343,6 +354,107 @@ export const RemindersAnchorsView: React.FC = () => {
               >
                 <div className={`w-4 h-4 rounded-full shadow-md ${settings.alarmSoundEnabled ? 'bg-[#003062]' : 'bg-[#C4C6D0]'}`} />
               </button>
+            </div>
+
+            {/* Google Gemini Cloud AI Key & Engine Settings */}
+            <div className="p-4 rounded-2xl bg-[#111318] border border-[#00F0FF]/30 space-y-3 mt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-4 h-4 text-[#00F0FF]" />
+                  <div>
+                    <span className="text-xs font-bold text-[#E2E2E6] block">Google Gemini Pro AI Engine</span>
+                    <span className="text-[10px] text-[#C4C6D0]/70 block">Cloud search grounding & conversational reasoning</span>
+                  </div>
+                </div>
+
+                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                  hasApiKey
+                    ? 'bg-[#10B981]/15 text-[#34D399] border-[#10B981]/40'
+                    : 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/40'
+                }`}>
+                  {hasApiKey ? '● ONLINE' : '● OFFLINE'}
+                </span>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="Paste Gemini API key (AIzaSy...)"
+                  className="w-full p-2.5 rounded-xl bg-[#1D2026] border border-[#00F0FF]/40 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:outline-none focus:ring-2 focus:ring-[#00F0FF]"
+                />
+
+                <div className="text-[10px] text-[#C4C6D0]/70 flex items-center justify-between">
+                  <span>Get your free Gemini API key from Google AI Studio</span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#00F0FF] hover:underline font-bold"
+                  >
+                    Get Key ↗
+                  </a>
+                </div>
+
+                {apiVerifyStatus && (
+                  <div className={`p-2.5 rounded-xl text-xs font-mono transition ${
+                    apiVerifyStatus.startsWith('✓')
+                      ? 'bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/50 font-bold'
+                      : 'bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/50'
+                  }`}>
+                    {apiVerifyStatus}
+                  </div>
+                )}
+
+                <div className="flex space-x-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isVerifyingKey}
+                    onClick={async () => {
+                      const keyToVerify = apiKeyInput.trim();
+                      if (!keyToVerify) {
+                        setApiVerifyStatus('❌ Please enter a Gemini API key first.');
+                        return;
+                      }
+                      setIsVerifyingKey(true);
+                      setApiVerifyStatus('⏳ Verifying key with Google Cloud API...');
+                      try {
+                        const res = await verifyGeminiApiKey(keyToVerify);
+                        if (res.success) {
+                          setHasApiKey(true);
+                          setApiVerifyStatus('✓ Verified! Switched to ONLINE mode.');
+                        } else {
+                          setApiVerifyStatus(`❌ ${res.message}`);
+                        }
+                      } catch (err: any) {
+                        setApiVerifyStatus(`❌ ${err?.message || 'Verification failed'}`);
+                      } finally {
+                        setIsVerifyingKey(false);
+                      }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] hover:bg-[#38F9D7] text-[#070A10] text-xs font-bold font-mono transition shadow-md flex items-center justify-center space-x-1"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{isVerifyingKey ? 'Verifying...' : 'Save & Convert to ONLINE'}</span>
+                  </button>
+
+                  {hasApiKey && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearGeminiApiKey();
+                        setApiKeyInput('');
+                        setHasApiKey(false);
+                        setApiVerifyStatus('✓ Disconnected. Switched to OFFLINE mode.');
+                      }}
+                      className="px-3 py-2.5 rounded-xl bg-[#2E3036] hover:bg-[#BA1A1A]/30 text-xs text-[#C4C6D0] hover:text-[#F87171] font-mono transition"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Offline JSON Data Backup & File Restore Section */}

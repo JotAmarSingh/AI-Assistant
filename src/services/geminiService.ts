@@ -1,13 +1,14 @@
 import { GoogleGenAI } from '@google/genai';
 
-// Hardwired Gemini API Key for user's Google Pixel 10a
-const HARDWIRED_GEMINI_API_KEY = 'AIzaSyCcHh0HQa5zILpus_BGjzZG1POqaNOZaBs';
-
 export const getStoredGeminiApiKey = (): string => {
   if (typeof localStorage !== 'undefined') {
     return localStorage.getItem('daytrace_gemini_api_key') || '';
   }
   return '';
+};
+
+export const hasValidGeminiApiKey = (): boolean => {
+  return Boolean(getStoredGeminiApiKey().trim());
 };
 
 export const setGeminiApiKey = (key: string): void => {
@@ -27,11 +28,7 @@ export const clearGeminiApiKey = (): void => {
 };
 
 export const getGeminiApiKey = (): string => {
-  if (typeof localStorage !== 'undefined') {
-    const savedKey = localStorage.getItem('daytrace_gemini_api_key');
-    if (savedKey && savedKey.trim()) return savedKey.trim();
-  }
-  return HARDWIRED_GEMINI_API_KEY;
+  return getStoredGeminiApiKey();
 };
 
 export const getGeminiClient = (): GoogleGenAI => {
@@ -39,9 +36,58 @@ export const getGeminiClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
+/** Verify if a Gemini API Key is valid and functional */
+export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boolean; message: string }> => {
+  const key = rawKey?.trim();
+  if (!key) {
+    return { success: false, message: 'Please enter a Gemini API Key.' };
+  }
+
+  // 1. Try official SDK test
+  try {
+    const ai = new GoogleGenAI({ apiKey: key });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: 'Respond with OK',
+    });
+    if (response && response.text && response.text.trim()) {
+      setGeminiApiKey(key);
+      return { success: true, message: 'Gemini 2.0 Flash / Pro Connected & Verified!' };
+    }
+  } catch (sdkErr: any) {
+    console.warn('SDK key verification error, trying REST:', sdkErr);
+  }
+
+  // 2. Direct REST endpoint verification
+  try {
+    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+    const res = await fetch(restEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Respond with OK' }] }]
+      })
+    });
+
+    if (res.ok) {
+      setGeminiApiKey(key);
+      return { success: true, message: 'Gemini API Key Verified Successfully!' };
+    }
+
+    const errorJson = await res.json().catch(() => null);
+    const errorMessage = errorJson?.error?.message || `Google API returned status ${res.status}`;
+    return { success: false, message: errorMessage };
+  } catch (netErr: any) {
+    return { success: false, message: netErr?.message || 'Network error connecting to Gemini API.' };
+  }
+};
+
 /** Direct Gemini Pro API Query with Intelligent Fallbacks & Multi-Model Resolution */
 export const queryGeminiAPI = async (prompt: string): Promise<string> => {
   const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error('No Gemini API Key configured. Please enter your API key to connect to online AI.');
+  }
 
   // 1. Try official SDK with Gemini Flash models
   try {
@@ -67,7 +113,7 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
 
   // 2. Direct REST HTTP API Query Fallback (Guaranteed to work with valid API key)
   try {
-    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const restEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(restEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

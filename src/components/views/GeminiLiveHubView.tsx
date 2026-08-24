@@ -27,7 +27,8 @@ import {
   queryGeminiAPI, 
   getStoredGeminiApiKey, 
   setGeminiApiKey, 
-  clearGeminiApiKey 
+  clearGeminiApiKey,
+  verifyGeminiApiKey 
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
 import { SmartAICard, UserMemoryItem } from '../../types';
@@ -57,6 +58,7 @@ export const GeminiLiveHubView: React.FC = () => {
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [customKeyInput, setCustomKeyInput] = useState('');
+  const [hasCustomKey, setHasCustomKey] = useState<boolean>(false);
   const [keyTestStatus, setKeyTestStatus] = useState<string | null>(null);
 
   const silenceTimerRef = useRef<number | null>(null);
@@ -69,7 +71,9 @@ export const GeminiLiveHubView: React.FC = () => {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    setCustomKeyInput(getStoredGeminiApiKey());
+    const saved = getStoredGeminiApiKey();
+    setCustomKeyInput(saved);
+    setHasCustomKey(Boolean(saved && saved.trim()));
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -486,16 +490,21 @@ export const GeminiLiveHubView: React.FC = () => {
             {/* AI Engine & Network Status Badge (Clickable to open AI Config Modal) */}
             <button
               type="button"
-              onClick={() => setShowConfigModal(true)}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-2xl bg-[#070A10] border transition text-[10px] font-mono font-bold shadow-xs hover:scale-105 active:scale-95"
-              style={{
-                borderColor: isOnline ? 'rgba(52, 211, 153, 0.4)' : 'rgba(192, 132, 252, 0.4)',
-                color: isOnline ? '#34D399' : '#C084FC'
+              onClick={() => {
+                setKeyTestStatus(null);
+                setCustomKeyInput(getStoredGeminiApiKey());
+                setShowConfigModal(true);
               }}
-              title="Click to check AI Engine Status & Gemini API Key"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-2xl bg-[#070A10] border transition text-xs font-mono font-bold shadow-md active:scale-95 cursor-pointer"
+              style={{
+                borderColor: hasCustomKey ? 'rgba(52, 211, 153, 0.7)' : 'rgba(251, 191, 36, 0.7)',
+                color: hasCustomKey ? '#34D399' : '#FBBF24',
+                boxShadow: hasCustomKey ? '0 0 15px rgba(52, 211, 153, 0.25)' : '0 0 15px rgba(251, 191, 36, 0.2)'
+              }}
+              title={hasCustomKey ? "Online (Gemini Pro Connected) - Tap to manage" : "Offline (Tap to enter Gemini API Key)"}
             >
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[#34D399] animate-pulse' : 'bg-[#C084FC]'}`} />
-              <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+              <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
+              <span>{hasCustomKey ? 'ONLINE' : 'OFFLINE'}</span>
             </button>
           </div>
         </div>
@@ -630,7 +639,7 @@ export const GeminiLiveHubView: React.FC = () => {
       {/* AI Engine & API Key Configuration Modal */}
       {showConfigModal && (
         <div 
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
           onClick={() => setShowConfigModal(false)}
         >
           <div 
@@ -639,12 +648,16 @@ export const GeminiLiveHubView: React.FC = () => {
           >
             <div className="flex items-center justify-between pb-2 border-b border-[#44474E]/40">
               <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-xl bg-[#00F0FF]/20 text-[#00F0FF]">
+                <div className={`p-2 rounded-xl ${hasCustomKey ? 'bg-[#10B981]/20 text-[#34D399]' : 'bg-[#FBBF24]/20 text-[#FBBF24]'}`}>
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-[#E2E2E6]">AI Engine Status</h3>
-                  <p className="text-[10px] text-[#C4C6D0]/70">Online Cloud vs On-Device Offline</p>
+                  <h3 className="font-bold text-sm text-[#E2E2E6]">
+                    {hasCustomKey ? 'Gemini Cloud AI Active' : 'Gemini Cloud AI Setup'}
+                  </h3>
+                  <p className="text-[10px] text-[#C4C6D0]/70">
+                    {hasCustomKey ? 'ONLINE Mode Enabled' : 'OFFLINE Mode • Connect API Key'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setShowConfigModal(false)} className="text-[#C4C6D0] hover:text-[#E2E2E6] p-1 font-bold">
@@ -653,82 +666,105 @@ export const GeminiLiveHubView: React.FC = () => {
             </div>
 
             {/* Current Engine Status */}
-            <div className="p-3 rounded-2xl bg-[#111318] border border-[#00F0FF]/20 space-y-2">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-[#C4C6D0]">Network Status:</span>
-                <span className={`font-bold flex items-center space-x-1 ${isOnline ? 'text-[#34D399]' : 'text-[#FBBF24]'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[#34D399]' : 'bg-[#FBBF24]'}`} />
-                  <span>{isOnline ? 'Connected (Internet Available)' : 'Offline (No Internet)'}</span>
+            <div className={`p-3 rounded-2xl border text-xs font-mono space-y-1.5 ${
+              hasCustomKey 
+                ? 'bg-[#10B981]/10 border-[#10B981]/40' 
+                : 'bg-[#FBBF24]/10 border-[#FBBF24]/40'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[#C4C6D0]">Current Status:</span>
+                <span className={`font-bold flex items-center space-x-1.5 ${hasCustomKey ? 'text-[#34D399]' : 'text-[#FBBF24]'}`}>
+                  <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
+                  <span>{hasCustomKey ? 'ONLINE (Gemini Pro Connected)' : 'OFFLINE (On-Device Local)'}</span>
                 </span>
               </div>
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-[#C4C6D0]">AI Engine Mode:</span>
-                <span className="font-bold text-[#00F0FF]">
-                  {customKeyInput.trim() ? 'Gemini Pro (Custom API Key)' : 'Hybrid (Cloud + On-Device)'}
-                </span>
-              </div>
+              <p className="text-[10px] text-[#C4C6D0]/80 leading-tight">
+                {hasCustomKey
+                  ? 'Your Gemini API key is active. Live search grounding and reasoning are active.'
+                  : 'Enter your Gemini API key below to convert the OFFLINE button to ONLINE.'}
+              </p>
             </div>
 
             {/* Custom Gemini API Key Form */}
             <div className="space-y-2">
               <label className="text-[11px] font-bold text-[#00F0FF] uppercase tracking-wider block">
-                Google Gemini API Key (Optional)
+                Google Gemini API Key
               </label>
-              <p className="text-[10px] text-[#C4C6D0]/80">
-                DayTrace works 100% offline for tasks, routines, and alarms. You can optionally add your personal Gemini API key for live internet grounding & conversational reasoning:
-              </p>
               <input
                 type="password"
                 value={customKeyInput}
                 onChange={(e) => setCustomKeyInput(e.target.value)}
                 placeholder="Paste Gemini API key (AIzaSy...)"
-                className="w-full p-2.5 rounded-xl bg-[#111318] border border-[#00F0FF]/30 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/30 focus:outline-none focus:ring-1 focus:ring-[#00F0FF]"
+                className="w-full p-2.5 rounded-xl bg-[#111318] border border-[#00F0FF]/40 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:outline-none focus:ring-2 focus:ring-[#00F0FF]"
               />
 
+              <div className="text-[10px] text-[#C4C6D0]/70 flex items-center justify-between">
+                <span>Free API key from Google AI Studio</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#00F0FF] hover:underline font-bold"
+                >
+                  Get Key ↗
+                </a>
+              </div>
+
               {keyTestStatus && (
-                <div className={`p-2 rounded-xl text-xs font-mono ${
-                  keyTestStatus.startsWith('✓') ? 'bg-[#10B981]/15 text-[#34D399] border border-[#10B981]/40' : 'bg-[#EF4444]/15 text-[#F87171] border border-[#EF4444]/40'
+                <div className={`p-2.5 rounded-xl text-xs font-mono transition animate-in fade-in ${
+                  keyTestStatus.startsWith('✓') 
+                    ? 'bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/50 font-bold' 
+                    : 'bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/50'
                 }`}>
                   {keyTestStatus}
                 </div>
               )}
 
-              <div className="flex space-x-2 pt-1">
+              <div className="flex space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!customKeyInput.trim()) {
-                      clearGeminiApiKey();
-                      setKeyTestStatus('✓ Custom key cleared. Using built-in engine.');
+                    const keyToVerify = customKeyInput.trim();
+                    if (!keyToVerify) {
+                      setKeyTestStatus('❌ Please paste a valid Gemini API Key first.');
                       return;
                     }
-                    setKeyTestStatus('Testing API Key with Gemini...');
-                    setGeminiApiKey(customKeyInput.trim());
+                    setKeyTestStatus('⏳ Verifying with Google Cloud API...');
                     try {
-                      const res = await queryGeminiAPI('Test ping');
-                      if (res) {
-                        setKeyTestStatus('✓ Key verified! Gemini Pro connected.');
+                      const result = await verifyGeminiApiKey(keyToVerify);
+                      if (result.success) {
+                        setHasCustomKey(true);
+                        setKeyTestStatus('✓ Verified! Converted to ONLINE mode.');
+                        setTimeout(() => {
+                          setShowConfigModal(false);
+                          setKeyTestStatus(null);
+                        }, 1200);
+                      } else {
+                        setKeyTestStatus(`❌ ${result.message}`);
                       }
                     } catch (err: any) {
-                      setKeyTestStatus(`❌ Verification failed: ${err?.message || 'Check key'}`);
+                      setKeyTestStatus(`❌ ${err?.message || 'Verification failed.'}`);
                     }
                   }}
-                  className="flex-1 py-2 rounded-xl bg-[#00F0FF] text-[#070A10] text-xs font-bold transition hover:bg-cyan-300"
+                  className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] hover:bg-[#38F9D7] text-[#070A10] text-xs font-bold font-mono transition shadow-lg flex items-center justify-center space-x-1"
                 >
-                  Save & Verify Key
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Verify & Convert to ONLINE</span>
                 </button>
 
-                {customKeyInput && (
+                {hasCustomKey && (
                   <button
                     type="button"
                     onClick={() => {
                       clearGeminiApiKey();
                       setCustomKeyInput('');
-                      setKeyTestStatus('Cleared API key');
+                      setHasCustomKey(false);
+                      setKeyTestStatus('✓ Disconnected. Switched to OFFLINE mode.');
                     }}
-                    className="px-3 py-2 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-xs text-[#C4C6D0]"
+                    className="px-3 py-2.5 rounded-xl bg-[#2E3036] hover:bg-[#BA1A1A]/30 text-xs text-[#C4C6D0] hover:text-[#F87171] font-mono transition"
+                    title="Disconnect and switch back to OFFLINE"
                   >
-                    Clear
+                    Disconnect
                   </button>
                 )}
               </div>

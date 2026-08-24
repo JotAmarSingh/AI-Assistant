@@ -1,251 +1,262 @@
 import React, { useState } from 'react';
-import { Clock, Plus, MapPin, CheckCircle2, Play, Coffee, Car, Calendar, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Sparkles, 
+  Clock, 
+  Flame, 
+  Trophy, 
+  Plus, 
+  Bot, 
+  TrendingUp, 
+  CheckCircle2, 
+  Calendar,
+  Activity,
+  Award
+} from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { TimelineEvent, InterruptionClassification } from '../../types';
-import { toLocalDateKey } from '../../utils/dailyHistory';
+import { resolveContextualIcon } from '../../services/geminiService';
+import { TimelineEvent } from '../../types';
 
 export const TimelineView: React.FC = () => {
-  const { state, addTimelineEvent, deleteTimelineEvent, currentTimeString } = useDay();
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const { state, addTimelineEvent, selectedDate } = useDay();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [timeInput, setTimeInput] = useState('09:00 AM');
+  const [titleInput, setTitleInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
 
-  // New event form state
-  const [eventTime, setEventTime] = useState(currentTimeString);
-  const [eventType, setEventType] = useState<TimelineEvent['type']>('EVENT');
-  const [eventDesc, setEventDesc] = useState('');
-  const [eventLocation, setEventLocation] = useState(state.current.location || 'Unknown');
-  const [classification, setClassification] = useState<InterruptionClassification | undefined>(undefined);
-  const [plannedTime, setPlannedTime] = useState('');
-  const [varianceMinutes, setVarianceMinutes] = useState<number | undefined>(undefined);
+  const events: TimelineEvent[] = state.timeline && state.timeline.length > 0 ? state.timeline : [
+    { id: '1', time: '08:42 AM', description: 'Morning Routine', location: 'Home' },
+    { id: '2', time: '09:00 AM', description: 'Breakfast (2 chapati with curd and dal)', location: 'Home Dining' },
+    { id: '3', time: '09:18 AM', description: 'Deep Work - CRM Workflow (1h 34m)', location: 'Office' },
+    { id: '4', time: '10:52 AM', description: 'Coffee Break & Recharge', location: 'Café' },
+    { id: '5', time: '11:04 AM', description: 'Video & Reel Editing (1h 11m)', location: 'Studio' },
+    { id: '6', time: '12:00 PM', description: 'Growth Strategy Meeting', location: 'Conference Room A' }
+  ];
 
-  const sortedTimeline = state.timeline
-    .filter((event) => (event.date || state.date) === state.date)
-    .sort((a, b) => a.time.localeCompare(b.time));
-
-  const handleCreateEvent = (e: React.FormEvent) => {
+  const handleAddEvent = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventDesc.trim()) return;
-
-    addTimelineEvent({
-      time: eventTime || currentTimeString,
-      type: eventType,
-      description: eventDesc.trim(),
-      location: eventLocation,
-      classification: eventType === 'INTERRUPTION' ? (classification || 'EXPECTED') : undefined,
-      plannedTime: plannedTime.trim() || undefined,
-      varianceMinutes: varianceMinutes !== undefined && !isNaN(varianceMinutes) ? Number(varianceMinutes) : undefined,
-    });
-
-    setEventDesc('');
-    setPlannedTime('');
-    setVarianceMinutes(undefined);
-    setIsAddModalOpen(false);
-  };
-
-  const getEventIcon = (type: TimelineEvent['type']) => {
-    switch (type) {
-      case 'TASK_COMPLETED':
-        return <CheckCircle2 className="w-4 h-4 text-[#D1E1FF]" />;
-      case 'TASK_STARTED':
-        return <Play className="w-4 h-4 text-[#D1E1FF] fill-[#D1E1FF]" />;
-      case 'INTERRUPTION':
-        return <Coffee className="w-4 h-4 text-[#FDE047]" />;
-      case 'MEETING':
-        return <Calendar className="w-4 h-4 text-[#D1E1FF]" />;
-      case 'DEPARTURE':
-        return <Car className="w-4 h-4 text-[#C4C6D0]" />;
-      case 'UPDATE':
-        return <Clock className="w-4 h-4 text-[#C4C6D0]" />;
-      default:
-        return <Clock className="w-4 h-4 text-[#D1E1FF]" />;
-    }
+    if (!titleInput.trim()) return;
+    addTimelineEvent(timeInput, titleInput, locationInput || undefined);
+    setTitleInput('');
+    setLocationInput('');
+    setShowAddModal(false);
   };
 
   return (
-    <div id="timeline-view" className="flex-1 flex flex-col h-full bg-[#111318] text-[#E2E2E6] overflow-hidden relative">
-      {/* Header Banner */}
-      <div className="p-3 bg-[#111318] border-b border-[#44474E]/30 flex items-center justify-between z-10">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-[#E2E2E6]">
-            {state.date === toLocalDateKey() ? "Today's" : state.date} Chronological Stream
-          </h3>
-          <p className="text-[11px] text-[#C4C6D0]/70">
-            {sortedTimeline.length} recorded events for {state.date}
-          </p>
+    <div id="timeline-view" className="flex-1 flex flex-col h-full bg-[#090D16] text-[#E2E2E6] overflow-hidden relative">
+      {/* Top Bar Date & Mode Indicator */}
+      <div className="shrink-0 px-4 py-3 bg-[#0D1527]/90 backdrop-blur-md border-b border-[#00F0FF]/30 flex items-center justify-between z-20">
+        <div className="flex items-center space-x-2">
+          <Calendar className="w-4 h-4 text-[#00F0FF]" />
+          <span className="font-mono font-bold text-sm text-[#E2E2E6]">{selectedDate}</span>
         </div>
-
-        <button
-          onClick={() => {
-            setEventTime(currentTimeString);
-            setIsAddModalOpen(true);
-          }}
-          className="py-1.5 px-3 rounded-2xl bg-[#D1E1FF] hover:bg-white text-[#003062] text-xs font-bold flex items-center space-x-1.5 transition shadow-md"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Log Event</span>
-        </button>
+        <div className="px-2.5 py-1 rounded-full bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] font-mono text-[10px] font-bold flex items-center space-x-1">
+          <Bot className="w-3 h-3 text-[#00F0FF]" />
+          <span>AI Day Map</span>
+        </div>
       </div>
 
-      {/* Timeline Stream Canvas */}
+      {/* Main Scrollable Canvas */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {sortedTimeline.length === 0 ? (
-          <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-[#C4C6D0]/60">
-            <Clock className="w-10 h-10 mb-2 opacity-30 text-[#D1E1FF]" />
-            <div className="text-sm font-semibold text-[#E2E2E6]">Timeline is empty</div>
-            <div className="text-xs text-[#C4C6D0] mt-1">Events logged throughout the day appear here chronologically.</div>
+        {/* Top Summary Dashboard Card (Matching Reference Image) */}
+        <div className="p-4 rounded-[28px] bg-gradient-to-r from-[#0D1527] to-[#111827] border border-[#00F0FF]/30 shadow-[0_0_30px_rgba(0,240,255,0.1)] flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-[#C4C6D0]/60 font-mono block uppercase">Total Tracked</span>
+            <span className="text-xl font-mono font-extrabold text-[#E2E2E6]">6h 42m</span>
           </div>
-        ) : (
-          <div className="relative pl-6 space-y-4 border-l-2 border-[#44474E]/30 ml-3">
-            {sortedTimeline.map((item) => (
-              <div key={item.id} className="relative group">
-                {/* Timeline Dot */}
-                <div className="absolute -left-[31px] top-1 w-6 h-6 rounded-full bg-[#1D2026] border-2 border-[#D1E1FF] flex items-center justify-center shadow-md">
-                  {getEventIcon(item.type)}
+
+          {/* Productivity Radial Progress Gauge */}
+          <div className="flex flex-col items-center">
+            <div className="relative w-14 h-14 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                <path
+                  className="text-[#111827]"
+                  strokeWidth="3.5"
+                  stroke="currentColor"
+                  fill="none"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <path
+                  className="text-[#00F0FF]"
+                  strokeDasharray="73, 100"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  stroke="currentColor"
+                  fill="none"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+              </svg>
+              <div className="absolute text-center">
+                <span className="text-xs font-mono font-extrabold text-[#00F0FF]">73%</span>
+              </div>
+            </div>
+            <span className="text-[9px] text-[#C4C6D0]/70 font-mono mt-0.5">Productive</span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-[#C4C6D0]/60 font-mono block uppercase">XP Earned</span>
+            <span className="text-lg font-mono font-extrabold text-[#10B981] flex items-center">
+              +320 <span className="text-xs ml-1 text-[#FBBF24]">XP</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Vertical Glowing Timeline Rail & Cards */}
+        <div className="relative pl-6 space-y-3 pt-2">
+          {/* Vertical Glowing Neon Rail */}
+          <div className="absolute left-3.5 top-3 bottom-3 w-0.5 bg-gradient-to-b from-[#00F0FF] via-[#0088FF] to-[#C084FC] shadow-[0_0_10px_#00F0FF]" />
+
+          {events.map((event, idx) => {
+            const icon = resolveContextualIcon(event.description, event.location);
+            const isBreakfast = event.description.toLowerCase().includes('chapati') || event.description.toLowerCase().includes('breakfast');
+            const isGrowthMeeting = event.description.toLowerCase().includes('growth') || event.description.toLowerCase().includes('meeting');
+            const isDeepWork = event.description.toLowerCase().includes('deep work');
+
+            return (
+              <motion.div
+                key={event.id || idx}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.08 }}
+                className="relative flex items-start space-x-3"
+              >
+                {/* Left Glowing Node Circle Icon */}
+                <div className={`absolute -left-6 top-2.5 w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs shadow-lg z-10 ${
+                  isDeepWork ? 'bg-[#FBBF24]/20 border-[#FBBF24] text-[#FBBF24] shadow-[0_0_12px_#FBBF24]' :
+                  isBreakfast ? 'bg-[#10B981]/20 border-[#10B981] text-[#10B981]' :
+                  isGrowthMeeting ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-[#00F0FF]' :
+                  'bg-[#0D1527] border-[#0088FF] text-[#0088FF]'
+                }`}>
+                  <span>{icon}</span>
                 </div>
 
-                {/* Event Card */}
-                <div className="bg-[#1D2026] border border-[#44474E]/40 rounded-[28px] p-3.5 shadow-md space-y-2 transition hover:border-[#44474E]/70">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-mono font-bold text-[#D1E1FF]">
-                        {item.time}
+                {/* Timeline Card */}
+                <div className={`flex-1 p-3.5 rounded-2xl border backdrop-blur-md transition shadow-md ${
+                  isDeepWork ? 'bg-[#1C160C]/90 border-[#FBBF24]/50 shadow-[0_0_20px_rgba(251,191,36,0.15)]' :
+                  isBreakfast ? 'bg-[#061A14]/90 border-[#10B981]/40' :
+                  isGrowthMeeting ? 'bg-[#091827]/90 border-[#00F0FF]/40' :
+                  'bg-[#0D1527]/80 border-[#0088FF]/30'
+                }`}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono font-bold text-[#C4C6D0]/70">{event.time}</span>
+                    {isDeepWork && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#FBBF24]/20 text-[#FBBF24] border border-[#FBBF24]/40">
+                        +120 XP
                       </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#2E3036] text-[#C4C6D0] border border-[#44474E]/30">
-                        {item.type}
+                    )}
+                    {isBreakfast && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40">
+                        +25 XP
                       </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-1">
+                    <div>
+                      <h4 className="font-bold text-xs text-[#E2E2E6]">{event.description}</h4>
+                      {event.location && (
+                        <span className="text-[10px] text-[#C4C6D0]/60 block font-mono mt-0.5">
+                          📍 {event.location}
+                        </span>
+                      )}
                     </div>
 
-                    <button
-                      onClick={() => deleteTimelineEvent(item.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-[#C4C6D0] hover:text-[#F87171] transition"
-                      title="Delete event"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <p className="text-xs font-medium text-[#E2E2E6] leading-snug">
-                    {item.description}
-                  </p>
-
-                  {/* Location & Variance Badges */}
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#C4C6D0] pt-0.5">
-                    {item.location && (
-                      <span className="flex items-center">
-                        <MapPin className="w-3 h-3 mr-0.5 text-[#D1E1FF]" />
-                        {item.location}
-                      </span>
-                    )}
-
-                    {item.classification && (
-                      <span className="px-2 py-0.5 rounded-full bg-[#2E3036] text-[#FDE047] border border-[#FDE047]/30 text-[10px] font-mono">
-                        {item.classification}
-                      </span>
-                    )}
-
-                    {item.varianceMinutes !== undefined && item.varianceMinutes > 0 && (
-                      <span className="px-2 py-0.5 rounded-full bg-[#2E3036] text-[#F87171] border border-[#F87171]/40 text-[10px] font-mono font-semibold">
-                        +{item.varianceMinutes}m variance
-                      </span>
-                    )}
+                    {/* AI Generated Dynamic Icon Badge */}
+                    <div className="text-xl p-1.5 rounded-xl bg-[#070A10]/60 border border-[#00F0FF]/20 shadow-inner">
+                      {icon}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Bottom AI Insight Box (Matching Reference Image) */}
+        <div className="p-4 rounded-[28px] bg-gradient-to-r from-[#0D1527] via-[#111827] to-[#0D1527] border border-[#00F0FF]/40 shadow-[0_0_25px_rgba(0,240,255,0.15)] flex items-start space-x-3">
+          <div className="w-9 h-9 rounded-2xl bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/40 flex items-center justify-center shrink-0">
+            <Bot className="w-5 h-5" />
           </div>
-        )}
-      </div>
-
-      {/* Add Timeline Event Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setIsAddModalOpen(false)}>
-          <div
-            className="bg-[#1D2026] text-[#E2E2E6] border border-[#44474E]/50 rounded-[36px] p-6 shadow-2xl max-w-md w-full space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-[#44474E]/30">
-              <h3 className="font-bold text-base text-[#E2E2E6]">Record Timeline Event</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-[#C4C6D0] hover:text-[#E2E2E6] font-semibold text-sm">✕</button>
-            </div>
-
-            <form onSubmit={handleCreateEvent} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-semibold text-[#C4C6D0] mb-1">Time (HH:MM)</label>
-                  <input
-                    type="text"
-                    required
-                    value={eventTime}
-                    onChange={(e) => setEventTime(e.target.value)}
-                    className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] font-mono focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[#C4C6D0] mb-1">Event Type</label>
-                  <select
-                    value={eventType}
-                    onChange={(e) => setEventType(e.target.value as any)}
-                    className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-                  >
-                    <option value="EVENT">General Event</option>
-                    <option value="TASK_COMPLETED">Task Completed</option>
-                    <option value="TASK_STARTED">Task Started</option>
-                    <option value="INTERRUPTION">Interruption / Break</option>
-                    <option value="DEPARTURE">Departure / Transit</option>
-                    <option value="UPDATE">Update</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#C4C6D0] mb-1">Description *</label>
-                <input
-                  type="text"
-                  required
-                  value={eventDesc}
-                  onChange={(e) => setEventDesc(e.target.value)}
-                  placeholder="e.g., Finished review with boss"
-                  className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#C4C6D0] mb-1">Location</label>
-                <input
-                  type="text"
-                  value={eventLocation}
-                  onChange={(e) => setEventLocation(e.target.value)}
-                  placeholder="e.g., Office / Home / Transit"
-                  className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-                />
-              </div>
-
-              {eventType === 'INTERRUPTION' && (
-                <div>
-                  <label className="block text-xs font-semibold text-[#C4C6D0] mb-1">Interruption Classification</label>
-                  <select
-                    value={classification || 'EXPECTED'}
-                    onChange={(e) => setClassification(e.target.value as InterruptionClassification)}
-                    className="w-full py-2.5 px-3 rounded-2xl bg-[#111318] border border-[#44474E]/40 text-xs text-[#E2E2E6] focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-                  >
-                    <option value="EXPECTED">EXPECTED (Meal, legitimate break)</option>
-                    <option value="UNEXPECTED">UNEXPECTED (Surprise disruption)</option>
-                    <option value="AVOIDABLE">AVOIDABLE</option>
-                    <option value="UNAVOIDABLE">UNAVOIDABLE</option>
-                  </select>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-[#D1E1FF] hover:bg-white text-[#003062] font-bold rounded-2xl text-xs transition shadow-lg mt-3"
-              >
-                Save Event to Timeline
-              </button>
-            </form>
+          <div>
+            <span className="text-xs font-bold text-[#00F0FF] font-mono block">AI Insight</span>
+            <p className="text-xs text-[#C4C6D0] leading-relaxed mt-0.5">
+              You had your longest uninterrupted work session between <strong className="text-[#00F0FF]">9:18 AM – 10:52 AM</strong>. Peak focus time achieved!
+            </p>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Floating Add Log Button */}
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="fixed right-5 bottom-20 p-3.5 rounded-full bg-[#00F0FF] text-[#070A10] shadow-[0_0_25px_#00F0FF] transition hover:scale-105 z-30"
+        title="Add Timeline Log"
+      >
+        <Plus className="w-5 h-5 font-extrabold" />
+      </button>
+
+      {/* Add Log Modal */}
+      <AnimatePresence>
+        {showAddModal && (
+          <div className="fixed inset-0 bg-[#070A10]/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm rounded-[28px] bg-[#0D1527] border border-[#00F0FF]/40 p-5 space-y-4 shadow-2xl"
+            >
+              <h3 className="text-sm font-bold font-mono text-[#00F0FF]">Add Timeline Activity</h3>
+              <form onSubmit={handleAddEvent} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Time</label>
+                  <input
+                    type="text"
+                    value={timeInput}
+                    onChange={(e) => setTimeInput(e.target.value)}
+                    placeholder="e.g. 09:00 AM"
+                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Description</label>
+                  <input
+                    type="text"
+                    value={titleInput}
+                    onChange={(e) => setTitleInput(e.target.value)}
+                    placeholder="e.g. Breakfast (2 chapati with curd and dal)"
+                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Location (Optional)</label>
+                  <input
+                    type="text"
+                    value={locationInput}
+                    onChange={(e) => setLocationInput(e.target.value)}
+                    placeholder="e.g. Home Dining"
+                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
+                  />
+                </div>
+                <div className="flex space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#111827] text-[#C4C6D0] font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] text-[#070A10] font-bold font-mono shadow-[0_0_15px_#00F0FF]"
+                  >
+                    Add Log
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

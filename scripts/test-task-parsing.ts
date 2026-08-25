@@ -98,4 +98,33 @@ assert.equal(compoundDeskLog.timelineLogs.length, 1);
 assert.equal(compoundDeskLog.timelineLogs[0].time, '19:12');
 assert.equal(compoundDeskLog.timelineLogs[0].description, 'Working on a product prototype and demo project');
 
+const currentPlaceState = createFreshDailyState();
+currentPlaceState.current.location = 'Editing Desk';
+currentPlaceState.geofenceLocations = [{
+  id: 'editing-desk-location',
+  name: 'Editing Desk',
+  latitude: 30.901,
+  longitude: 75.857,
+  radiusMeters: 200,
+}];
+const exitMedicineReminder = parseVoiceAutomations(
+  "Make a reminder for me whenever I leave my current location to get my son's medicine",
+  currentPlaceState,
+  '19:30',
+);
+assert.equal(exitMedicineReminder.isAutomation, true);
+assert.equal(exitMedicineReminder.automations.length, 1);
+assert.equal(exitMedicineReminder.automations[0].triggerType, 'GEOFENCE_EXIT');
+assert.equal(exitMedicineReminder.automations[0].locationId, 'editing-desk-location');
+assert.equal(exitMedicineReminder.automations[0].locationName, 'Editing Desk');
+assert.equal(exitMedicineReminder.automations[0].reminderText, "Get my son's medicine");
+
+const leaveHereReminder = parseVoiceAutomations(
+  'Notify me when I leave here to collect the prescription',
+  currentPlaceState,
+  '19:31',
+);
+assert.equal(leaveHereReminder.automations[0].locationName, 'Editing Desk');
+assert.equal(leaveHereReminder.automations[0].reminderText, 'Collect the prescription');
+
 console.log('Task parsing tests passed successfully!');

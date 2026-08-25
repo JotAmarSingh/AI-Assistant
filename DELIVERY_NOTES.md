@@ -1,6 +1,11 @@
-# DayTrace 1.4.2 delivery notes
+# DayTrace 1.4.3 delivery notes
 
 ## Fixed
+
+- Offline-created tasks, timeline logs, timetable entries, and task categories now enter a durable, de-duplicated visual queue. Missing Gemini vector stickers/islands resume automatically when the saved API key and connectivity are available, without opening each tab again.
+- Location-triggered errand commands are executed by DayTrace before conversational AI. Words such as “medicine” in the reminder message no longer turn the command into medical advice.
+- “My current location” and “here” resolve to the live/saved place instead of silently defaulting to Office; DayTrace verifies background location access before activating a native enter/exit geofence.
+- Gemini's structured action planner now supports current/saved-place enter/exit reminders for compound commands while still executing and validating the action locally.
 
 - Compound Accountability commands now use Gemini as a structured semantic planner and can execute several requested operations, such as saving the current GPS location and logging current work, instead of returning a generic acknowledgement.
 - Cloud action plans are strictly allowlisted and validated before DayTrace mutates local data; Gemini cannot directly write, delete, or claim completion of an operation that the device did not execute.
@@ -45,7 +50,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.2 (2026082507), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.3 (2026082508), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.
@@ -64,6 +69,7 @@
 - Daily history, state migration, multi-trigger, meeting processing, and task parsing tests: passed.
 - AI context isolation and reminder-time tests: passed.
 - AI routing, grounded follow-up, and changing-fact classification tests: passed.
+- Deferred visual-queue de-duplication and prompt privacy tests: passed.
 - Accountability engine, contextual trigger, focus protection, persistence, correction, postponement, interruption, planned-versus-actual, and habit-analysis tests: passed.
 - Static checks cover scoped JSON export, saved geofence names, keyboard inset handling, and absence of legacy cloud-sync code.
 - Runtime rendering smoke tests cover Tasks and Anchors with the real DayTrace provider.

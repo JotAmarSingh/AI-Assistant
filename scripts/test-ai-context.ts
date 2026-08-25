@@ -81,6 +81,20 @@ assert.deepEqual(actionPlan?.actions.map((action) => action.type), ['SAVE_CURREN
 assert.equal(actionPlan?.actions[0].label, 'Desk');
 assert.equal(actionPlan?.actions[1].description, 'Working on a product prototype and demo project');
 
+const locationReminderPlan = parseDayTraceActionPlan(JSON.stringify({
+  intentSummary: 'Create an exit reminder at the current place',
+  actions: [{
+    type: 'CREATE_LOCATION_REMINDER',
+    triggerType: 'GEOFENCE_EXIT',
+    locationReference: 'CURRENT',
+    reminderMessage: "Get my son's medicine",
+  }],
+}));
+assert.equal(locationReminderPlan?.actions[0].type, 'CREATE_LOCATION_REMINDER');
+assert.equal(locationReminderPlan?.actions[0].triggerType, 'GEOFENCE_EXIT');
+assert.equal(locationReminderPlan?.actions[0].locationReference, 'CURRENT');
+assert.equal(locationReminderPlan?.actions[0].reminderMessage, "Get my son's medicine");
+
 const clarificationPlan = parseDayTraceActionPlan(JSON.stringify({
   intentSummary: 'Create tomorrow task',
   actions: [],

@@ -50,6 +50,7 @@ import {
   toLocalDateKey,
 } from '../utils/dailyHistory';
 import { migrateDailyState } from '../utils/stateMigrations';
+import { GeneratedVisualRequest, queueGeneratedVisuals } from '../services/visualAssetService';
 
 export interface DestructiveConfirmationRequest {
   id: string;
@@ -547,6 +548,41 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Failed to save DayTrace state to localStorage', e);
     }
   }, [state]);
+
+  // Visuals are derived data, but their requests must be durable. Queue every
+  // real task/timeline/timetable concept here so records created while the Home
+  // screen is open and the phone is offline are reconciled after connectivity
+  // returns without requiring the user to revisit each tab.
+  useEffect(() => {
+    const categories = new Map<string, string>((state.taskCategories || []).map((category) => [category.id, category.label]));
+    const taskById = new Map<string, TaskItem>((state.tasks || []).map((task) => [task.id, task]));
+    const categoryTasks = new Map<string, string[]>();
+    const requests: GeneratedVisualRequest[] = [];
+
+    (state.tasks || []).forEach((task) => {
+      const categoryLabel = categories.get(task.category) || task.category || 'Uncategorised';
+      requests.push({ kind: 'TASK_STICKER', subject: task.title, details: [categoryLabel] });
+      categoryTasks.set(categoryLabel, [...(categoryTasks.get(categoryLabel) || []), task.title]);
+    });
+    (state.timeline || []).forEach((event) => {
+      const relatedTask = event.relatedTaskId ? taskById.get(event.relatedTaskId) : undefined;
+      const subject = relatedTask?.title || event.description;
+      const categoryLabel = relatedTask
+        ? categories.get(relatedTask.category) || relatedTask.category
+        : event.category || event.type;
+      requests.push({ kind: 'TASK_STICKER', subject, details: [categoryLabel] });
+    });
+    (state.timetable || []).forEach((slot) => {
+      requests.push({ kind: 'TASK_STICKER', subject: slot.title, details: [slot.category || 'Schedule'] });
+    });
+    categoryTasks.forEach((titles, label) => {
+      if (label.toLowerCase() !== 'uncategorised') {
+        requests.push({ kind: 'CATEGORY_ISLAND', subject: label, details: titles });
+      }
+    });
+
+    queueGeneratedVisuals(requests);
+  }, [state.tasks, state.timeline, state.timetable, state.taskCategories]);
 
   // Persist active automations for dead-process geofence matching.
   useEffect(() => {

@@ -5,6 +5,7 @@ import {
   getOrCreateGeneratedVisual,
   readGeneratedVisual,
   taskVisualKey,
+  VISUAL_READY_EVENT,
 } from '../services/visualAssetService';
 
 export const useGeneratedVisual = (
@@ -22,6 +23,14 @@ export const useGeneratedVisual = (
 
   useEffect(() => {
     let cancelled = false;
+    const handleReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string; dataUrl?: string }>).detail;
+      if (!cancelled && detail?.key === key && detail.dataUrl) {
+        setImageUrl(detail.dataUrl);
+        setIsGenerating(false);
+      }
+    };
+    window.addEventListener(VISUAL_READY_EVENT, handleReady);
     setImageUrl(null);
     setIsGenerating(true);
     void readGeneratedVisual(key).then((cached) => {
@@ -39,6 +48,7 @@ export const useGeneratedVisual = (
     });
     return () => {
       cancelled = true;
+      window.removeEventListener(VISUAL_READY_EVENT, handleReady);
     };
   }, [key, kind, subject, detailSignature]);
 

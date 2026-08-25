@@ -18,11 +18,12 @@ import {
   planDayTraceActions,
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
-import { getCurrentCoordinates, getDeviceCapabilityContext, openRelevantExternalApp, parseReminderTriggerTime } from '../../services/nativeBridge';
+import { getCurrentCoordinates, getDeviceCapabilityContext, openRelevantExternalApp, parseReminderTriggerTime, requestNativeGeofencePermissions } from '../../services/nativeBridge';
 import { calculateDistanceMeters } from '../../services/locationService';
 import { SmartAICard } from '../../types';
 import { classifyAIAgentRoute, requiresLiveGrounding, shouldUseCloudActionPlanner } from '../../utils/aiRouting';
 import { extractExplicitTime } from '../../utils/offlineParser';
+import { parseVoiceAutomations } from '../../utils/localAutomationParser';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
 
@@ -32,6 +33,7 @@ export const GeminiLiveHubView: React.FC = () => {
     addTask, 
     addFixedEvent, 
     addReminder,
+    addAutomation,
     editReminder,
     addTimelineEvent,
     editTask,
@@ -41,6 +43,7 @@ export const GeminiLiveHubView: React.FC = () => {
     saveMemory,
     updateMemory,
     deleteMemory,
+    updateUserSettings,
     processUserInput,
     mode,
     setMode,
@@ -256,6 +259,58 @@ export const GeminiLiveHubView: React.FC = () => {
             message,
           });
           results.push(`✓ Reminder created for ${target.toLocaleString()}: ${message}`);
+          completedCount += 1;
+          continue;
+        }
+        if (action.type === 'CREATE_LOCATION_REMINDER' && action.triggerType) {
+          const reminderMessage = action.reminderMessage || action.title;
+          let savedPlace = action.locationReference === 'SAVED_PLACE' && action.locationName
+            ? (state.geofenceLocations || []).find((location) =>
+              location.name.toLowerCase() === action.locationName?.toLowerCase())
+            : undefined;
+          if (action.locationReference === 'CURRENT' || !savedPlace) {
+            try {
+              const coordinates = await getCurrentCoordinates();
+              savedPlace = (state.geofenceLocations || [])
+                .map((location) => ({
+                  location,
+                  distance: calculateDistanceMeters(coordinates, {
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                  }),
+                }))
+                .filter(({ location, distance }) => distance <= Math.max(50, location.radiusMeters || 200))
+                .sort((left, right) => left.distance - right.distance)[0]?.location;
+            } catch (error) {
+              console.warn('Could not resolve live GPS for the location reminder', error);
+            }
+            if (!savedPlace && state.current.location && state.current.location !== 'Unknown') {
+              savedPlace = (state.geofenceLocations || []).find((location) =>
+                location.name.toLowerCase() === state.current.location.toLowerCase());
+            }
+          }
+          if (!reminderMessage || !savedPlace) {
+            results.push('Location reminder needs a saved current place before it can be activated.');
+            requiredClarification ||= 'What name should I save for this current location?';
+            continue;
+          }
+          const permissions = await requestNativeGeofencePermissions();
+          if (!permissions.foregroundGranted || !permissions.backgroundGranted) {
+            results.push('Location reminder needs “Allow all the time” location permission.');
+            requiredClarification ||= 'Enable background location permission, then retry this reminder.';
+            continue;
+          }
+          updateUserSettings({ geofenceEnabled: true });
+          addAutomation({
+            title: action.title || reminderMessage,
+            originalVoiceText: plan.intentSummary,
+            triggerType: action.triggerType,
+            locationId: savedPlace.id,
+            locationName: savedPlace.name,
+            reminderText: reminderMessage,
+            status: 'PENDING',
+          });
+          results.push(`✓ ${action.triggerType === 'GEOFENCE_EXIT' ? 'Leaving' : 'Arriving at'} ${savedPlace.name} → ${reminderMessage}`);
           completedCount += 1;
           continue;
         }
@@ -820,6 +875,104 @@ export const GeminiLiveHubView: React.FC = () => {
       hasRecentLocalAction: Date.now() - lastLocalActionAtRef.current <= ONLINE_CONTEXT_TTL_MS,
       forcedOnlineFollowUp: options.forceOnlineFollowUp,
     });
+
+    // Location reminders are executable DayTrace commands, not medical or
+    // general-knowledge questions. Resolve them before any Gemini answer path
+    // so words inside the reminder message (for example “medicine”) cannot
+    // hijack routing.
+    if (route === 'LOCAL_ACTION' && !shouldUseCloudActionPlanner(query) && /\b(?:remind|reminder|notify|alert)\b/i.test(query)
+      && /\b(?:leave|leaving|depart|departing|exit|exiting|arrive|arriving|reach|reaching|enter|entering)\b/i.test(query)) {
+      const parsed = parseVoiceAutomations(
+        query,
+        state,
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+      );
+      const locationAutomations = parsed.automations.filter((automation) =>
+        automation.triggerType === 'GEOFENCE_EXIT' || automation.triggerType === 'GEOFENCE_ENTER');
+      if (locationAutomations.length > 0) {
+        const unresolved = locationAutomations.find((automation) => {
+          if (!automation.locationName) return true;
+          return !(state.geofenceLocations || []).some((location) =>
+            location.id === automation.locationId
+            || location.name.toLowerCase() === automation.locationName?.toLowerCase());
+        });
+        if (unresolved) {
+          const followUps = ['Save this location', 'Open saved places'];
+          setSmartCards((prev) => [{
+            id: `card-${Date.now()}`,
+            type: 'EXPERT_ADVICE',
+            title: 'Location name needed',
+            subtitle: 'No reminder created yet',
+            engineMode: 'OFFLINE_LOCAL',
+            followUpQuestions: followUps,
+            createdAt: Date.now(),
+            data: {
+              safetyWarning: 'I can create this exit reminder, but this GPS place is not saved yet. Tell me “Save this location as [name]”, then repeat the reminder.',
+              followUpQuestions: followUps,
+            },
+          }, ...prev]);
+          setIsProcessing(false);
+          setAvatarMode('talking');
+          setStatusText('Save this place first');
+          return;
+        }
+
+        let permissions: { foregroundGranted: boolean; backgroundGranted: boolean };
+        try {
+          permissions = await requestNativeGeofencePermissions();
+        } catch (error) {
+          console.warn('Could not request geofence permissions', error);
+          permissions = { foregroundGranted: false, backgroundGranted: false };
+        }
+        if (!permissions.foregroundGranted || !permissions.backgroundGranted) {
+          setSmartCards((prev) => [{
+            id: `card-${Date.now()}`,
+            type: 'EXPERT_ADVICE',
+            title: 'Background location needed',
+            subtitle: 'No reminder created yet',
+            engineMode: 'OFFLINE_LOCAL',
+            createdAt: Date.now(),
+            data: {
+              safetyWarning: 'Allow DayTrace location access “All the time” so it can detect leaving this place while the app is closed. Then repeat the command.',
+            },
+          }, ...prev]);
+          setIsProcessing(false);
+          setAvatarMode('talking');
+          setStatusText('Background location permission needed');
+          return;
+        }
+
+        updateUserSettings({ geofenceEnabled: true });
+        locationAutomations.forEach((automation) => addAutomation({
+          title: automation.title,
+          originalVoiceText: automation.originalVoiceText || query,
+          triggerType: automation.triggerType,
+          locationId: automation.locationId,
+          locationName: automation.locationName,
+          reminderText: automation.reminderText,
+          status: 'PENDING',
+          relatedContext: automation.relatedContext,
+        }));
+        const confirmation = locationAutomations.map((automation) =>
+          `✓ ${automation.triggerType === 'GEOFENCE_EXIT' ? 'Leaving' : 'Arriving at'} ${automation.locationName} → ${automation.reminderText}`,
+        ).join('\n');
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Location reminder created',
+          subtitle: 'Native geofence • works in background',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: confirmation },
+        }, ...prev]);
+        rememberLocalAction();
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Location reminder is active');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
+    }
 
     if (route === 'PENDING_MEMORY') {
       const cardId = `card-${Date.now()}`;

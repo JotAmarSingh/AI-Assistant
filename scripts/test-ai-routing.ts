@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   classifyAIAgentRoute,
+  isHybridGroundedReminder,
   requiresLiveGrounding,
   shouldUseCloudActionPlanner,
 } from '../src/utils/aiRouting';
@@ -39,6 +40,12 @@ assert.equal(
 );
 assert.equal(shouldUseCloudActionPlanner('Mark this location as Desk'), false);
 assert.equal(classifyAIAgentRoute('Please mark this location as Desk'), 'LOCAL_ACTION');
+const locationMedicineReminder = "Make a reminder for me whenever I leave my current location to get my son's medicine";
+assert.equal(classifyAIAgentRoute(locationMedicineReminder), 'LOCAL_ACTION');
+assert.equal(requiresLiveGrounding(locationMedicineReminder), false, 'An errand reminder is not a medical-advice query');
+assert.equal(isHybridGroundedReminder(locationMedicineReminder), false, 'A geofence command must not enter the grounded knowledge route');
+assert.equal(classifyAIAgentRoute('Is this medicine dose safe for my son?'), 'ONLINE_KNOWLEDGE');
+assert.equal(requiresLiveGrounding('Is this medicine dose safe for my son?'), true);
 assert.equal(shouldUseCloudActionPlanner('What tasks are pending?'), false);
 assert.equal(classifyAIAgentRoute('Please jot down that sample review work is underway'), 'LOCAL_ACTION');
 assert.equal(shouldUseCloudActionPlanner('Please jot down that sample review work is underway'), true);

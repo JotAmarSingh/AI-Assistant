@@ -140,6 +140,7 @@ export function classifyUserIntent(
   const isExplicitCreationPhrase =
     /\bremind me to\b/i.test(lower) ||
     /\bset a reminder (to|for)\b/i.test(lower) ||
+    /\bmake (?:me )?(?:a )?reminder(?: to| for| when| whenever)\b/i.test(lower) ||
     /\bcreate (a |an )?(task|reminder|automation)\b/i.test(lower) ||
     /\badd (a |an )?(task|reminder|todo)\b/i.test(lower) ||
     /\bi have to\b/i.test(lower) && !isQuestionPrefix && !endsWithQuestionMark ||

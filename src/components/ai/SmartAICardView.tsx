@@ -20,6 +20,7 @@ interface SmartAICardViewProps {
   onAddRoadmapTasks?: (cardId: string, steps: { title: string; estimatedMinutes?: number }[]) => void;
   onDeleteMemory?: (memoryId: string) => void;
   onDismissCard?: (cardId: string) => void;
+  onSelectFollowUp?: (question: string) => void;
 }
 
 export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
@@ -27,7 +28,8 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
   onConfirmReschedule,
   onAddRoadmapTasks,
   onDeleteMemory,
-  onDismissCard
+  onDismissCard,
+  onSelectFollowUp
 }) => {
   const { type, title, subtitle, data } = card;
 
@@ -220,11 +222,33 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
           <div className="flex items-center space-x-2 border-b border-white/10 pb-2">
             <Sparkles className={`w-4 h-4 shrink-0 ${card.engineMode === 'ONLINE_CLOUD' ? 'text-[#00F0FF]' : 'text-[#C084FC]'}`} />
             <span className={`font-mono font-bold text-xs ${card.engineMode === 'ONLINE_CLOUD' ? 'text-[#00F0FF]' : 'text-[#C084FC]'}`}>
-              {card.engineMode === 'ONLINE_CLOUD' ? 'Gemini 2.5 Pro Cloud Grounded Response' : 'DayTrace On-Device Assistant'}
+              {card.engineMode === 'ONLINE_CLOUD' ? 'Gemini Pro Grounded Response' : 'DayTrace On-Device Assistant'}
             </span>
           </div>
           <div className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-[#E2E2E6]">
             {data.safetyWarning || (data as any).answer || 'Answer generated.'}
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Follow-up Questions (ChatGPT style) */}
+      {((card.followUpQuestions && card.followUpQuestions.length > 0) || (data.followUpQuestions && data.followUpQuestions.length > 0)) && (
+        <div className="pt-2.5 border-t border-[#00F0FF]/20 space-y-2">
+          <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[#00F0FF] uppercase tracking-wider font-bold">
+            <Sparkles className="w-3 h-3 text-[#00F0FF]" />
+            <span>Suggested Follow-Ups</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(card.followUpQuestions || data.followUpQuestions || []).map((fq, fidx) => (
+              <button
+                key={fidx}
+                onClick={() => onSelectFollowUp?.(fq)}
+                className="px-2.5 py-1.5 rounded-xl bg-[#0D1527] hover:bg-[#00F0FF]/20 border border-[#00F0FF]/30 hover:border-[#00F0FF] text-[11px] text-[#E2E2E6] hover:text-[#00F0FF] transition flex items-center space-x-1.5 text-left shadow-sm active:scale-95"
+              >
+                <span>💬</span>
+                <span className="font-medium">{fq}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}

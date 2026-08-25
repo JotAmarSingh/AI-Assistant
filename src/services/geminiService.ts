@@ -17,6 +17,11 @@ export interface AppContextPayload {
   timetableSlots?: Array<{ time: string; title: string; status?: string }>;
 }
 
+export interface GeminiQueryResponse {
+  answer: string;
+  followUps: string[];
+}
+
 export const getStoredGeminiApiKey = (): string | null => {
   if (typeof localStorage !== 'undefined') {
     const savedKey = localStorage.getItem('daytrace_gemini_api_key');
@@ -57,11 +62,14 @@ const CANDIDATE_MODELS = [
   'gemini-pro'
 ];
 
-/** Token-Optimized Intent-Selective Context Builder with GPS Coordinates Grounding */
+/** Token-Optimized Intent-Selective Context Builder with GPS & Follow-up Instructions */
 export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPayload): string => {
-  if (!appContext) return prompt;
-
   const text = prompt.toLowerCase().trim();
+  const followUpInstruction = '\n(At the end of your reply, suggest 2-3 short, relevant follow-up questions on one line formatted as: [FOLLOW_UPS: question 1 | question 2 | question 3])';
+
+  if (!appContext) {
+    return `${prompt}${followUpInstruction}`;
+  }
 
   // 1. Location / Geofence Intent
   const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this');
@@ -77,26 +85,84 @@ export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPa
     if (appContext.coords?.latitude && appContext.coords?.longitude) {
       const isTagged = appContext.location && appContext.location !== 'Unknown' && appContext.location !== 'Current Location';
       const tagInfo = isTagged ? `Tagged Geofence Place: "${appContext.location}", ` : 'App Location: Untagged/Unknown, ';
-      return `[Device Context: ${tagInfo}GPS Axis = Latitude ${appContext.coords.latitude.toFixed(6)}, Longitude ${appContext.coords.longitude.toFixed(6)}]\nUser Question: ${prompt}\n(Instruction: Identify the physical place, neighborhood, and city for these exact GPS coordinates. Tell the user clearly in warm, plain English where they are!)`;
+      return `[Device Context: ${tagInfo}GPS Axis = Latitude ${appContext.coords.latitude.toFixed(6)}, Longitude ${appContext.coords.longitude.toFixed(6)}]\nUser Question: ${prompt}\n(Instruction: Identify the physical place, neighborhood, and city for these exact GPS coordinates. Tell the user clearly in warm, plain English where they are!)${followUpInstruction}`;
     }
-    return `[Device Context: Current Location = "${appContext.location || 'Unknown'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location clearly in plain English)`;
+    return `[Device Context: Current Location = "${appContext.location || 'Unknown'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location clearly in plain English)${followUpInstruction}`;
   }
 
   // Case 2: Schedule / Task question -> send ONLY active task & top 3 pending tasks (~20 tokens)
   if (needsSchedule) {
     const focusStr = appContext.activeFocusTask ? `Active Task = "${appContext.activeFocusTask}"; ` : '';
     const topTasks = appContext.pendingTasks?.slice(0, 3).map(t => t.title).join(', ');
-    return `[Device Context: Location = "${appContext.location || 'Home'}"; ${focusStr}Pending Tasks = "${topTasks || 'None'}"]\nUser Question: ${prompt}`;
+    return `[Device Context: Location = "${appContext.location || 'Home'}"; ${focusStr}Pending Tasks = "${topTasks || 'None'}"]\nUser Question: ${prompt}${followUpInstruction}`;
   }
 
   // Case 3: Personal Memory question -> send ONLY 2-3 relevant memory facts (~20 tokens)
   if (needsMemory && appContext.memories?.length) {
     const memStr = appContext.memories.slice(0, 3).map(m => m.fact).join('; ');
-    return `[Device Context: Stored Facts = "${memStr}"]\nUser Question: ${prompt}`;
+    return `[Device Context: Stored Facts = "${memStr}"]\nUser Question: ${prompt}${followUpInstruction}`;
   }
 
   // Case 4: General Knowledge / Advice / Default queries -> ultra-compact 1-line tag (~6 tokens total!)
-  return `[Context: Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}`;
+  return `[Context: Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}${followUpInstruction}`;
+};
+
+/** Extracts [FOLLOW_UPS: ...] tag and provides intelligent contextual fallback questions */
+export const extractFollowUpsAndCleanText = (rawText: string, prompt: string): GeminiQueryResponse => {
+  let cleanAnswer = rawText.trim();
+  let followUps: string[] = [];
+
+  const followUpRegex = /\[FOLLOW_UPS:\s*([^\]]+)\]/i;
+  const match = cleanAnswer.match(followUpRegex);
+
+  if (match && match[1]) {
+    followUps = match[1]
+      .split('|')
+      .map(q => q.trim().replace(/^["']|["']$/g, '').replace(/^\d+[\.\)]\s*/, ''))
+      .filter(q => q.length > 3);
+    cleanAnswer = cleanAnswer.replace(match[0], '').trim();
+  }
+
+  // If no follow-ups were generated or parsed, generate intelligent contextual defaults (ChatGPT-style)
+  if (followUps.length === 0) {
+    const text = prompt.toLowerCase();
+    if (text.includes('banana') || text.includes('orange') || text.includes('fruit') || text.includes('nutrition') || text.includes('child')) {
+      followUps = [
+        'What about apples vs bananas for toddlers?',
+        'Best fruits for toddler immunity & digestion',
+        'Add fruit snack to today\'s timetable'
+      ];
+    } else if (text.includes('where am i') || text.includes('location') || text.includes('where are we')) {
+      followUps = [
+        'Save this spot as a custom Geofence',
+        'What tasks can I do near this location?',
+        'Check travel time & route to Home'
+      ];
+    } else if (text.includes('festival') || text.includes('holiday')) {
+      followUps = [
+        'Add upcoming festivals to my timetable',
+        'Check gift & celebration preparation checklist',
+        'Traditional festive recipes & meals'
+      ];
+    } else if (text.includes('task') || text.includes('routine') || text.includes('schedule') || text.includes('what next')) {
+      followUps = [
+        'Break this task into 15-minute subtasks',
+        'Start a Pomodoro focus timer for this',
+        'What is my next top priority today?'
+      ];
+    } else {
+      followUps = [
+        'Can you explain this in simpler terms?',
+        'Give me practical real-world examples',
+        'How can I apply this to my daily productivity?'
+      ];
+    }
+  }
+
+  return {
+    answer: cleanAnswer,
+    followUps: followUps.slice(0, 3)
+  };
 };
 
 /** Verify if a Gemini API Key is valid and functional across all current Gemini models */
@@ -166,8 +232,8 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
   };
 };
 
-/** Direct Gemini Pro API Query with Token-Optimized Intent-Selective Context & GPS Grounding */
-export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<string> => {
+/** Direct Gemini Pro API Query returning Answer and Intelligent Follow-Up Questions */
+export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<GeminiQueryResponse> => {
   const apiKey = getGeminiApiKey();
 
   if (!apiKey) {
@@ -192,7 +258,7 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
           config: config as any
         });
         if (response && response.text && response.text.trim()) {
-          return response.text.trim();
+          return extractFollowUpsAndCleanText(response.text.trim(), prompt);
         }
       } catch (mErr) {
         console.warn(`Gemini SDK model ${modelName} error, trying next:`, mErr);
@@ -226,7 +292,7 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
           const data = await res.json();
           const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (answerText && answerText.trim()) {
-            return answerText.trim();
+            return extractFollowUpsAndCleanText(answerText.trim(), prompt);
           }
         }
       } catch (restErr) {

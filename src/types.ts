@@ -457,6 +457,7 @@ export interface SmartAICard {
   title: string;
   subtitle?: string;
   engineMode?: 'ONLINE_CLOUD' | 'OFFLINE_LOCAL';
+  followUpQuestions?: string[];
   createdAt: number;
   data: {
     // For Price Comparison
@@ -476,6 +477,9 @@ export interface SmartAICard {
     // For Persistent Memory
     memoryFact?: string;
     memoryCategory?: string;
+
+    // Follow-up intelligent questions
+    followUpQuestions?: string[];
   };
 }
 

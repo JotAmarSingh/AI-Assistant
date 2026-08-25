@@ -253,9 +253,11 @@ export const GeminiLiveHubView: React.FC = () => {
           title: `Gemini Pro AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
           subtitle: `Verified Response • ${state.current.location || 'Live GPS'}`,
           engineMode: 'ONLINE_CLOUD',
+          followUpQuestions: aiResponse.followUps,
           createdAt: Date.now(),
           data: {
-            safetyWarning: aiResponse || `Information generated for: "${query}".`
+            safetyWarning: aiResponse.answer || `Information generated for: "${query}".`,
+            followUpQuestions: aiResponse.followUps
           }
         };
 
@@ -269,18 +271,40 @@ export const GeminiLiveHubView: React.FC = () => {
         setCodeLogs([...logs]);
 
         let fallbackAnswer = '';
+        let fallbackFollowUps: string[] = [];
+
         if (isLocationQuery) {
           if (liveCoords) {
             fallbackAnswer = `📍 GPS Location: ${liveCoords.latitude.toFixed(5)}, ${liveCoords.longitude.toFixed(5)}\n\n• Current Place: ${state.current.location || 'Untagged Location'}\n• Detected via Real-Time Device GPS Sensor.\n• Tip: You can save this spot as a custom Geofence in the top app bar location settings.`;
           } else {
             fallbackAnswer = `📍 You are currently at: ${state.current.location}\n\n• Verified via DayTrace Smart Geofence & Location Engine.\n• Energy Level: ${state.current.energy}\n• Date: ${state.date}`;
           }
+          fallbackFollowUps = [
+            'Save this spot as a custom Geofence',
+            'What tasks can I do near here?',
+            'Check travel time to Home'
+          ];
         } else if (lower.includes('festival')) {
           fallbackAnswer = `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`;
+          fallbackFollowUps = [
+            'Add festival holidays to my timetable',
+            'Check celebration preparation checklist',
+            'Traditional festive recipes'
+          ];
         } else if (lower.includes('banana') || lower.includes('orange')) {
           fallbackAnswer = `🍌 Banana vs 🍊 Orange for Children:\n\n• Banana: Rich in potassium, Vitamin B6, and dietary fiber. Very gentle on digestion, ideal for quick energy before play or bedtime.\n• Orange: High in Vitamin C, antioxidants, and water content. Great for immunity, but higher citric acid.\n\nRecommendation: Both are excellent! Offer banana for energy/toddlers, and orange slices for immunity hydration.`;
+          fallbackFollowUps = [
+            'What about apples vs bananas for toddlers?',
+            'Best fruits for toddler immunity & digestion',
+            'Add fruit snack to today\'s timetable'
+          ];
         } else {
           fallbackAnswer = `💡 DayTrace On-Device Intelligence:\n\n• Query received: "${query}"\n• Current Location: ${state.current.location}\n• Energy: ${state.current.energy}\n• Active Mode: ${mode}`;
+          fallbackFollowUps = [
+            'Explain this in simpler terms',
+            'Give practical real-world examples',
+            'How can I apply this to my daily productivity?'
+          ];
         }
 
         const fallbackCard: SmartAICard = {
@@ -289,9 +313,11 @@ export const GeminiLiveHubView: React.FC = () => {
           title: `DayTrace AI: ${query.length > 36 ? query.substring(0, 36) + '...' : query}`,
           subtitle: isLocationQuery ? 'Smart Geofence Location' : 'On-Device Response',
           engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: fallbackFollowUps,
           createdAt: Date.now(),
           data: {
-            safetyWarning: fallbackAnswer
+            safetyWarning: fallbackAnswer,
+            followUpQuestions: fallbackFollowUps
           }
         };
 
@@ -582,6 +608,7 @@ export const GeminiLiveHubView: React.FC = () => {
               onConfirmReschedule={handleConfirmReschedule}
               onAddRoadmapTasks={handleAddRoadmapTasks}
               onDismissCard={(id) => setSmartCards((prev) => prev.filter((c) => c.id !== id))}
+              onSelectFollowUp={(q) => submitQuery(q)}
             />
           ))}
         </AnimatePresence>

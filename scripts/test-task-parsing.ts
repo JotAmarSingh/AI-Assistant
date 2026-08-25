@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createFreshDailyState } from '../src/utils/initialState';
 import { parseOfflineUserInput, parseTaskListItems } from '../src/utils/offlineParser';
-import { classifyUserIntent } from '../src/utils/intentClassifier';
+import { classifyUserIntent, extractCompoundCheckInIntent, extractSaveCurrentLocationIntent } from '../src/utils/intentClassifier';
 import { parseVoiceAutomations } from '../src/utils/localAutomationParser';
 
 // Test 1: Numbered list with "these are the tasks that i need to do"
@@ -27,12 +27,12 @@ assert.equal(result2.extractedStateUpdate.newTasks?.[1].title, 'Workout at gym')
 assert.equal(result2.extractedStateUpdate.newTasks?.[1].category, 'HEALTH');
 
 // Test 3: Comma & "and" separated tasks
-const input3 = "I need to call client, prepare report and send email";
+const input3 = "I need to call collaborator, prepare report and send email";
 const result3 = parseOfflineUserInput(input3, state1, '12:10');
 assert.equal(result3.extractedStateUpdate.newTasks?.length, 3);
 assert.deepEqual(
   result3.extractedStateUpdate.newTasks?.map(t => t.title),
-  ['Call client', 'Prepare report', 'Send email']
+  ['Call collaborator', 'Prepare report', 'Send email']
 );
 
 // Test 4: Single task creation
@@ -85,5 +85,17 @@ assert.equal(classifyUserIntent(workingInput, state1).type, 'LOG_ACTIVITY');
 const workingLog = parseVoiceAutomations(workingInput, state1, '18:25');
 assert.equal(workingLog.timelineLogs.length, 1);
 assert.equal(workingLog.timelineLogs[0].description, 'Working on app development');
+
+const compoundDeskCheckIn = 'I am at my desk. Please mark this location as desk. And I am currently working on a product prototype and demo project.';
+assert.equal(classifyUserIntent(compoundDeskCheckIn, state1).type, 'SAVE_CURRENT_LOCATION');
+assert.equal(extractSaveCurrentLocationIntent(compoundDeskCheckIn)?.label, 'desk');
+assert.deepEqual(extractCompoundCheckInIntent(compoundDeskCheckIn), {
+  locationLabel: 'desk',
+  activityDescription: 'Working on a product prototype and demo project',
+});
+const compoundDeskLog = parseVoiceAutomations(compoundDeskCheckIn, state1, '19:12');
+assert.equal(compoundDeskLog.timelineLogs.length, 1);
+assert.equal(compoundDeskLog.timelineLogs[0].time, '19:12');
+assert.equal(compoundDeskLog.timelineLogs[0].description, 'Working on a product prototype and demo project');
 
 console.log('Task parsing tests passed successfully!');

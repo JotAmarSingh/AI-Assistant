@@ -13,13 +13,15 @@ import {
   verifyGeminiApiKey,
   AppContextPayload,
   CloudConversationTurn,
+  DayTraceActionPlan,
   GroundedReminderPlan,
+  planDayTraceActions,
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
 import { getCurrentCoordinates, getDeviceCapabilityContext, openRelevantExternalApp, parseReminderTriggerTime } from '../../services/nativeBridge';
 import { calculateDistanceMeters } from '../../services/locationService';
 import { SmartAICard } from '../../types';
-import { classifyAIAgentRoute, requiresLiveGrounding } from '../../utils/aiRouting';
+import { classifyAIAgentRoute, requiresLiveGrounding, shouldUseCloudActionPlanner } from '../../utils/aiRouting';
 import { extractExplicitTime } from '../../utils/offlineParser';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
@@ -33,7 +35,9 @@ export const GeminiLiveHubView: React.FC = () => {
     editReminder,
     addTimelineEvent,
     editTask,
+    updateTaskStatus,
     saveCurrentLocation,
+    logActivity,
     saveMemory,
     updateMemory,
     deleteMemory,
@@ -164,6 +168,137 @@ export const GeminiLiveHubView: React.FC = () => {
       .filter((memory) => /sugar[- ]?free/i.test(memory.fact) && /wife|simran/i.test(memory.fact))
       .map(() => 'Remember to choose a sugar-free option for your wife.')
       .slice(0, 1);
+  };
+
+  const localDateKey = (date: Date): string =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  const findPendingTaskForPlan = (reference: string) => {
+    const normalized = reference.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const words = normalized.split(' ').filter((word) => word.length > 2);
+    return state.tasks
+      .filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED')
+      .map((task) => {
+        const title = task.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+        const exact = title === normalized ? 100 : title.includes(normalized) || normalized.includes(title) ? 50 : 0;
+        const overlap = words.filter((word) => title.includes(word)).length;
+        return { task, score: exact + overlap };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((left, right) => right.score - left.score)[0]?.task;
+  };
+
+  const executeCloudActionPlan = async (plan: DayTraceActionPlan): Promise<{
+    confirmation: string;
+    followUps: string[];
+    completedCount: number;
+    needsClarification: boolean;
+  }> => {
+    const results: string[] = [];
+    let completedCount = 0;
+    let plannedLocation: string | undefined;
+    let requiredClarification = plan.clarification;
+    let requiredOptions = plan.clarificationOptions || [];
+
+    for (const action of plan.actions) {
+      try {
+        if (action.type === 'SAVE_CURRENT_LOCATION' && action.label) {
+          const result = await saveCurrentLocation(action.label);
+          const saved = /current location (?:saved as|updated for)/i.test(result);
+          plannedLocation = action.label;
+          results.push(`${saved ? '✓ ' : ''}${result}`);
+          if (saved) completedCount += 1;
+          continue;
+        }
+        if (action.type === 'LOG_ACTIVITY' && action.description) {
+          results.push(logActivity(action.description, { location: plannedLocation }));
+          completedCount += 1;
+          continue;
+        }
+        if (action.type === 'CREATE_TASK' && action.title) {
+          if (!action.scheduledAt) {
+            results.push(`Needs a reminder time before creating task: ${action.title}`);
+            requiredClarification ||= `At what time should I remind you about “${action.title}”?`;
+            if (requiredOptions.length === 0) requiredOptions = ['9:00 AM', '1:00 PM', '6:00 PM'];
+            continue;
+          }
+          const target = new Date(action.scheduledAt);
+          if (!Number.isFinite(target.getTime()) || target.getTime() <= Date.now()) {
+            results.push(`Could not create “${action.title}”: Gemini did not provide a valid future time.`);
+            continue;
+          }
+          addTask({
+            date: localDateKey(target),
+            title: action.title,
+            category: action.category?.trim() || 'UNCATEGORISED',
+            owner: 'ME',
+            status: 'NEXT',
+            priority: action.priority || 7,
+            scheduledAt: target.toISOString(),
+            source: 'GEMINI_ACTION_PLAN',
+            persistent: true,
+          });
+          results.push(`✓ Task and linked reminder created for ${target.toLocaleString()}: ${action.title}`);
+          completedCount += 1;
+          continue;
+        }
+        if (action.type === 'CREATE_REMINDER' && action.scheduledAt) {
+          const target = new Date(action.scheduledAt);
+          const message = action.reminderMessage || action.title;
+          if (!message || !Number.isFinite(target.getTime()) || target.getTime() <= Date.now()) {
+            results.push('Could not create reminder: a valid future time and message are required.');
+            continue;
+          }
+          addReminder({
+            date: localDateKey(target),
+            type: 'TIME_BASED',
+            triggerCondition: target.toISOString(),
+            message,
+          });
+          results.push(`✓ Reminder created for ${target.toLocaleString()}: ${message}`);
+          completedCount += 1;
+          continue;
+        }
+        if (action.type === 'COMPLETE_TASK') {
+          const reference = action.taskReference || action.title;
+          const matchingTask = reference ? findPendingTaskForPlan(reference) : undefined;
+          if (!matchingTask) {
+            results.push(`Could not safely match a pending task for “${reference || 'that task'}”.`);
+            requiredClarification ||= 'Which pending task should I mark complete?';
+            if (requiredOptions.length === 0) {
+              requiredOptions = state.tasks
+                .filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED')
+                .slice(0, 4)
+                .map((task) => task.title);
+            }
+            continue;
+          }
+          updateTaskStatus(matchingTask.id, 'DONE');
+          results.push(`✓ Completed task: ${matchingTask.title}`);
+          completedCount += 1;
+          continue;
+        }
+        if (action.type === 'SAVE_MEMORY' && action.fact) {
+          saveMemory(action.fact, {
+            category: action.memoryCategory || 'GENERAL',
+            source: 'GEMINI_ACTION_PLAN',
+            status: 'ACTIVE',
+          });
+          results.push(`✓ Saved to local memory: ${action.fact}`);
+          completedCount += 1;
+        }
+      } catch (error) {
+        results.push(`Could not complete ${action.type.replace(/_/g, ' ').toLowerCase()}: ${error instanceof Error ? error.message : 'device operation failed'}`);
+      }
+    }
+
+    if (requiredClarification) results.push(requiredClarification);
+    return {
+      confirmation: results.join('\n') || 'No safe local action was executed.',
+      followUps: requiredOptions,
+      completedCount,
+      needsClarification: Boolean(requiredClarification),
+    };
   };
 
   const ONLINE_CACHE_KEY = 'daytrace_verified_online_cache_v1';
@@ -969,7 +1104,61 @@ export const GeminiLiveHubView: React.FC = () => {
       return;
     }
 
-    // Device actions are routed through the deterministic local parser so
+    // Compound commands use Gemini as a semantic planner, then execute only
+    // allowlisted operations on-device. If planning fails, the offline parser
+    // remains available below and the user's command is not discarded.
+    if (cloudReady && shouldUseCloudActionPlanner(query)) {
+      try {
+        const capabilityContext = await getDeviceCapabilityContext();
+        const mentionsLocation = /\b(location|place|spot|here|arriv|reach|desk|home|office|gym)\b/i.test(query);
+        const mentionsTasks = /\b(task|todo|complete|finish|done|remind|schedule)\b/i.test(query);
+        const plan = await planDayTraceActions(query, {
+          now: new Date(),
+          currentLocation: state.current.location,
+          savedLocationNames: mentionsLocation
+            ? (state.geofenceLocations || []).map((location) => location.name)
+            : [],
+          pendingTaskTitles: mentionsTasks
+            ? state.tasks
+              .filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED')
+              .slice(0, 12)
+              .map((task) => task.title)
+            : [],
+          features: capabilityContext.features,
+          permissions: capabilityContext.permissions,
+        });
+        const execution = await executeCloudActionPlan(plan);
+        const actionCard: SmartAICard = {
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: execution.needsClarification
+            ? execution.completedCount > 0 ? 'Actions applied • information needed' : 'Information needed'
+            : execution.completedCount > 0 ? 'DayTrace actions completed' : 'Action could not be completed',
+          subtitle: 'Gemini understood • DayTrace executed locally',
+          engineMode: 'ONLINE_CLOUD',
+          followUpQuestions: execution.followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: execution.confirmation,
+            followUpQuestions: execution.followUps,
+          },
+        };
+        setSmartCards((prev) => [actionCard, ...prev]);
+        rememberLocalAction();
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText(execution.needsClarification
+          ? 'Waiting for required information'
+          : execution.completedCount > 0 ? 'Requested actions completed' : 'Action needs attention');
+        setTimeout(() => setAvatarMode('idle'), 3500);
+        return;
+      } catch (plannerError) {
+        console.warn('Cloud action planning failed; using the on-device parser:', plannerError);
+        setStatusText('Using on-device action parser');
+      }
+    }
+
+    // Simple device actions are routed through the deterministic local parser so
     // reminders, geofences and native alarms use the same tested path everywhere.
 
     try {

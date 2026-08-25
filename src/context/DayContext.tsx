@@ -34,7 +34,7 @@ import {
   inferTaskResources,
   recalculateAccountabilityState,
 } from '../utils/accountabilityEngine';
-import { classifyUserIntent, executeDayTraceQuery, extractSaveCurrentLocationIntent, speakQueryResponse } from '../utils/intentClassifier';
+import { classifyUserIntent, executeDayTraceQuery, extractCompoundCheckInIntent, extractSaveCurrentLocationIntent, speakQueryResponse } from '../utils/intentClassifier';
 import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, syncNativePeriodicPromptConfig, triggerNativeTestPrompt, getCurrentCoordinates, checkNativeNotificationPermission, requestNativeNotificationPermission, deleteNativeMeetingAudio } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
@@ -103,6 +103,7 @@ interface DayContextType {
   deleteTask: (taskId: string) => void;
   editTask: (taskId: string, updates: Partial<TaskItem>) => void;
   addTimelineEvent: (event: Omit<TimelineEvent, 'id'>) => void;
+  logActivity: (description: string, options?: { location?: string; time?: string; type?: TimelineEvent['type'] }) => string;
   deleteTimelineEvent: (eventId: string) => void;
   addFixedEvent: (event: Omit<FixedEvent, 'id'>) => void;
   deleteFixedEvent: (eventId: string) => void;
@@ -1437,6 +1438,45 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : `✓ Current activity corrected to “${correctedText}”.`;
   }, []);
 
+  /** Atomically keeps the Now state and Timeline in agreement. */
+  const logActivity = useCallback((
+    description: string,
+    options: { location?: string; time?: string; type?: TimelineEvent['type'] } = {},
+  ): string => {
+    const cleaned = description.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return '';
+    const timestamp = options.time || new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const createdAt = new Date().toISOString();
+    setState((prev) => recalculateAccountabilityState({
+      ...prev,
+      current: {
+        ...prev.current,
+        activity: cleaned,
+        location: options.location || prev.current.location,
+        updatedAt: timestamp,
+      },
+      timeline: [
+        ...prev.timeline,
+        {
+          id: `time-activity-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          date: prev.date,
+          time: timestamp,
+          type: options.type || 'TASK_STARTED',
+          description: cleaned,
+          location: options.location || prev.current.location,
+          source: 'CHECK_IN',
+          syncStatus: 'PENDING',
+          createdAt,
+        },
+      ],
+    }, { input: cleaned, at: createdAt }));
+    return `✓ Added to Timeline at ${timestamp}: ${cleaned}`;
+  }, []);
+
   // Process natural language input (with on-device AI + deterministic offline parser fallback)
   const processUserInput = useCallback(async (userInput: string): Promise<string> => {
     if (!userInput.trim()) return '';
@@ -1463,12 +1503,45 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 0. TOP PRIORITY: Intent Router & Question Classifier (ZERO SIDE EFFECTS FOR QUERIES)
       const classified = classifyUserIntent(userInput, state, lastQueryContextRef.current);
       if (classified.type === 'SAVE_CURRENT_LOCATION') {
+        const compoundIntent = extractCompoundCheckInIntent(userInput);
         const locationIntent = extractSaveCurrentLocationIntent(userInput);
-        const answerText = locationIntent
-          ? await saveCurrentLocation(locationIntent.label)
-          : 'Tell me what name to use for this location.';
+        let locationResult = 'Tell me what name to use for this location.';
+        let locationApplied = false;
+        if (locationIntent) {
+          try {
+            locationResult = await saveCurrentLocation(locationIntent.label);
+            locationApplied = /current location (?:saved as|updated for)/i.test(locationResult);
+          } catch (error) {
+            locationResult = error instanceof Error
+              ? `Location was not saved: ${error.message}`
+              : 'Location was not saved because GPS could not be read.';
+          }
+        }
+        const activityDescription = compoundIntent?.activityDescription;
+        const answerText = activityDescription
+          ? `✓ ${locationResult}\n✓ Added to Timeline at ${userTimestamp}: ${activityDescription}`
+          : locationResult;
         setState((prev) => ({
           ...prev,
+          current: activityDescription ? {
+            ...prev.current,
+            ...(locationApplied && locationIntent ? { location: locationIntent.label } : {}),
+            activity: activityDescription,
+            updatedAt: userTimestamp,
+          } : prev.current,
+          timeline: activityDescription ? [
+            ...prev.timeline,
+            {
+              id: `time-compound-${Date.now()}`,
+              date: prev.date,
+              time: userTimestamp,
+              type: 'TASK_STARTED' as const,
+              description: activityDescription,
+              location: locationApplied && locationIntent ? locationIntent.label : prev.current.location,
+              source: 'CHECK_IN' as const,
+              syncStatus: 'PENDING' as const,
+            },
+          ] : prev.timeline,
           conversationHistory: [
             ...prev.conversationHistory,
             {
@@ -3234,6 +3307,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteTask,
         editTask,
         addTimelineEvent,
+        logActivity,
         deleteTimelineEvent,
         addFixedEvent,
         deleteFixedEvent,

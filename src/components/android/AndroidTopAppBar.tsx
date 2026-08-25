@@ -3,26 +3,16 @@ import {
   Sparkles, 
   MapPin, 
   Zap, 
-  RefreshCw, 
-  Check, 
-  Download, 
-  Smartphone, 
   HelpCircle, 
   X, 
-  RotateCcw,
-  Mic,
   BrainCircuit,
   Flame,
   CalendarDays,
-  Copy,
-  ShieldCheck,
-  Upload
+  Settings
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
-import { isNativeAndroid, exportNativeJsonBackup } from '../../services/nativeBridge';
 import { TutorialModal } from './TutorialModal';
-import { MiniCyberneticFaceIcon } from '../ai/CyberneticAvatarCanvas';
 import { AndroidTab } from './AndroidNavigationBar';
 import { toLocalDateKey } from '../../utils/dailyHistory';
 
@@ -36,12 +26,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
     mode, 
     setMode, 
     setCurrentEnergy, 
-    resetToFreshStart, 
-    exportDataJSON, 
-    importDataJSON,
-    updateUserSettings,
     setIsFocusModalOpen,
-    setIsVoiceModalOpen,
     setIsRewardsModalOpen,
     setIsGeofenceModalOpen,
     focusTimer,
@@ -54,21 +39,11 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
 
   const [showEnergyMenu, setShowEnergyMenu] = useState(false);
   const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showSyncModal, setShowSyncModal] = useState(false);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
-  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateInput, setDateInput] = useState(selectedDate);
-  const [isNative, setIsNative] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [importStatus, setImportStatus] = useState<string | null>(null);
 
-  const settings = state.userSettings || {};
   const gamification = state.gamification || { points: 0, currentStreakDays: 0 };
-
-  useEffect(() => {
-    setIsNative(isNativeAndroid());
-  }, []);
 
   useEffect(() => {
     setDateInput(selectedDate);
@@ -90,21 +65,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
     { mode: 'CREATIVE', label: 'Creative Mode', desc: 'Unstructured idea generation & drafts' },
   ];
 
-  const handleImportSubmit = () => {
-    if (!importText.trim()) return;
-    const success = importDataJSON(importText);
-    if (success) {
-      setImportStatus('DayTrace state restored successfully!');
-      setTimeout(() => {
-        setShowSyncModal(false);
-        setImportStatus(null);
-        setImportText('');
-      }, 1200);
-    } else {
-      setImportStatus('Invalid JSON data format. Please check structure.');
-    }
-  };
-
   return (
     <>
       <header
@@ -117,11 +77,19 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
           }
         }}
       >
-        {/* Left: App Identity & Geofence / Energy status */}
+        {/* Left: Settings entry & status */}
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-xl bg-[#070A10] text-[#00F0FF] flex items-center justify-center font-bold text-sm shadow-md border border-[#00F0FF]/40 shrink-0">
-            <MiniCyberneticFaceIcon className="w-5 h-5" />
-          </div>
+          <button
+            id="settings-top-btn"
+            data-history-allowed="true"
+            type="button"
+            onClick={() => onNavigateTab?.('settings')}
+            className="w-8 h-8 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] flex items-center justify-center shadow-md border border-[#44474E]/40 shrink-0 transition"
+            title="Open DayTrace settings"
+            aria-label="Open DayTrace settings"
+          >
+            <Settings className="w-4.5 h-4.5" />
+          </button>
           <div>
             <div className="flex items-center space-x-1.5">
               <span className="font-bold text-sm tracking-tight text-[#E2E2E6]">DayTrace</span>
@@ -155,7 +123,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
           </div>
         </div>
 
-        {/* Right: Quick Action Tools (Rewards, Meeting Mode, Pomodoro, Backup, Guide) */}
+        {/* Right: Quick Action Tools */}
         <div className="flex items-center space-x-1">
           {/* Rewards & Streak Pill */}
           <button
@@ -166,16 +134,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
           >
             <Flame className="w-3 h-3 text-[#F87171] fill-current" />
             <span className="text-[11px] font-bold font-mono text-[#FBBF24]">{gamification.points}</span>
-          </button>
-
-          {/* Meeting Mode foreground recorder */}
-          <button
-            id="voice-capture-top-btn"
-            onClick={() => setIsVoiceModalOpen(true)}
-            className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] transition shadow-xs"
-            title="Start Meeting Mode recording"
-          >
-            <Mic className="w-3.5 h-3.5 text-[#D1E1FF]" />
           </button>
 
           {/* Pomodoro Focus Timer Button */}
@@ -193,16 +151,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             {focusTimer.isActive && !focusTimer.isPaused && (
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#86EFAC] rounded-full animate-ping" />
             )}
-          </button>
-
-          {/* Local JSON Backup & Restore Button */}
-          <button
-            id="json-backup-btn"
-            onClick={() => setShowSyncModal(true)}
-            className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] transition shadow-xs"
-            title="Data Backup & Restore (.json)"
-          >
-            <Download className="w-3.5 h-3.5" />
           </button>
 
           {/* Guide & Tutorial Button */}
@@ -228,15 +176,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             <CalendarDays className="w-3.5 h-3.5" />
           </button>
 
-          {/* Destructive reset */}
-          <button
-            id="reset-day-btn"
-            onClick={() => setShowResetConfirmModal(true)}
-            className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#F87171]/20 hover:text-[#F87171] text-[#C4C6D0] transition shadow-xs"
-            title="Delete DayTrace data and start fresh"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
         </div>
       </header>
 
@@ -369,196 +308,6 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
                   <div className="text-[11px] text-[#C4C6D0]/80 mt-0.5">{opt.desc}</div>
                 </button>
               ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Destructive fresh-start confirmation */}
-      {showResetConfirmModal && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setShowResetConfirmModal(false)}
-        >
-          <div 
-            className="bg-[#1D2026] border border-[#44474E]/60 rounded-[32px] p-6 w-full max-w-sm shadow-2xl space-y-4 text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-12 rounded-2xl bg-[#334867] text-[#D1E1FF] flex items-center justify-center mx-auto shadow-inner">
-              <RotateCcw className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-[#E2E2E6]">Delete all DayTrace data?</h3>
-              <p className="text-xs text-[#C4C6D0] mt-1">
-                This permanently removes tasks, timeline history, meetings, learned context, locations and settings from this device. Export a backup first if needed.
-              </p>
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <button
-                onClick={() => {
-                  resetToFreshStart();
-                  setShowResetConfirmModal(false);
-                }}
-                className="w-full py-2.5 px-4 rounded-2xl bg-[#F87171]/20 hover:bg-[#F87171]/30 text-[#FCA5A5] text-xs font-bold transition border border-[#F87171]/30"
-              >
-                Delete All Data & Start Fresh
-              </button>
-
-              <button
-                onClick={() => setShowResetConfirmModal(false)}
-                className="w-full py-2 px-4 rounded-2xl text-xs text-[#C4C6D0] hover:text-[#E2E2E6] hover:bg-[#2E3036] transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Data Backup & JSON Restore Modal */}
-      {showSyncModal && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4" 
-          onClick={() => setShowSyncModal(false)}
-        >
-          <div 
-            className="bg-[#1D2026] text-[#E2E2E6] border border-[#44474E]/60 rounded-[32px] p-6 max-w-md w-full shadow-2xl space-y-4 max-h-[88vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-[#44474E]/30">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
-                  <Download className="w-5 h-5 text-[#D1E1FF]" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-[#E2E2E6]">Data Backup & Restore (.json)</h3>
-                  <p className="text-[10px] text-[#C4C6D0]/70">Export or import your complete DayTrace backup</p>
-                </div>
-              </div>
-              <button onClick={() => setShowSyncModal(false)} className="text-[#C4C6D0] hover:text-[#E2E2E6]">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Export Section */}
-            <div className="p-4 rounded-3xl bg-[#111318] border border-[#D1E1FF]/30 space-y-3 shadow-inner">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
-                  <Download className="w-4 h-4 text-[#D1E1FF]" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#E2E2E6]">Export Backup File</h4>
-                  <p className="text-[10px] text-[#C4C6D0]/70">Saves all tasks, timeline, routines, categories & learnings to a .json file</p>
-                </div>
-              </div>
-
-              <button
-                onClick={async () => {
-                  const jsonText = exportDataJSON();
-                  const fileName = `daytrace-backup-${state.date}.json`;
-                  const res = await exportNativeJsonBackup(jsonText, fileName);
-                  if (res.success) {
-                    setImportStatus(`✅ Backup exported! ${res.path ? `Saved to: ${res.path}` : 'Saved to Downloads folder'}`);
-                  } else {
-                    setImportStatus('❌ Export failed. You can copy JSON below.');
-                  }
-                }}
-                className="w-full py-3 px-4 rounded-2xl bg-[#D1E1FF] hover:bg-white text-[#003062] text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition"
-              >
-                <Download className="w-4 h-4 text-[#003062]" />
-                <span>Export & Save Backup (.json file)</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  const jsonText = exportDataJSON();
-                  void navigator.clipboard.writeText(jsonText);
-                  setImportStatus('📋 Backup JSON copied to clipboard!');
-                  setTimeout(() => setImportStatus(null), 2500);
-                }}
-                className="w-full py-2 px-4 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] text-xs font-semibold flex items-center justify-center space-x-1.5 transition border border-[#44474E]/40"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy JSON Backup to Clipboard</span>
-              </button>
-            </div>
-
-            {/* Import Section */}
-            <div className="p-4 rounded-3xl bg-[#111318] border border-[#86EFAC]/30 space-y-3 shadow-inner">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-xl bg-[#86EFAC]/20 text-[#86EFAC]">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#E2E2E6]">Import Backup File</h4>
-                  <p className="text-[10px] text-[#C4C6D0]/70">Select your saved .json backup file to restore your app data</p>
-                </div>
-              </div>
-
-              <input
-                type="file"
-                id="json-file-input"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = (event) => {
-                    const content = event.target?.result as string;
-                    if (content) {
-                      const success = importDataJSON(content);
-                      if (success) {
-                        setImportStatus('DayTrace data restored successfully!');
-                        setTimeout(() => {
-                          setShowSyncModal(false);
-                          setImportStatus(null);
-                        }, 1200);
-                      } else {
-                        setImportStatus('Invalid JSON backup file format.');
-                      }
-                    }
-                  };
-                  reader.readAsText(file);
-                }}
-              />
-
-              <button
-                onClick={() => document.getElementById('json-file-input')?.click()}
-                className="w-full py-3 px-4 rounded-2xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-2 transition border border-[#86EFAC]/40"
-              >
-                <Upload className="w-4 h-4 text-[#86EFAC]" />
-                <span>Select & Restore (.json File)</span>
-              </button>
-
-              {importStatus && (
-                <div className={`text-xs font-semibold p-2.5 rounded-xl border ${importStatus.includes('success') ? 'bg-[#86EFAC]/10 border-[#86EFAC]/30 text-[#86EFAC]' : 'bg-[#F87171]/10 border-[#F87171]/30 text-[#F87171]'}`}>
-                  {importStatus}
-                </div>
-              )}
-
-              {/* Text Area Fallback */}
-              <div className="pt-2 border-t border-[#44474E]/20 space-y-2">
-                <details className="text-[11px] text-[#C4C6D0]">
-                  <summary className="cursor-pointer font-semibold text-[#D1E1FF] hover:underline">Or paste JSON string manually</summary>
-                  <div className="pt-2 space-y-2">
-                    <textarea
-                      value={importText}
-                      onChange={(e) => setImportText(e.target.value)}
-                      placeholder="Paste backup JSON string here..."
-                      rows={3}
-                      className="w-full p-2.5 rounded-xl bg-[#1D2026] border border-[#44474E]/40 text-xs font-mono text-[#E2E2E6] focus:outline-hidden focus:border-[#D1E1FF]"
-                    />
-                    <button
-                      onClick={handleImportSubmit}
-                      className="w-full py-2 px-4 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] text-xs font-bold transition border border-[#44474E]/40"
-                    >
-                      Restore from Pasted JSON
-                    </button>
-                  </div>
-                </details>
-              </div>
             </div>
           </div>
         </div>

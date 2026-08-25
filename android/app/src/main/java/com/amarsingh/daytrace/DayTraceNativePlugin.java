@@ -131,6 +131,24 @@ public class DayTraceNativePlugin extends Plugin {
     // ==========================================
 
     @PluginMethod
+    public void requestMicrophonePermission(PluginCall call) {
+        if (getPermissionState("recordAudio") != com.getcapacitor.PermissionState.GRANTED) {
+            requestPermissionForAlias("recordAudio", call, "microphonePermissionCallback");
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("granted", true);
+        call.resolve(result);
+    }
+
+    @PermissionCallback
+    private void microphonePermissionCallback(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", getPermissionState("recordAudio") == com.getcapacitor.PermissionState.GRANTED);
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void startSpeechRecognition(PluginCall call) {
         if (getPermissionState("recordAudio") != com.getcapacitor.PermissionState.GRANTED) {
             requestPermissionForAlias("recordAudio", call, "speechPermissionCallback");
@@ -988,10 +1006,17 @@ public class DayTraceNativePlugin extends Plugin {
             Uri savedUri;
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                String relativeDownloadsPath = android.os.Environment.DIRECTORY_DOWNLOADS + "/";
+                context.getContentResolver().delete(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        android.provider.MediaStore.Downloads.DISPLAY_NAME + " = ? AND "
+                                + android.provider.MediaStore.Downloads.RELATIVE_PATH + " = ?",
+                        new String[] { safeFileName, relativeDownloadsPath }
+                );
                 android.content.ContentValues values = new android.content.ContentValues();
                 values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, safeFileName);
                 values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/json");
-                values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+                values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, relativeDownloadsPath);
                 values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
                 savedUri = context.getContentResolver().insert(
                         android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -1052,6 +1077,22 @@ public class DayTraceNativePlugin extends Plugin {
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Failed to open notification settings: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        try {
+            Context context = getContext();
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.fromParts("package", context.getPackageName(), null));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to open app settings: " + e.getMessage());
         }
     }
 

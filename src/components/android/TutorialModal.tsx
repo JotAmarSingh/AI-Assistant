@@ -99,7 +99,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose, o
     {
       title: '6. End-of-Day Review',
       subtitle: 'Reflect & Plan Tomorrow',
-      tab: 'review',
+      tab: 'reminders',
       icon: FileCheck,
       description: 'Close your mental loop each evening with an AI-generated objective review. Analyze planned vs actual routine variance, detect recurring productivity patterns, and carry forward pending tasks.',
       highlights: [
@@ -111,7 +111,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose, o
     {
       title: '7. Backup & Restore',
       subtitle: 'Private JSON files',
-      tab: 'hub',
+      tab: 'settings',
       icon: FileJson,
       description: 'Your data belongs to you. Export your complete DayTrace state to a local JSON backup file and restore it whenever needed.',
       highlights: [

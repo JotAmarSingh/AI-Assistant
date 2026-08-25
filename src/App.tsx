@@ -10,7 +10,7 @@ import { TimetableView } from './components/views/TimetableView';
 import { TaskBoardView } from './components/views/TaskBoardView';
 import { TimelineView } from './components/views/TimelineView';
 import { RemindersAnchorsView } from './components/views/RemindersAnchorsView';
-import { EndOfDayReviewView } from './components/views/EndOfDayReviewView';
+import { SettingsView } from './components/views/SettingsView';
 import { PeriodicPromptModal } from './components/android/PeriodicPromptModal';
 import { PomodoroFocusModal } from './components/focus/PomodoroFocusModal';
 import { FloatingFocusHUD } from './components/focus/FloatingFocusHUD';
@@ -20,6 +20,7 @@ import { RewardsVaultModal } from './components/rewards/RewardsVaultModal';
 import { GeofenceManagerModal } from './components/geofence/GeofenceManagerModal';
 import { LocationLearningPrompts } from './components/geofence/LocationLearningPrompts';
 import { DestructiveConfirmationModal } from './components/common/DestructiveConfirmationModal';
+import { FirstRunPermissionsModal } from './components/android/FirstRunPermissionsModal';
 
 const MainScreen: React.FC = () => {
   const { 
@@ -86,8 +87,8 @@ const MainScreen: React.FC = () => {
         return <MeetingsView />;
       case 'reminders':
         return <RemindersAnchorsView />;
-      case 'review':
-        return <EndOfDayReviewView />;
+      case 'settings':
+        return <SettingsView onClose={() => setActiveTab('hub')} />;
       default:
         return <TodayHubView onNavigateToTimetable={() => setActiveTab('timetable')} />;
     }
@@ -105,7 +106,7 @@ const MainScreen: React.FC = () => {
       <main
         className="flex-1 flex flex-col overflow-hidden relative"
         onClickCapture={(event) => {
-          if (!isViewingToday) {
+          if (!isViewingToday && activeTab !== 'settings') {
             event.preventDefault();
             event.stopPropagation();
           }
@@ -157,6 +158,7 @@ const MainScreen: React.FC = () => {
 
       <LocationLearningPrompts />
       <DestructiveConfirmationModal />
+      <FirstRunPermissionsModal />
 
       {/* Android Notification Center Pull-Down Drawer */}
       <AndroidNotificationCenter

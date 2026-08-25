@@ -68,6 +68,13 @@ export interface LocationNameConflict {
 
 const STORAGE_KEY = 'daytrace_state_v2';
 
+const mergeRecordsById = <T extends { id: string }>(imported: T[] = [], current: T[] = []): T[] => {
+  const records = new Map<string, T>();
+  imported.forEach((item) => records.set(item.id, item));
+  current.forEach((item) => records.set(item.id, item));
+  return Array.from(records.values());
+};
+
 interface DayContextType {
   state: DailyState;
   selectedDate: string;
@@ -3047,9 +3054,56 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed && Array.isArray(parsed.tasks)) {
-        setState(migrateDailyState({
+        const imported = migrateDailyState({
           ...createFreshDailyState(),
           ...parsed,
+        }).state;
+        setState((current) => migrateDailyState({
+          ...imported,
+          ...current,
+          date: current.date,
+          userSettings: { ...imported.userSettings, ...current.userSettings },
+          current: { ...imported.current, ...current.current },
+          tasks: mergeRecordsById(imported.tasks, current.tasks),
+          timeline: mergeRecordsById(imported.timeline, current.timeline),
+          fixedEvents: mergeRecordsById(imported.fixedEvents, current.fixedEvents),
+          reminders: mergeRecordsById(imported.reminders, current.reminders),
+          automations: mergeRecordsById(imported.automations, current.automations),
+          timetable: mergeRecordsById(imported.timetable, current.timetable),
+          geofenceLocations: mergeRecordsById(imported.geofenceLocations, current.geofenceLocations),
+          ignoredLocationClusters: mergeRecordsById(imported.ignoredLocationClusters, current.ignoredLocationClusters),
+          taskCategories: mergeRecordsById(imported.taskCategories, current.taskCategories),
+          meetings: mergeRecordsById(imported.meetings, current.meetings),
+          memories: mergeRecordsById(imported.memories, current.memories),
+          conversationHistory: mergeRecordsById(imported.conversationHistory, current.conversationHistory),
+          nextBestAction: current.nextBestAction || imported.nextBestAction,
+          accountability: {
+            corrections: mergeRecordsById(imported.accountability?.corrections, current.accountability?.corrections),
+            carryForwardHistory: Array.from(new Map([
+              ...(imported.accountability?.carryForwardHistory || []),
+              ...(current.accountability?.carryForwardHistory || []),
+            ].map((item) => [`${item.taskId}:${item.fromDate}:${item.toDate}`, item])).values()),
+            habitSignals: mergeRecordsById(imported.accountability?.habitSignals, current.accountability?.habitSignals),
+            plannedVsActual: mergeRecordsById(imported.accountability?.plannedVsActual, current.accountability?.plannedVsActual),
+            weeklyInsights: Array.from(new Set([...(imported.accountability?.weeklyInsights || []), ...(current.accountability?.weeklyInsights || [])])),
+            lastRecalculatedAt: current.accountability?.lastRecalculatedAt || imported.accountability?.lastRecalculatedAt,
+          },
+          gamification: {
+            ...(imported.gamification || INITIAL_GAMIFICATION_STATE),
+            ...(current.gamification || INITIAL_GAMIFICATION_STATE),
+            points: Math.max(imported.gamification?.points || 0, current.gamification?.points || 0),
+            currentStreakDays: Math.max(imported.gamification?.currentStreakDays || 0, current.gamification?.currentStreakDays || 0),
+            longestStreakDays: Math.max(imported.gamification?.longestStreakDays || 0, current.gamification?.longestStreakDays || 0),
+            totalFocusMinutes: Math.max(imported.gamification?.totalFocusMinutes || 0, current.gamification?.totalFocusMinutes || 0),
+            totalTasksCompleted: Math.max(imported.gamification?.totalTasksCompleted || 0, current.gamification?.totalTasksCompleted || 0),
+            totalReviewsCompleted: Math.max(imported.gamification?.totalReviewsCompleted || 0, current.gamification?.totalReviewsCompleted || 0),
+            claimedRewards: mergeRecordsById(imported.gamification?.claimedRewards, current.gamification?.claimedRewards),
+            customRewards: mergeRecordsById(imported.gamification?.customRewards, current.gamification?.customRewards),
+          },
+          nativeAccountability: {
+            processedEventIds: Array.from(new Set([...(imported.nativeAccountability?.processedEventIds || []), ...(current.nativeAccountability?.processedEventIds || [])])),
+            lastCompletedAtMillis: Math.max(imported.nativeAccountability?.lastCompletedAtMillis || 0, current.nativeAccountability?.lastCompletedAtMillis || 0) || undefined,
+          },
         }).state);
         return true;
       }

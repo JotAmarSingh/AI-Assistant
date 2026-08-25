@@ -1,9 +1,8 @@
 import React from 'react';
-import { Zap, CalendarClock, CheckSquare, Clock, BellRing, BarChart3, Mic2 } from 'lucide-react';
+import { Zap, CalendarClock, CheckSquare, Clock, BellRing, Mic2 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { MiniCyberneticFaceIcon } from '../ai/CyberneticAvatarCanvas';
 
-export type AndroidTab = 'hub' | 'timetable' | 'board' | 'timeline' | 'meetings' | 'reminders' | 'review';
+export type AndroidTab = 'hub' | 'timetable' | 'board' | 'timeline' | 'meetings' | 'reminders' | 'settings';
 
 interface AndroidNavigationBarProps {
   activeTab: AndroidTab;
@@ -17,14 +16,13 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
   const pendingRemindersCount = state.reminders.filter((r) => !r.isDone).length;
   const activeRoutineCount = (state.timetable || []).filter((s) => s.status === 'ACTIVE').length;
 
-  const tabs: { id: AndroidTab; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; isCyberFace?: boolean }[] = [
+  const tabs: { id: AndroidTab; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number }[] = [
     { id: 'hub', label: 'Today', icon: Zap },
     { id: 'timetable', label: 'Timetable', icon: CalendarClock, badge: activeRoutineCount > 0 ? activeRoutineCount : undefined },
     { id: 'board', label: 'Tasks', icon: CheckSquare, badge: nextTasksCount },
     { id: 'timeline', label: 'Timeline', icon: Clock },
     { id: 'meetings', label: 'Meetings', icon: Mic2 },
     { id: 'reminders', label: 'Anchors', icon: BellRing, badge: pendingRemindersCount > 0 ? pendingRemindersCount : undefined },
-    { id: 'review', label: 'AI Agent', icon: BarChart3, isCyberFace: true },
   ];
 
   return (
@@ -51,11 +49,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
                   : 'text-[#C4C6D0] group-hover:bg-[#2E3036]/60 group-hover:text-[#E2E2E6]'
               }`}
             >
-              {tab.isCyberFace ? (
-                <MiniCyberneticFaceIcon className="w-5 h-5" />
-              ) : (
-                <Icon className="w-4 h-4" />
-              )}
+              <Icon className="w-4 h-4" />
               {tab.badge !== undefined && tab.badge > 0 && (
                 <span
                   className={`absolute -top-1 -right-1 text-[9px] font-bold px-1.5 py-0.1 rounded-full border ${
@@ -83,4 +77,3 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
     </nav>
   );
 };
-

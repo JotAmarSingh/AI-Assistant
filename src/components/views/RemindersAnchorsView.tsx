@@ -22,6 +22,7 @@ import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
 import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, exportNativeJsonBackup, getDeviceCapabilityContext, isNativeAndroid, openNativeExactAlarmSettings, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
 import { contextTriggerLabel } from '../../utils/localAutomationParser';
+import { EndOfDayReviewView } from './EndOfDayReviewView';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -134,8 +135,8 @@ export const RemindersAnchorsView: React.FC = () => {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         
-        {/* Section 0: Office Hours & Native Lock-Screen Accountability Settings */}
-        <section className="bg-[#1D2026] border border-[#D1E1FF]/30 rounded-[32px] p-4 shadow-lg space-y-3.5">
+        {/* Settings live on the dedicated gear screen; this legacy block is intentionally not rendered. */}
+        {false && <section className="bg-[#1D2026] border border-[#D1E1FF]/30 rounded-[32px] p-4 shadow-lg space-y-3.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center space-x-2">
               <div className="p-1.5 rounded-xl bg-[#334867] text-[#D1E1FF]">
@@ -465,7 +466,7 @@ export const RemindersAnchorsView: React.FC = () => {
               </button>
             </div>
           </div>
-        </section>
+        </section>}
 
         {/* Section 1: Fixed-Time Planning Anchors */}
         <section className="space-y-3">
@@ -717,7 +718,7 @@ export const RemindersAnchorsView: React.FC = () => {
                   </div>
 
                   {/* If Event Triggered: simulate external webhook trigger */}
-                  {rem.type === 'EVENT_TRIGGERED' && !rem.isDone && (
+                  {false && rem.type === 'EVENT_TRIGGERED' && !rem.isDone && (
                     <div className="pt-2 flex items-center justify-between border-t border-[#44474E]/30">
                       <span className="text-[10px] text-[#C4C6D0]/60 italic">Waiting for external event...</span>
                       <button
@@ -738,6 +739,11 @@ export const RemindersAnchorsView: React.FC = () => {
               ))
             )}
           </div>
+        </section>
+
+        {/* The former AI Agent tab now lives inside Anchors. */}
+        <section id="anchors-daily-review" className="space-y-3 pt-3 border-t border-[#44474E]/30">
+          <EndOfDayReviewView embedded />
         </section>
       </div>
 

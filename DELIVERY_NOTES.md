@@ -1,4 +1,4 @@
-# DayTrace 1.3.2 delivery notes
+# DayTrace 1.3.3 delivery notes
 
 ## Fixed
 
@@ -25,7 +25,7 @@
 - Location reminders request foreground/background access only when enabled and remain off when required access is denied.
 - JSON export uses Android scoped MediaStore Downloads and no longer opens an unsolicited share sheet.
 - Notification small icons now use a valid monochrome DayTrace status icon.
-- Startup no longer bulk-requests notification, microphone, and location permissions.
+- First launch now presents a one-time permission setup for notifications, microphone, location/background location, and exact alarms; every permission remains manageable in Settings.
 - AI corrections and short follow-ups remain attached to the recent cloud answer instead of being logged as unrelated offline activities.
 - Festivals, weather, news, prices, opening hours, nearby-place searches, outfit/weather advice, and medical questions require live grounding and never fall back to stale model memory.
 - The trusted device date, year, time, and timezone are included in cloud questions; only the last two compact conversation exchanges are retained.
@@ -37,7 +37,11 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded local state schema to version 8 and Android version to 1.3.2 (2026082503), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.3.3 (2026082504), preserving package \`com.amarsingh.daytrace\`.
+- Replaced the top-left app face with Settings, removed the top meeting microphone, and removed the AI Agent bottom tab.
+- Kept the full-screen Home energy orb and keyboard-attached composer; moved daily review intelligence into Anchors.
+- Moved permissions, saved times, check-in frequency, Gaming Mode, alarm audio, JSON backup/restore, and fresh start into Settings.
+- JSON imports now warn and merge with current records instead of deleting new tasks/reminders; saved location tags are included, and native export rewrites \`daytrace-backup.json\`.
 
 ## Verification completed
 

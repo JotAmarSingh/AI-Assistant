@@ -14,7 +14,11 @@ import { useDay } from '../../context/DayContext';
 import { generateOfflineEndOfDayReview } from '../../utils/offlineParser';
 import { soundEffects } from '../../services/soundEffects';
 
-export const EndOfDayReviewView: React.FC = () => {
+interface EndOfDayReviewViewProps {
+  embedded?: boolean;
+}
+
+export const EndOfDayReviewView: React.FC<EndOfDayReviewViewProps> = ({ embedded = false }) => {
   const { state, updateUserSettings } = useDay();
   const [isGenerating, setIsGenerating] = useState(false);
   const [reviewData, setReviewData] = useState<{
@@ -88,9 +92,9 @@ export const EndOfDayReviewView: React.FC = () => {
   };
 
   return (
-    <div id="end-of-day-review-view" className="flex-1 flex flex-col h-full bg-[#111318] text-[#E2E2E6] overflow-hidden relative">
+    <div id="end-of-day-review-view" className={embedded ? 'bg-[#111318] text-[#E2E2E6] relative' : 'flex-1 flex flex-col h-full bg-[#111318] text-[#E2E2E6] overflow-hidden relative'}>
       {/* Scrollable Canvas */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className={embedded ? 'space-y-4' : 'flex-1 overflow-y-auto p-4 space-y-4'}>
         {/* Header Action Card */}
         <div className="bg-[#1D2026] text-[#E2E2E6] rounded-[28px] p-5 shadow-lg border border-[#44474E]/40 space-y-3">
           <div className="flex items-center justify-between">
@@ -293,4 +297,3 @@ export const EndOfDayReviewView: React.FC = () => {
     </div>
   );
 };
-

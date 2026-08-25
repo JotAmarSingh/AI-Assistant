@@ -9,6 +9,7 @@ import { GeofenceLocation, Automation, TimelineEvent } from '../types';
 export interface DayTraceNativePluginInterface {
   // Speech Recognition
   startSpeechRecognition(): Promise<{ started: boolean; isOnDevice?: boolean }>;
+  requestMicrophonePermission(): Promise<{ granted: boolean }>;
   stopSpeechRecognition(): Promise<{ stopped: boolean }>;
   cancelSpeechRecognition(): Promise<{ cancelled: boolean }>;
   
@@ -64,6 +65,7 @@ export interface DayTraceNativePluginInterface {
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   getCapabilityStatus(): Promise<{ permissions: DevicePermissionContext }>;
   openNotificationSettings(): Promise<{ success: boolean }>;
+  openAppSettings(): Promise<{ success: boolean }>;
   openExternalApp(options: { kind: 'WEATHER' | 'MAPS' | 'CALENDAR' | 'BROWSER'; query?: string }): Promise<{ success: boolean; target?: string }>;
   getAppIdentity(): Promise<NativeAppIdentity>;
 
@@ -207,6 +209,17 @@ export const requestNativeGeofencePermissions = async (): Promise<{
 }> => {
   if (!isNativeAndroid()) return { foregroundGranted: true, backgroundGranted: true };
   return DayTraceNative.requestGeofencePermissions();
+};
+
+export const requestNativeMicrophonePermission = async (): Promise<boolean> => {
+  if (!isNativeAndroid()) return true;
+  try {
+    const result = await DayTraceNative.requestMicrophonePermission();
+    return result.granted;
+  } catch (error) {
+    console.warn('Failed to request microphone permission:', error);
+    return false;
+  }
 };
 
 export const openNativeExactAlarmSettings = async (): Promise<{ success: boolean; alreadyGranted?: boolean }> => {
@@ -522,6 +535,17 @@ export const openNativeNotificationSettings = async (): Promise<boolean> => {
     return result.success;
   } catch (e) {
     console.warn('Failed to open Android notification settings:', e);
+    return false;
+  }
+};
+
+export const openNativeAppSettings = async (): Promise<boolean> => {
+  if (!isNativeAndroid()) return false;
+  try {
+    const result = await DayTraceNative.openAppSettings();
+    return result.success;
+  } catch (e) {
+    console.warn('Failed to open Android app settings:', e);
     return false;
   }
 };

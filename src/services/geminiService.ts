@@ -1,11 +1,14 @@
 import { GoogleGenAI } from '@google/genai';
 
-// Hardwired Gemini API Key for user's Google Pixel 10a
-const HARDWIRED_GEMINI_API_KEY = 'AIzaSyCcHh0HQa5zILpus_BGjzZG1POqaNOZaBs';
+export const PRIMARY_GEMINI_MODEL = 'gemini-3.7-flash';
+export const FALLBACK_GEMINI_MODEL = 'gemini-2.5-flash';
+const REQUEST_TIMEOUT_MS = 25_000;
 
 export interface AppContextPayload {
   location?: string;
   coords?: { latitude?: number; longitude?: number };
+  savedPlace?: string;
+  locationPermission?: 'GRANTED' | 'DENIED' | 'UNAVAILABLE' | 'UNKNOWN';
   date?: string;
   time?: string;
   energy?: string;
@@ -15,6 +18,8 @@ export interface AppContextPayload {
   mode?: string;
   pendingTasks?: Array<{ title: string; category?: string; priority?: string }>;
   timetableSlots?: Array<{ time: string; title: string; status?: string }>;
+  permissions?: Partial<Record<'notifications' | 'microphone' | 'location' | 'backgroundLocation' | 'exactAlarms', string>>;
+  features?: string[];
 }
 
 export interface GeminiQueryResponse {
@@ -43,24 +48,30 @@ export const clearGeminiApiKey = (): void => {
 };
 
 export const getGeminiApiKey = (): string => {
-  return getStoredGeminiApiKey() || HARDWIRED_GEMINI_API_KEY;
+  return getStoredGeminiApiKey() || '';
 };
 
 export const getGeminiClient = (): GoogleGenAI => {
   const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('No Gemini API key is configured.');
   return new GoogleGenAI({ apiKey });
 };
 
-const CANDIDATE_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
-  'gemini-pro'
-];
+const CANDIDATE_MODELS = [PRIMARY_GEMINI_MODEL, FALLBACK_GEMINI_MODEL];
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> => {
+  let timer: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error('Gemini request timed out. Check your connection and retry.')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+};
 
 /** Token-Optimized Intent-Selective Context Builder with GPS & Follow-up Instructions */
 export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPayload): string => {
@@ -71,8 +82,10 @@ export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPa
     return `${prompt}${followUpInstruction}`;
   }
 
+  const needsCapabilities = text.includes('permission') || text.includes('what can you do') || text.includes('feature') || text.includes('access do you have') || text.includes('can you access');
+
   // 1. Location / Geofence Intent
-  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this');
+  const needsLocation = !needsCapabilities && (text.includes('where am i') || text.includes('where i am') || text.includes('my current location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this'));
   
   // 2. Schedule / Task Intent
   const needsSchedule = text.includes('schedule') || text.includes('timetable') || text.includes('what next') || text.includes('what should i do') || text.includes('my tasks') || text.includes('agenda');
@@ -82,12 +95,15 @@ export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPa
 
   // Case 1: Location question -> send GPS coordinates for live cloud map reverse-geocoding
   if (needsLocation) {
-    if (appContext.coords?.latitude && appContext.coords?.longitude) {
-      const isTagged = appContext.location && appContext.location !== 'Unknown' && appContext.location !== 'Current Location';
-      const tagInfo = isTagged ? `Tagged Geofence Place: "${appContext.location}", ` : 'App Location: Untagged/Unknown, ';
-      return `[Device Context: ${tagInfo}GPS Axis = Latitude ${appContext.coords.latitude.toFixed(6)}, Longitude ${appContext.coords.longitude.toFixed(6)}]\nUser Question: ${prompt}\n(Instruction: Identify the physical place, neighborhood, and city for these exact GPS coordinates. Tell the user clearly in warm, plain English where they are!)${followUpInstruction}`;
+    if (appContext.savedPlace) {
+      return `[Trusted device location: saved place match="${appContext.savedPlace}"; location permission=${appContext.locationPermission || 'GRANTED'}]\nUser Question: ${prompt}\nInstruction: Answer with the saved place name. Do not reverse-geocode or invent a street address because the user has already named this place.${followUpInstruction}`;
     }
-    return `[Device Context: Current Location = "${appContext.location || 'Unknown'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location clearly in plain English)${followUpInstruction}`;
+    const latitude = appContext.coords?.latitude;
+    const longitude = appContext.coords?.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return `[Trusted device location: untagged GPS latitude=${latitude.toFixed(6)}, longitude=${longitude.toFixed(6)}; permission=${appContext.locationPermission || 'GRANTED'}]\nUser Question: ${prompt}\nInstruction: Use Google Search grounding to identify the closest verifiable road, neighborhood, and city. Be explicit about uncertainty and never invent a house number or exact address.${followUpInstruction}`;
+    }
+    return `[Device location unavailable; permission=${appContext.locationPermission || 'UNKNOWN'}; last saved app label="${appContext.location || 'Unknown'}"]\nUser Question: ${prompt}\nInstruction: Explain that live location could not be read and do not claim a precise address.${followUpInstruction}`;
   }
 
   // Case 2: Schedule / Task question -> send ONLY active task & top 3 pending tasks (~20 tokens)
@@ -103,8 +119,16 @@ export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPa
     return `[Device Context: Stored Facts = "${memStr}"]\nUser Question: ${prompt}${followUpInstruction}`;
   }
 
-  // Case 4: General Knowledge / Advice / Default queries -> ultra-compact 1-line tag (~6 tokens total!)
-  return `[Context: Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}${followUpInstruction}`;
+  if (needsCapabilities) {
+    const featureText = (appContext.features || []).join(', ') || 'local tasks, reminders, JSON backup and restore';
+    const permissionText = Object.entries(appContext.permissions || {})
+      .map(([name, status]) => `${name}=${status}`)
+      .join(', ') || 'not checked for this question';
+    return `[DayTrace capabilities: ${featureText}. Current permission status: ${permissionText}.]\nUser Question: ${prompt}\nInstruction: Describe only capabilities actually listed here; never claim unsupported access.${followUpInstruction}`;
+  }
+
+  // General questions receive no personal, location, task, or permission data.
+  return `User Question: ${prompt}${followUpInstruction}`;
 };
 
 /** Extracts [FOLLOW_UPS: ...] tag and provides intelligent contextual fallback questions */
@@ -174,15 +198,16 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
 
   let lastErrorMessage = '';
 
-  // 1. Try official SDK with candidate models
+  // Verify against only the current primary and one stable fallback model. This
+  // avoids burning quota by probing a long list of obsolete model names.
   try {
     const ai = new GoogleGenAI({ apiKey: key });
     for (const modelName of CANDIDATE_MODELS) {
       try {
-        const response = await ai.models.generateContent({
+        const response = await withTimeout(ai.models.generateContent({
           model: modelName,
           contents: 'Respond with OK',
-        });
+        }));
         if (response && response.text && response.text.trim()) {
           setGeminiApiKey(key);
           return { success: true, message: `Gemini Connected & Verified (${modelName})!` };
@@ -195,44 +220,13 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
     lastErrorMessage = sdkErr?.message || String(sdkErr);
   }
 
-  // 2. Direct REST HTTP API Query Fallback across API versions & candidate models
-  const apiVersions = ['v1beta', 'v1'];
-  for (const version of apiVersions) {
-    for (const model of CANDIDATE_MODELS) {
-      try {
-        const restEndpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-        const res = await fetch(restEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Respond with OK' }] }]
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (answerText && answerText.trim()) {
-            setGeminiApiKey(key);
-            return { success: true, message: `Gemini Connected & Verified via REST (${model})!` };
-          }
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          lastErrorMessage = errData?.error?.message || `HTTP ${res.status}`;
-        }
-      } catch (restErr: any) {
-        lastErrorMessage = restErr?.message || String(restErr);
-      }
-    }
-  }
-
   return {
     success: false,
     message: `Gemini Connection Failed: ${lastErrorMessage || 'Invalid API Key or network issue'}`
   };
 };
 
-/** Direct Gemini Pro API Query returning Answer and Intelligent Follow-Up Questions */
+/** Direct Gemini API query returning an answer and relevant follow-up questions. */
 export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<GeminiQueryResponse> => {
   const apiKey = getGeminiApiKey();
 
@@ -241,22 +235,33 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
   }
 
   const text = prompt.toLowerCase().trim();
-  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this');
+  const needsCapabilities = text.includes('permission') || text.includes('what can you do') || text.includes('feature') || text.includes('access do you have') || text.includes('can you access');
+  const needsLocation = !needsCapabilities && (text.includes('where am i') || text.includes('where i am') || text.includes('my current location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this'));
 
   // Build minimal, token-efficient smart context tag based strictly on query intent
   const fullPrompt = buildSmartTokenContext(prompt, appContext);
 
-  // 1. Try official SDK with candidate models
+  // Use the current Interactions API for grounded location lookup. Other
+  // questions use generateContent, which avoids invoking a billable search tool.
   try {
     const ai = new GoogleGenAI({ apiKey });
+    if (needsLocation && !appContext?.savedPlace && typeof appContext?.coords?.latitude === 'number' && typeof appContext?.coords?.longitude === 'number') {
+      const interaction = await withTimeout(ai.interactions.create({
+        model: PRIMARY_GEMINI_MODEL,
+        input: fullPrompt,
+        tools: [{ type: 'google_search' }],
+      }));
+      if (interaction.output_text?.trim()) {
+        return extractFollowUpsAndCleanText(interaction.output_text.trim(), prompt);
+      }
+    }
+
     for (const modelName of CANDIDATE_MODELS) {
       try {
-        const config = needsLocation ? { tools: [{ googleSearch: {} }] } : undefined;
-        const response = await ai.models.generateContent({
+        const response = await withTimeout(ai.models.generateContent({
           model: modelName,
           contents: fullPrompt,
-          config: config as any
-        });
+        }));
         if (response && response.text && response.text.trim()) {
           return extractFollowUpsAndCleanText(response.text.trim(), prompt);
         }
@@ -268,40 +273,7 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
     console.warn('Gemini SDK initialization error:', sdkErr);
   }
 
-  // 2. Direct REST HTTP API Query Fallback across API versions & candidate models
-  const apiVersions = ['v1beta', 'v1'];
-  for (const version of apiVersions) {
-    for (const model of CANDIDATE_MODELS) {
-      try {
-        const restEndpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const res = await fetch(restEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: fullPrompt }
-                ]
-              }
-            ]
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (answerText && answerText.trim()) {
-            return extractFollowUpsAndCleanText(answerText.trim(), prompt);
-          }
-        }
-      } catch (restErr) {
-        console.warn(`Gemini REST fallback (${version}/${model}) error:`, restErr);
-      }
-    }
-  }
-
-  throw new Error('Gemini API query failed across SDK and REST endpoints');
+  throw new Error('Gemini could not answer. Check the API key and internet connection, then retry.');
 };
 
 /** Dynamic Contextual Icon & Clipart Resolver */

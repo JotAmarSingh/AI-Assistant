@@ -1,72 +1,52 @@
 # DayTrace
 
-DayTrace is the existing React/TypeScript + Capacitor Android accountability app with native Android alarms, interactive lock-screen check-ins, task persistence, day-separated history, smart locations, categories, Meeting Mode, and optional Google Sheets backup.
+DayTrace is a React/TypeScript + Capacitor Android accountability assistant with local tasks, exact reminders, interactive lock-screen check-ins, day-separated history, saved places/geofences, Meeting Mode, optional Gemini answers, and local JSON backup/restore.
 
-- Android application ID: `com.amarsingh.daytrace`
-- Version: `1.2.1` (`versionCode 2026082202`)
-- Local parsing: deterministic and offline; no AI API key is required by the installed Android app.
-- Google Sheets is optional and uses Android Google Identity Services.
+- Android application ID: \`com.amarsingh.daytrace\`
+- Version: \`1.3.0\` (\`versionCode 2026082501\`)
+- Local actions: deterministic and offline; task/reminder commands do not upload app state or use cloud tokens.
+- Online answers: the user adds a Gemini API key once from the AI Agent OFFLINE button. A verified key is stored on-device and reused automatically.
+- Backup: JSON export writes directly to Android Downloads through MediaStore; restore accepts that JSON without an account.
 
 ## Local checks and web build
 
 Requirements: Node.js 22+.
 
-```bash
+\`\`\`bash
 npm install
 npm test
 npm run build
-npx cap sync android
-```
+./node_modules/.bin/cap sync android
+\`\`\`
 
-The optional development server can use `GEMINI_API_KEY`, but the Android app does not require it and always retains its offline parser fallback.
+## Android build and in-place updates
 
-## Android build
+Open \`android/\` in Android Studio, or run the included GitHub Actions workflow. The workflow installs Android API 36, runs TypeScript/regression tests, builds the web bundle, syncs Capacitor, and assembles APKs.
 
-Open `android/` in Android Studio, or run the included GitHub Actions workflow. The workflow installs Android API 36, verifies the Gradle wrapper JAR, runs TypeScript/regression tests, builds the web bundle, syncs Capacitor, and assembles an APK.
+The project intentionally does not contain a signing key. Configure the same stable key used for the client’s installed APK:
 
-The workflow uses the official Gradle Actions dependency cache and a four-attempt bounded backoff wrapper. Temporary Maven Central HTTP 429 responses therefore retry while already-downloaded artifacts remain cached; genuine compile failures still fail after the final attempt.
+- \`DAYTRACE_KEYSTORE_BASE64\`
+- \`DAYTRACE_KEYSTORE_PASSWORD\`
+- \`DAYTRACE_KEY_ALIAS\`
+- \`DAYTRACE_KEY_PASSWORD\`
 
-The project intentionally does not contain a signing key. Configure one stable key for every APK that must update the same installed app:
+Android accepts an in-place update only when the application ID and signing certificate match and the new version code is higher. This release preserves the application ID and raises the version code. If the prior signing key is unavailable, export JSON before uninstalling and restore it after installation.
 
-- `DAYTRACE_KEYSTORE_BASE64`
-- `DAYTRACE_KEYSTORE_PASSWORD`
-- `DAYTRACE_KEY_ALIAS`
-- `DAYTRACE_KEY_PASSWORD`
+## Pixel 10a verification
 
-GitHub Actions builds a release APK with those secrets. Without them it builds a debug APK and warns that a hosted-runner debug certificate may not match an older installation.
-
-Android only accepts an in-place update when both the application ID and signing certificate match. DayTrace preserves `com.amarsingh.daytrace` and increases `versionCode`, but an APK signed by an unavailable older key cannot be replaced in place. Use DayTrace Export before any unavoidable uninstall, then Import after installation.
-
-## Google Sheets OAuth setup
-
-In Google Cloud Console:
-
-1. Enable Google Sheets API and Google Drive API.
-2. Configure the OAuth consent screen.
-3. Create an Android OAuth client for package `com.amarsingh.daytrace`.
-4. Use the SHA-1 from the exact stable signing key used for the installed/release APK. The workflow prints `:app:signingReport`; after a failed attempt, DayTrace also shows the exact installed APK SHA-1 in the Google Sheets settings panel.
-5. Rebuild with that same key.
-
-Android uses `AuthorizationClient`, not the browser Google Identity Services script. The SDK decodes the returned result intent directly, cancellation is non-destructive, expired/unauthorized requests retry authorization once, and Disconnect Google revokes the granted Sheets/Drive-file scopes when account metadata is available. The PWA/browser path can optionally use `VITE_GOOGLE_CLIENT_ID`.
-
-## Phone verification
-
-For the recurring accountability check:
-
-1. Install the APK and open Anchors.
-2. Enable check-in prompts, choose the interval, wake time, and bed time.
-3. Tap **Test Lock-Screen (10s)**. Grant notifications if Android asks, then immediately lock the phone.
-4. Verify the public lock-screen notification shows up to two stable-ID task suggestions and **Write update**.
-5. Tap a task after unlocking. Confirm it becomes the only Active task, current focus/activity changes, and one TASK_STARTED entry is present.
-6. Repeat with an inline written reply and confirm the exact text becomes current activity with one UPDATE entry.
-7. Swipe DayTrace away and repeat. Reopen afterward to verify native pending-state reconciliation is idempotent.
-8. Test disabled prompts, Gaming Mode, snooze, sleep window, Battery Saver, reboot, time/timezone changes, and app replacement.
-9. Deny notifications once, confirm the real denied state appears, then use Android settings to enable them and retry.
-
-For Meeting Mode, tap the top microphone, confirm recording, lock the phone, verify the microphone foreground-service notification remains only while recording, then Stop & save. The recording is stored in private app storage. This build does not pretend that Pixel AICore exposes a supported general recorded-audio transcription API: add/correct a transcript in Meetings, then DayTrace creates its summary and selectable action items locally.
+1. Install with \`adb install -r path/to/app-release.apk\`; confirm tasks, settings, saved places, history, and the stored Gemini key remain.
+2. On AI Agent, verify the saved key reconnects without asking again. Ask a normal question, then tap a generated follow-up.
+3. Ask “Where am I?” at a saved place; confirm the saved name is returned. Test an untagged place and verify the answer gives a cautious grounded road/neighborhood/city without inventing a house number.
+4. Focus the AI typing field; confirm the bottom navigation hides and the composer sits directly above Gboard.
+5. Speak a request; confirm the energy orb changes for listening, thinking, and speaking.
+6. Create “Remind me at 7:30 PM”; confirm the automation shows 19:30 and the lock-screen notification has DONE and SNOOZE actions.
+7. In Anchors, run the 10-second lock-screen prompt test, lock the phone, and verify inline reply/task actions after unlocking.
+8. Save/rename/delete a place, enable location reminders with “Allow all the time,” and verify the user-facing saved name appears on arrival/departure.
+9. Export JSON, confirm the file appears in Downloads, make a test change, restore, and confirm the prior state returns.
+10. Reboot once and confirm future alarms and periodic prompts are restored.
 
 ## Data migrations
 
-State schema version 5 is migrated non-destructively at load/import/restore. Durable settings, active task state, history, categories, learned data, locations, meetings, and native pending events are retained. Legacy sample records are removed only when seeded IDs/coordinates or a proven multi-record template constellation identifies them; user-created items are never deleted merely because they are named Home, Office, or Gym.
+State schema version 6 is migrated non-destructively at load/import/restore. Tasks, settings, history, categories, learned data, locations, meetings, and pending native events are retained. Removed legacy cloud-sync fields are discarded without touching user records. Sample records are removed only when proven seed identifiers/template constellations identify them.
 
-See `DELIVERY_NOTES.md` for the release changelog and test record.
+See \`DELIVERY_NOTES.md\` for the release changelog and verification record.

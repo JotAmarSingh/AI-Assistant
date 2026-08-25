@@ -1,7 +1,6 @@
 package com.amarsingh.daytrace;
 
 import android.app.KeyguardManager;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -11,9 +10,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.IntentSenderRequest;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -26,32 +22,11 @@ import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends BridgeActivity {
-    public interface GoogleAuthorizationResultCallback {
-        void onResult(Intent data);
-        void onLaunchError(String reason);
-    }
-
-    private ActivityResultLauncher<IntentSenderRequest> googleAuthorizationLauncher;
-    private GoogleAuthorizationResultCallback googleAuthorizationCallback;
-
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DayTraceNativePlugin.class);
         super.onCreate(savedInstanceState);
         configureSystemInsets();
-        googleAuthorizationLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartIntentSenderForResult(),
-                result -> {
-                    GoogleAuthorizationResultCallback callback = googleAuthorizationCallback;
-                    googleAuthorizationCallback = null;
-                    if (callback == null) return;
-                    // Google Identity Services intentionally owns interpretation of
-                    // the returned Intent. RESULT_CANCELED may still carry an
-                    // ApiException with the real status, so never discard the data
-                    // based only on Activity resultCode.
-                    callback.onResult(result.getData());
-                }
-        );
         handleIncomingIntent(getIntent());
     }
 
@@ -94,10 +69,10 @@ public class MainActivity extends BridgeActivity {
                     WindowInsetsCompat.Type.systemBars()
                             | WindowInsetsCompat.Type.displayCutout()
             );
-            Insets imeInsets = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottomInset = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
-                    ? Math.max(safeInsets.bottom, imeInsets.bottom)
-                    : safeInsets.bottom;
+            // adjustResize has already removed the IME from the Activity's
+            // available height. Applying the IME again as a WebView margin
+            // double-counts Gboard and collapses the app to a thin strip.
+            int bottomInset = safeInsets.bottom;
             ViewGroup.LayoutParams rawParams = webView.getLayoutParams();
             if (rawParams instanceof ViewGroup.MarginLayoutParams) {
                 ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) rawParams;
@@ -178,17 +153,6 @@ public class MainActivity extends BridgeActivity {
         if (action != null && !action.isEmpty()) {
             DayTraceNativePlugin.notifyNotificationAction(action, reminderId, locationName);
         }
-    }
-
-    public void launchGoogleAuthorization(PendingIntent pendingIntent, GoogleAuthorizationResultCallback callback) {
-        if (pendingIntent == null || googleAuthorizationLauncher == null) {
-            callback.onLaunchError("Google authorization could not be launched by this activity");
-            return;
-        }
-        googleAuthorizationCallback = callback;
-        googleAuthorizationLauncher.launch(
-                new IntentSenderRequest.Builder(pendingIntent.getIntentSender()).build()
-        );
     }
 
     /**

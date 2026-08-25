@@ -1,28 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Send, 
-  Mic, 
-  MicOff,
-  Square,
-  Sparkles, 
-  Flame, 
-  Trophy, 
-  Brain, 
-  Plus, 
-  Compass, 
-  Radio, 
-  Volume2,
-  CheckCircle2,
-  AlertTriangle,
-  ShoppingBag,
-  Bot
-} from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
+import { Send, Mic, Square, Sparkles, Flame } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { CyberneticAvatarCanvas, MiniCyberneticFaceIcon } from '../ai/CyberneticAvatarCanvas';
 import { SmartAICardView } from '../ai/SmartAICardView';
 import { calculateGamificationStats } from '../../utils/gamificationEngine';
-import { detectScheduleConflicts } from '../../utils/scheduleConflictEngine';
 import { 
   queryGeminiAPI, 
   getStoredGeminiApiKey, 
@@ -32,8 +13,9 @@ import {
   AppContextPayload 
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
-import { getCurrentCoordinates } from '../../services/nativeBridge';
-import { SmartAICard, UserMemoryItem } from '../../types';
+import { getCurrentCoordinates, getDeviceCapabilityContext } from '../../services/nativeBridge';
+import { calculateDistanceMeters } from '../../services/locationService';
+import { SmartAICard } from '../../types';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
 
@@ -41,10 +23,8 @@ export const GeminiLiveHubView: React.FC = () => {
   const { 
     state, 
     addTask, 
-    updateTaskStatus, 
     addFixedEvent, 
-    updateUserSettings,
-    mode
+    processUserInput
   } = useDay();
 
   const [inputText, setInputText] = useState('');
@@ -52,10 +32,8 @@ export const GeminiLiveHubView: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState('');
   const [avatarMode, setAvatarMode] = useState<'idle' | 'listening' | 'thinking' | 'talking' | 'processing_task'>('idle');
-  const [statusText, setStatusText] = useState('Cybernetic Core Active');
-  const [codeLogs, setCodeLogs] = useState<string[]>([]);
+  const [statusText, setStatusText] = useState('DayTrace AI ready');
   const [smartCards, setSmartCards] = useState<SmartAICard[]>([]);
-  const [memories, setMemories] = useState<UserMemoryItem[]>(state.userMemoryBank || []);
 
   // Online / Offline Network & Engine State
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -63,6 +41,7 @@ export const GeminiLiveHubView: React.FC = () => {
   const [customKeyInput, setCustomKeyInput] = useState('');
   const [hasCustomKey, setHasCustomKey] = useState<boolean>(false);
   const [keyTestStatus, setKeyTestStatus] = useState<string | null>(null);
+  const cloudReady = hasCustomKey && isOnline;
 
   const silenceTimerRef = useRef<number | null>(null);
   const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
@@ -75,7 +54,7 @@ export const GeminiLiveHubView: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     const saved = getStoredGeminiApiKey();
-    setCustomKeyInput(saved);
+    setCustomKeyInput(saved || '');
     setHasCustomKey(Boolean(saved && saved.trim()));
 
     return () => {
@@ -98,12 +77,14 @@ export const GeminiLiveHubView: React.FC = () => {
     silenceTimerRef.current = window.setTimeout(callback, 6500);
   };
 
-  // Helper to detect if user input is an information/advice question vs a task schedule command
+  // Commands must stay on-device; only knowledge/advice questions go to Gemini.
   const isQuestionOrAdvice = (query: string): boolean => {
     const text = query.toLowerCase().trim();
+    const actionCommand = /^(add|remind|schedule|create|log|start|stop|mark|save|set|move|reschedule|plan|buy|call|email|complete|finish|cancel)\b/;
+    if (actionCommand.test(text)) return false;
     if (text.endsWith('?')) return true;
-    const questionStarters = ['what', 'why', 'how', 'which', 'who', 'where', 'when', 'should', 'can', 'could', 'would', 'is', 'are', 'tell me', 'explain', 'compare', 'recommend', 'advice', 'banana', 'orange', 'fruit'];
-    return questionStarters.some((starter) => text.startsWith(starter) || text.includes(starter));
+    return /^(what|why|how|which|who|where|when|should|can|could|would|is|are|do|does|did|tell me|explain|compare|recommend|give me advice)\b/.test(text)
+      || /\b(dosage|dose|meaning|difference|weather|price|news|information|advice)\b/.test(text);
   };
 
   // Primary Query & Task Execution Handler
@@ -118,10 +99,6 @@ export const GeminiLiveHubView: React.FC = () => {
     setAvatarMode('processing_task');
     setStatusText('Processing with DayTrace AI...');
 
-    const logs = [
-      `> RECEIVING USER COMMAND: "${query}"`,
-      '> ANALYZING QUERY INTENT & CONTEXT...',
-    ];
     const lower = query.toLowerCase();
 
     // 0. Account / Login / Auth Inquiry
@@ -133,19 +110,16 @@ export const GeminiLiveHubView: React.FC = () => {
       lower.includes('account') || 
       lower.includes('password')
     ) {
-      logs.push('> INTENT: ACCOUNT / AUTHENTICATION QUERY');
-      logs.push('> GENERATING OFFLINE PRIVACY & SYNC ADVISORY...');
-      setCodeLogs([...logs]);
 
       const authCard: SmartAICard = {
         id: `card-${Date.now()}`,
         type: 'EXPERT_ADVICE',
-        title: 'DayTrace Offline & Cloud Sync Advisory',
-        subtitle: 'Privacy & Storage Architecture',
+        title: 'DayTrace Privacy & Backup',
+        subtitle: 'Local-first storage',
         engineMode: 'OFFLINE_LOCAL',
         createdAt: Date.now(),
         data: {
-          safetyWarning: `🔒 DayTrace is 100% Offline-First & Private:\n\n• No account or login required: All your tasks, habits, daily history, and timeline are stored securely on this phone.\n• Optional Google Sheets Sync: To backup or sync your data to Google Sheets, tap the Backup/Download icon (📥) in the top app bar.\n• Data Export: You can export or import complete JSON backups anytime from the top app bar.`
+          safetyWarning: `🔒 DayTrace is local-first and private:\n\n• No account or login is required for tasks, reminders, history, saved places, or meetings.\n• Online AI is optional and uses the Gemini key you add on this device.\n• Export or restore a complete local JSON backup from the download button in the top app bar.`
         }
       };
 
@@ -166,21 +140,20 @@ export const GeminiLiveHubView: React.FC = () => {
       lower.startsWith('hello ') || 
       lower.startsWith('hey ') ||
       lower.includes('who are you') || 
-      lower.includes('what can you do') || 
-      lower.includes('help')
+      lower.includes('what can you do') ||
+      lower === 'help' ||
+      lower === 'help me'
     ) {
-      logs.push('> INTENT: ASSISTANT GREETING & CAPABILITIES');
-      setCodeLogs([...logs]);
 
       const greetingCard: SmartAICard = {
         id: `card-${Date.now()}`,
         type: 'EXPERT_ADVICE',
-        title: 'DayTrace Cybernetic Assistant',
+        title: 'DayTrace AI Assistant',
         subtitle: 'Core Capabilities & Voice Commands',
         engineMode: 'OFFLINE_LOCAL',
         createdAt: Date.now(),
         data: {
-          safetyWarning: `👋 Greetings! I am DayTrace AI, your accountability assistant.\n\nHere is what you can do:\n• Add Tasks & Alarms: Speak "Gym workout at 6pm" or "Review client deck"\n• Ask Knowledge & Advice: "Is banana or orange better for a child?"\n• Check Schedule & Reminders: "What is pending today?" or "What's next?"\n• Smart Roadmaps: "Plan Amritsar weekend trip" or "Buy Calpol for son"\n• Meeting Mode: Tap the top mic icon to record meetings with offline summaries!`
+          safetyWarning: `👋 I am DayTrace AI, your accountability assistant.\n\n• Add tasks and exact reminders with voice or typing.\n• Ask online questions and continue with follow-up prompts.\n• Ask “Where am I?” to match a saved place or identify an untagged area.\n• Check today’s tasks, timetable, and reminders.\n• Record meetings and review local summaries/action items.\n• Export or restore your complete local JSON backup.`
         }
       };
 
@@ -196,62 +169,88 @@ export const GeminiLiveHubView: React.FC = () => {
     const isQuestion = isQuestionOrAdvice(query);
 
     if (isQuestion) {
-      const isLocationQuery = lower.includes('where am i') || lower.includes('where i am') || lower.includes('location') || lower.includes('where are we') || lower.includes('what city') || lower.includes('where is this');
+      const isCapabilityQuery = lower.includes('permission') || lower.includes('feature') || lower.includes('what can you do') || lower.includes('can you access') || lower.includes('access do you have');
+      const isLocationQuery = !isCapabilityQuery && (lower.includes('where am i') || lower.includes('where i am') || lower.includes('my current location') || lower.includes('where are we') || lower.includes('what city') || lower.includes('where is this'));
 
-      logs.push('> INTENT: CONVERSATIONAL KNOWLEDGE & ADVICE REQUEST');
-      if (isLocationQuery) {
-        logs.push('> DETECTED LIVE LOCATION QUERY ➔ QUERYING GPS SENSORS...');
-      }
-      logs.push('> INJECTING LIVE CONTEXT & CALLING GEMINI PRO API...');
-      setCodeLogs([...logs]);
 
-      let liveCoords: { latitude: number; longitude: number } | undefined = state.userSettings?.homeCoords || state.userSettings?.officeCoords;
+      let liveCoords: { latitude: number; longitude: number } | undefined;
+      let savedPlace: string | undefined;
+      let locationPermission: AppContextPayload['locationPermission'] = 'UNKNOWN';
 
       if (isLocationQuery) {
         try {
           const fetched = await getCurrentCoordinates();
-          if (fetched && fetched.latitude && fetched.longitude) {
+          if (fetched && Number.isFinite(fetched.latitude) && Number.isFinite(fetched.longitude)) {
             liveCoords = { latitude: fetched.latitude, longitude: fetched.longitude };
-            logs.push(`> GPS SENSOR LOCK: Lat ${fetched.latitude.toFixed(4)}, Lng ${fetched.longitude.toFixed(4)}`);
-            setCodeLogs([...logs]);
+            locationPermission = 'GRANTED';
+            const matchedPlace = (state.geofenceLocations || [])
+              .map((place) => ({
+                place,
+                distance: calculateDistanceMeters(liveCoords!, {
+                  latitude: place.latitude,
+                  longitude: place.longitude,
+                }),
+              }))
+              .filter(({ place, distance }) => distance <= Math.max(50, place.radiusMeters || 200))
+              .sort((a, b) => a.distance - b.distance)[0]?.place;
+            savedPlace = matchedPlace?.name;
           }
         } catch (locErr) {
+          locationPermission = 'DENIED';
           console.warn('GPS location fetch error:', locErr);
         }
       }
 
+      const capabilityContext = isCapabilityQuery ? await getDeviceCapabilityContext() : undefined;
+
       const appContext: AppContextPayload = {
-        location: state.current.location,
+        location: isLocationQuery ? state.current.location : undefined,
         coords: liveCoords,
-        date: state.date,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        energy: state.current.energy,
+        savedPlace,
+        locationPermission,
         activeFocusTask: state.tasks.find(t => t.id === state.current.focusTaskId || t.status === 'ACTIVE')?.title,
         memories: state.memories?.map(m => ({ category: m.category, fact: m.fact })),
-        tasksCount: state.tasks.length,
-        mode: mode,
         pendingTasks: state.tasks.filter(t => t.status === 'NEXT' || t.status === 'ACTIVE').slice(0, 3).map(t => ({
           title: t.title,
           category: t.category,
           priority: t.priority
         })),
-        timetableSlots: (state.timetable || []).slice(0, 3).map(s => ({
-          time: s.time,
-          title: s.title,
-          status: s.status
-        }))
+        features: capabilityContext?.features,
+        permissions: capabilityContext?.permissions,
       };
+
+      // A live GPS match against a user-named place is already authoritative;
+      // answer locally instead of spending a Gemini request on reverse geocoding.
+      if (isLocationQuery && savedPlace) {
+        const followUps = ['What are my pending tasks?', 'Save another location'];
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Current location',
+          subtitle: 'Live GPS • saved-place match • no cloud tokens',
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: `📍 You are at ${savedPlace}.`,
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText(`You are at ${savedPlace}`);
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
 
       try {
         const aiResponse = await queryGeminiAPI(query, appContext);
-        logs.push('> GROUNDING VERIFIED. GENERATING HYBRID SUMMARY CARD...');
-        setCodeLogs([...logs]);
 
         const answerCard: SmartAICard = {
           id: `card-${Date.now()}`,
           type: 'EXPERT_ADVICE',
-          title: `Gemini Pro AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
-          subtitle: `Verified Response • ${state.current.location || 'Live GPS'}`,
+          title: `Gemini AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
+          subtitle: savedPlace ? `Saved place • ${savedPlace}` : isLocationQuery ? 'Live GPS • grounded lookup' : 'Online response',
           engineMode: 'ONLINE_CLOUD',
           followUpQuestions: aiResponse.followUps,
           createdAt: Date.now(),
@@ -264,46 +263,38 @@ export const GeminiLiveHubView: React.FC = () => {
         setSmartCards((prev) => [answerCard, ...prev]);
         setIsProcessing(false);
         setAvatarMode('talking');
-        setStatusText('Gemini Pro Answer Ready!');
+        setStatusText('Gemini answer ready!');
         setTimeout(() => setAvatarMode('idle'), 4000);
       } catch (err) {
-        logs.push('> OFFLINE INTELLIGENCE ENGINE ENGAGED');
-        setCodeLogs([...logs]);
 
         let fallbackAnswer = '';
         let fallbackFollowUps: string[] = [];
 
         if (isLocationQuery) {
-          if (liveCoords) {
-            fallbackAnswer = `📍 GPS Location: ${liveCoords.latitude.toFixed(5)}, ${liveCoords.longitude.toFixed(5)}\n\n• Current Place: ${state.current.location || 'Untagged Location'}\n• Detected via Real-Time Device GPS Sensor.\n• Tip: You can save this spot as a custom Geofence in the top app bar location settings.`;
+          if (savedPlace) {
+            fallbackAnswer = `📍 You are at ${savedPlace}.\n\nThis is a live GPS match against the place you saved on this device.`;
+          } else if (liveCoords) {
+            fallbackAnswer = `📍 Current GPS: ${liveCoords.latitude.toFixed(5)}, ${liveCoords.longitude.toFixed(5)}\n\nThis location is not tagged yet. Connect Online AI to identify the nearest verifiable road, neighborhood, and city, or save this spot with your own name.`;
           } else {
-            fallbackAnswer = `📍 You are currently at: ${state.current.location}\n\n• Verified via DayTrace Smart Geofence & Location Engine.\n• Energy Level: ${state.current.energy}\n• Date: ${state.date}`;
+            fallbackAnswer = '📍 I could not read your live location. Check the app location permission and Location Services, then try again.';
           }
           fallbackFollowUps = [
-            'Save this spot as a custom Geofence',
-            'What tasks can I do near here?',
-            'Check travel time to Home'
+            'Save this location',
+            'Which location permission is enabled?',
           ];
-        } else if (lower.includes('festival')) {
-          fallbackAnswer = `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`;
-          fallbackFollowUps = [
-            'Add festival holidays to my timetable',
-            'Check celebration preparation checklist',
-            'Traditional festive recipes'
-          ];
-        } else if (lower.includes('banana') || lower.includes('orange')) {
-          fallbackAnswer = `🍌 Banana vs 🍊 Orange for Children:\n\n• Banana: Rich in potassium, Vitamin B6, and dietary fiber. Very gentle on digestion, ideal for quick energy before play or bedtime.\n• Orange: High in Vitamin C, antioxidants, and water content. Great for immunity, but higher citric acid.\n\nRecommendation: Both are excellent! Offer banana for energy/toddlers, and orange slices for immunity hydration.`;
-          fallbackFollowUps = [
-            'What about apples vs bananas for toddlers?',
-            'Best fruits for toddler immunity & digestion',
-            'Add fruit snack to today\'s timetable'
-          ];
+        } else if (isCapabilityQuery && capabilityContext) {
+          const permissionLines = Object.entries(capabilityContext.permissions)
+            .map(([name, value]) => `• ${name}: ${value}`)
+            .join('\n');
+          fallbackAnswer = `DayTrace supports ${capabilityContext.features.join(', ')}.\n\nCurrent device permissions:\n${permissionLines}`;
         } else {
-          fallbackAnswer = `💡 DayTrace On-Device Intelligence:\n\n• Query received: "${query}"\n• Current Location: ${state.current.location}\n• Energy: ${state.current.energy}\n• Active Mode: ${mode}`;
+          const needsSetup = !getStoredGeminiApiKey();
+          fallbackAnswer = needsSetup
+            ? 'Online AI needs a verified Gemini API key. Tap OFFLINE once to add it; after verification the key is saved and reused automatically.'
+            : 'Gemini could not be reached. Your verified key remains saved; check the internet connection and retry.';
           fallbackFollowUps = [
-            'Explain this in simpler terms',
-            'Give practical real-world examples',
-            'How can I apply this to my daily productivity?'
+            'What can DayTrace do offline?',
+            'Which app permissions are enabled?',
           ];
         }
 
@@ -330,87 +321,30 @@ export const GeminiLiveHubView: React.FC = () => {
       return;
     }
 
-    // Task Assignment Flow
-    // 1. Medicine & Safety Check
-    if (lower.includes('calpol') || lower.includes('medicine') || lower.includes('ibuprofen') || lower.includes('paracetamol')) {
-      logs.push('> DETECTED MEDICINE & PEDIATRIC QUERY');
-      logs.push('> SEARCHING APOLLO & NETMEDS FOR LIVE PRICES...');
-      logs.push('> AUDITING PEDIATRIC DOSAGE & SAFETY CONSTRAINTS...');
-      setCodeLogs([...logs]);
+    // Device actions are routed through the deterministic local parser so
+    // reminders, geofences and native alarms use the same tested path everywhere.
 
-      setTimeout(() => {
-        addTask(query, 'HEALTH', 'HIGH');
-        const newCard: SmartAICard = {
-          id: `card-${Date.now()}`,
-          type: 'PRICE_COMPARISON',
-          title: 'Medicine Price & Pediatric Safety Audit',
-          subtitle: 'Apollo vs Netmeds Live Grounding',
-          engineMode: 'OFFLINE_LOCAL',
-          createdAt: Date.now(),
-          data: {
-            comparisonRows: [
-              { seller: 'Apollo Pharmacy', price: '₹65', stock: 'In Stock', rating: '4.8' },
-              { seller: 'Netmeds Online', price: '₹58', stock: 'Delivers Tomorrow', rating: '4.7' },
-              { seller: '1mg Healthcare', price: '₹60', stock: '2-Hour Delivery', rating: '4.9' }
-            ],
-            safetyWarning: 'Calpol (Paracetamol) 120mg/5ml suspension is safe for children > 3 months. Recommended dose for 5yo (~18kg): 5ml to 7.5ml after meals.'
-          }
-        };
-        setSmartCards((prev) => [newCard, ...prev]);
-        setIsProcessing(false);
-        setAvatarMode('talking');
-        setStatusText('Task scheduled & price comparison ready!');
-        setTimeout(() => setAvatarMode('idle'), 3000);
-      }, 1000);
-      return;
-    }
-
-    // 2. Travel & Multi-step trip
-    if (lower.includes('amritsar') || lower.includes('travel') || lower.includes('trip') || lower.includes('train')) {
-      logs.push('> DETECTED MULTI-STEP TRAVEL INQUIRY');
-      logs.push('> FETCHING VANDE BHARAT & SHATABDI TICKET FARES...');
-      logs.push('> DECOMPOSING TRIP INTO 4 SUB-TASKS...');
-      setCodeLogs([...logs]);
-
-      setTimeout(() => {
-        addTask('Plan Amritsar Weekend Trip', 'PERSONAL', 'HIGH');
-        const newCard: SmartAICard = {
-          id: `card-${Date.now()}`,
-          type: 'MULTI_STEP_ROADMAP',
-          title: 'Amritsar Weekend Trip Roadmap',
-          subtitle: '4 Automated Sub-Tasks & Travel Cards',
-          engineMode: 'OFFLINE_LOCAL',
-          createdAt: Date.now(),
-          data: {
-            goalTitle: 'Amritsar Trip',
-            steps: [
-              { id: 's1', title: 'Book Vande Bharat Train (07:10 Departure, ₹1,350)', estimatedMinutes: 15 },
-              { id: 's2', title: 'Reserve Hotel near Golden Temple (4-Star, ₹3,200/night)', estimatedMinutes: 20 },
-              { id: 's3', title: 'Schedule Wagah Border Evening Ceremony Anchor', estimatedMinutes: 10 },
-              { id: 's4', title: 'Pack Light Cottons (Weather Forecast: High 31°C)', estimatedMinutes: 30 }
-            ]
-          }
-        };
-        setSmartCards((prev) => [newCard, ...prev]);
-        setIsProcessing(false);
-        setAvatarMode('talking');
-        setStatusText('Travel roadmap & train fares fetched!');
-        setTimeout(() => setAvatarMode('idle'), 3000);
-      }, 1000);
-      return;
-    }
-
-    // General Task Default
-    logs.push('> SCHEDULING TASK & ASSIGNING NATIVE ALARM...');
-    setCodeLogs([...logs]);
-
-    setTimeout(() => {
-      addTask(query, 'PERSONAL', 'NORMAL');
+    try {
+      const confirmation = await processUserInput(query);
+      const actionCard: SmartAICard = {
+        id: `card-${Date.now()}`,
+        type: 'EXPERT_ADVICE',
+        title: 'DayTrace action completed',
+        subtitle: 'On-device • no cloud tokens used',
+        engineMode: 'OFFLINE_LOCAL',
+        createdAt: Date.now(),
+        data: { safetyWarning: confirmation || 'The action was processed on this device.' },
+      };
+      setSmartCards((prev) => [actionCard, ...prev]);
       setIsProcessing(false);
       setAvatarMode('talking');
-      setStatusText(`Task "${query}" scheduled! (+20 XP)`);
+      setStatusText('Action completed on device');
       setTimeout(() => setAvatarMode('idle'), 3000);
-    }, 1000);
+    } catch (error) {
+      setIsProcessing(false);
+      setAvatarMode('idle');
+      setStatusText(error instanceof Error ? error.message : 'Could not complete the action');
+    }
   };
 
   // Form Submit from typing bar
@@ -462,7 +396,7 @@ export const GeminiLiveHubView: React.FC = () => {
       } else {
         setAvatarMode('idle');
         setStatusText('No speech detected. Tap mic to retry.');
-        setTimeout(() => setStatusText('Cybernetic Core Active'), 4000);
+        setTimeout(() => setStatusText('DayTrace AI ready'), 4000);
       }
     });
 
@@ -505,7 +439,7 @@ export const GeminiLiveHubView: React.FC = () => {
         setInterimText('');
         setAvatarMode('idle');
         setStatusText(`Mic error: ${err}`);
-        setTimeout(() => setStatusText('Cybernetic Core Active'), 4000);
+        setTimeout(() => setStatusText('DayTrace AI ready'), 4000);
       },
       () => {
         // onEnd callback
@@ -574,14 +508,14 @@ export const GeminiLiveHubView: React.FC = () => {
               }}
               className="flex items-center space-x-1.5 px-3 py-1.5 rounded-2xl bg-[#070A10] border transition text-xs font-mono font-bold shadow-md active:scale-95 cursor-pointer"
               style={{
-                borderColor: hasCustomKey ? 'rgba(52, 211, 153, 0.7)' : 'rgba(251, 191, 36, 0.7)',
-                color: hasCustomKey ? '#34D399' : '#FBBF24',
-                boxShadow: hasCustomKey ? '0 0 15px rgba(52, 211, 153, 0.25)' : '0 0 15px rgba(251, 191, 36, 0.2)'
+                borderColor: cloudReady ? 'rgba(52, 211, 153, 0.7)' : 'rgba(251, 191, 36, 0.7)',
+                color: cloudReady ? '#34D399' : '#FBBF24',
+                boxShadow: cloudReady ? '0 0 15px rgba(52, 211, 153, 0.25)' : '0 0 15px rgba(251, 191, 36, 0.2)'
               }}
-              title={hasCustomKey ? "Online (Gemini Pro Connected) - Tap to manage" : "Offline (Tap to enter Gemini API Key)"}
+              title={cloudReady ? "Online (Gemini connected) - Tap to manage" : hasCustomKey ? "API key saved; waiting for internet" : "Offline (Tap to enter Gemini API Key)"}
             >
-              <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
-              <span>{hasCustomKey ? 'ONLINE' : 'OFFLINE'}</span>
+              <span className={`w-2 h-2 rounded-full ${cloudReady ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
+              <span>{cloudReady ? 'ONLINE' : 'OFFLINE'}</span>
             </button>
           </div>
         </div>
@@ -593,7 +527,7 @@ export const GeminiLiveHubView: React.FC = () => {
           statusText={
             isListening
               ? (interimText ? `Hearing: "${interimText.length > 20 ? interimText.substring(0, 20) + '...' : interimText}"` : '🎙️ LISTENING... (TAP TO STOP)')
-              : (avatarMode === 'idle' ? 'CYBERNETIC AI CORE ACTIVE • TAP TO SPEAK' : statusText)
+              : (avatarMode === 'idle' ? 'DAYTRACE AI READY • TAP TO SPEAK' : statusText)
           }
           height={360}
           onClick={handleVoiceDictation}
@@ -616,10 +550,10 @@ export const GeminiLiveHubView: React.FC = () => {
         {/* Quick Suggestion Chips */}
         <div className="flex items-center space-x-2 overflow-x-auto pb-1 no-scrollbar">
           {[
-            'Is a banana or an orange better for a child?',
-            '💊 Buy Calpol for son tonight',
-            '🚅 Plan Amritsar trip next weekend',
-            '📋 File Tax Returns FY2026'
+            '📍 Where am I?',
+            '⏰ Remind me at 7:30 PM to call the client',
+            '📋 What are my pending tasks?',
+            '🔐 Which permissions can you access?'
           ].map((chip, idx) => (
             <button
               key={idx}
@@ -689,7 +623,7 @@ export const GeminiLiveHubView: React.FC = () => {
               placeholder={
                 isListening 
                   ? '🎙️ Listening... Speak your query' 
-                  : 'Assign a task or ask Gemini Pro...'
+                  : 'Assign a task or ask Gemini...'
               }
               disabled={isProcessing}
               className={`w-full py-3 pl-4 pr-11 rounded-2xl border text-xs font-mono placeholder-[#C4C6D0]/40 focus:outline-none shadow-inner transition ${
@@ -731,10 +665,10 @@ export const GeminiLiveHubView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-[#E2E2E6]">
-                    {hasCustomKey ? 'Gemini Cloud AI Active' : 'Gemini Cloud AI Setup'}
+                    {cloudReady ? 'Gemini Cloud AI Active' : hasCustomKey ? 'Gemini API Key Saved' : 'Gemini Cloud AI Setup'}
                   </h3>
                   <p className="text-[10px] text-[#C4C6D0]/70">
-                    {hasCustomKey ? 'ONLINE Mode Enabled' : 'OFFLINE Mode • Connect API Key'}
+                    {cloudReady ? 'ONLINE Mode Enabled' : hasCustomKey ? 'OFFLINE • Waiting for internet' : 'OFFLINE Mode • Connect API Key'}
                   </p>
                 </div>
               </div>
@@ -745,20 +679,22 @@ export const GeminiLiveHubView: React.FC = () => {
 
             {/* Current Engine Status */}
             <div className={`p-3 rounded-2xl border text-xs font-mono space-y-1.5 ${
-              hasCustomKey 
+              cloudReady
                 ? 'bg-[#10B981]/10 border-[#10B981]/40' 
                 : 'bg-[#FBBF24]/10 border-[#FBBF24]/40'
             }`}>
               <div className="flex items-center justify-between">
                 <span className="text-[#C4C6D0]">Current Status:</span>
-                <span className={`font-bold flex items-center space-x-1.5 ${hasCustomKey ? 'text-[#34D399]' : 'text-[#FBBF24]'}`}>
-                  <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
-                  <span>{hasCustomKey ? 'ONLINE (Gemini Pro Connected)' : 'OFFLINE (On-Device Local)'}</span>
+                <span className={`font-bold flex items-center space-x-1.5 ${cloudReady ? 'text-[#34D399]' : 'text-[#FBBF24]'}`}>
+                  <span className={`w-2 h-2 rounded-full ${cloudReady ? 'bg-[#34D399] animate-pulse' : 'bg-[#FBBF24]'}`} />
+                  <span>{cloudReady ? 'ONLINE (Gemini connected)' : 'OFFLINE (On-Device Local)'}</span>
                 </span>
               </div>
               <p className="text-[10px] text-[#C4C6D0]/80 leading-tight">
-                {hasCustomKey
-                  ? 'Your Gemini API key is active. Live search grounding and reasoning are active.'
+                {cloudReady
+                  ? 'Your saved Gemini API key is active. Grounded location lookup is available when needed.'
+                  : hasCustomKey
+                  ? 'Your verified API key is saved on this device and will reconnect automatically when internet returns.'
                   : 'Enter your Gemini API key below to convert the OFFLINE button to ONLINE.'}
               </p>
             </div>

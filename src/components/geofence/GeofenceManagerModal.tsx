@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MapPin, Navigation, Pencil, Radio, Trash2, X } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
+import { requestNativeGeofencePermissions } from '../../services/nativeBridge';
 
 interface GeofenceManagerModalProps {
   isOpen: boolean;
@@ -44,6 +45,29 @@ export const GeofenceManagerModal: React.FC<GeofenceManagerModalProps> = ({ isOp
     }
   };
 
+  const handleLocationRemindersToggle = async (enabled: boolean) => {
+    if (!enabled) {
+      updateUserSettings({ geofenceEnabled: false });
+      return;
+    }
+    setMessage(null);
+    try {
+      const permissions = await requestNativeGeofencePermissions();
+      if (!permissions.foregroundGranted) {
+        setMessage('Location permission is required. DayTrace left location reminders off.');
+        return;
+      }
+      if (!permissions.backgroundGranted) {
+        setMessage('Choose “Allow all the time” for DayTrace in Android location settings, then enable reminders again.');
+        return;
+      }
+      updateUserSettings({ geofenceEnabled: true });
+      setMessage('Location reminders are enabled, including while DayTrace is closed.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Could not request Android location permission.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[32px] border border-[#44474E] bg-[#1D2026] p-5 text-[#E2E2E6]" onClick={(event) => event.stopPropagation()}>
@@ -55,7 +79,7 @@ export const GeofenceManagerModal: React.FC<GeofenceManagerModalProps> = ({ isOp
         <div className="mt-4 space-y-2 rounded-2xl bg-[#111318] p-3">
           <label className="flex items-center justify-between gap-3 text-xs font-bold">
             <span>Location reminders</span>
-            <input type="checkbox" checked={!!settings.geofenceEnabled} onChange={(event) => updateUserSettings({ geofenceEnabled: event.target.checked })} />
+            <input type="checkbox" checked={!!settings.geofenceEnabled} onChange={(event) => void handleLocationRemindersToggle(event.target.checked)} />
           </label>
           <label className="flex items-center justify-between gap-3 text-xs font-bold">
             <span><span className="block">Learn new locations</span><span className="text-[10px] font-normal text-[#C4C6D0]">Optional, balanced-power dwell detection</span></span>

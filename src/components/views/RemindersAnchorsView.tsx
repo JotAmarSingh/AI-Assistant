@@ -16,12 +16,11 @@ import {
   Smartphone,
   BellRing,
   Download,
-  CloudDownload
+  Upload
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
-import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, isNativeAndroid, openNativeNotificationSettings, requestNativeNotificationPermission, exportNativeJsonBackup } from '../../services/nativeBridge';
-import { getStoredGeminiApiKey, verifyGeminiApiKey, clearGeminiApiKey } from '../../services/geminiService';
+import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, exportNativeJsonBackup, getDeviceCapabilityContext, isNativeAndroid, openNativeExactAlarmSettings, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -43,26 +42,23 @@ export const RemindersAnchorsView: React.FC = () => {
     importDataJSON,
   } = useDay();
 
-  // Google Gemini API Settings State
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [apiVerifyStatus, setApiVerifyStatus] = useState<string | null>(null);
-  const [isVerifyingKey, setIsVerifyingKey] = useState(false);
   const [isAddAnchorModalOpen, setIsAddAnchorModalOpen] = useState(false);
   const [isAddReminderModalOpen, setIsAddReminderModalOpen] = useState(false);
   const [isTestingLockscreen, setIsTestingLockscreen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NativeNotificationPermissionStatus | null>(null);
+  const [exactAlarmGranted, setExactAlarmGranted] = useState<boolean | null>(null);
 
   const refreshNotificationPermission = useCallback(async () => {
     if (!isNativeAndroid()) return;
-    setNotificationPermission(await checkNativeNotificationPermission());
+    const [notifications, capabilities] = await Promise.all([
+      checkNativeNotificationPermission(),
+      getDeviceCapabilityContext(),
+    ]);
+    setNotificationPermission(notifications);
+    setExactAlarmGranted(capabilities.permissions.exactAlarms === 'GRANTED');
   }, []);
 
   useEffect(() => {
-    const savedKey = getStoredGeminiApiKey();
-    setApiKeyInput(savedKey);
-    setHasApiKey(Boolean(savedKey && savedKey.trim()));
-
     refreshNotificationPermission();
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refreshNotificationPermission();
@@ -218,6 +214,7 @@ export const RemindersAnchorsView: React.FC = () => {
 
           {/* Android Notification Permission banner (if native Android) */}
           {isNativeAndroid() && (
+            <div className="space-y-2">
             <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#D1E1FF]/20 flex items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <Shield className={`w-3.5 h-3.5 ${notificationPermission?.granted ? 'text-[#86EFAC]' : 'text-[#FCA5A5]'}`} />
@@ -239,6 +236,27 @@ export const RemindersAnchorsView: React.FC = () => {
               >
                 {notificationPermission?.status === 'NOT_REQUESTED' ? 'Allow' : 'Android settings'}
               </button>
+            </div>
+            <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#D1E1FF]/20 flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <Clock className={`w-3.5 h-3.5 ${exactAlarmGranted ? 'text-[#86EFAC]' : 'text-[#FCA5A5]'}`} />
+                <div>
+                  <span className="text-[11px] text-[#C4C6D0] block">Exact reminder timing</span>
+                  <span className={`text-[10px] font-semibold ${exactAlarmGranted ? 'text-[#86EFAC]' : 'text-[#FCA5A5]'}`}>
+                    {exactAlarmGranted === null ? 'Checking…' : exactAlarmGranted ? 'Enabled' : 'Needs Android permission'}
+                  </span>
+                </div>
+              </div>
+              {!exactAlarmGranted && (
+                <button
+                  type="button"
+                  onClick={() => void openNativeExactAlarmSettings()}
+                  className="py-1 px-2.5 rounded-xl bg-[#334867] hover:bg-[#D1E1FF] hover:text-[#003062] text-[#D1E1FF] text-[10px] font-semibold transition"
+                >
+                  Allow
+                </button>
+              )}
+            </div>
             </div>
           )}
 
@@ -356,107 +374,6 @@ export const RemindersAnchorsView: React.FC = () => {
               </button>
             </div>
 
-            {/* Google Gemini Cloud AI Key & Engine Settings */}
-            <div className="p-4 rounded-2xl bg-[#111318] border border-[#00F0FF]/30 space-y-3 mt-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="w-4 h-4 text-[#00F0FF]" />
-                  <div>
-                    <span className="text-xs font-bold text-[#E2E2E6] block">Google Gemini Pro AI Engine</span>
-                    <span className="text-[10px] text-[#C4C6D0]/70 block">Cloud search grounding & conversational reasoning</span>
-                  </div>
-                </div>
-
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${
-                  hasApiKey
-                    ? 'bg-[#10B981]/15 text-[#34D399] border-[#10B981]/40'
-                    : 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/40'
-                }`}>
-                  {hasApiKey ? '● ONLINE' : '● OFFLINE'}
-                </span>
-              </div>
-
-              <div className="space-y-2 pt-1">
-                <input
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="Paste Gemini API key (AIzaSy...)"
-                  className="w-full p-2.5 rounded-xl bg-[#1D2026] border border-[#00F0FF]/40 text-xs font-mono text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:outline-none focus:ring-2 focus:ring-[#00F0FF]"
-                />
-
-                <div className="text-[10px] text-[#C4C6D0]/70 flex items-center justify-between">
-                  <span>Get your free Gemini API key from Google AI Studio</span>
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#00F0FF] hover:underline font-bold"
-                  >
-                    Get Key ↗
-                  </a>
-                </div>
-
-                {apiVerifyStatus && (
-                  <div className={`p-2.5 rounded-xl text-xs font-mono transition ${
-                    apiVerifyStatus.startsWith('✓')
-                      ? 'bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/50 font-bold'
-                      : 'bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/50'
-                  }`}>
-                    {apiVerifyStatus}
-                  </div>
-                )}
-
-                <div className="flex space-x-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={isVerifyingKey}
-                    onClick={async () => {
-                      const keyToVerify = apiKeyInput.trim();
-                      if (!keyToVerify) {
-                        setApiVerifyStatus('❌ Please enter a Gemini API key first.');
-                        return;
-                      }
-                      setIsVerifyingKey(true);
-                      setApiVerifyStatus('⏳ Verifying key with Google Cloud API...');
-                      try {
-                        const res = await verifyGeminiApiKey(keyToVerify);
-                        if (res.success) {
-                          setHasApiKey(true);
-                          setApiVerifyStatus('✓ Verified! Switched to ONLINE mode.');
-                        } else {
-                          setApiVerifyStatus(`❌ ${res.message}`);
-                        }
-                      } catch (err: any) {
-                        setApiVerifyStatus(`❌ ${err?.message || 'Verification failed'}`);
-                      } finally {
-                        setIsVerifyingKey(false);
-                      }
-                    }}
-                    className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] hover:bg-[#38F9D7] text-[#070A10] text-xs font-bold font-mono transition shadow-md flex items-center justify-center space-x-1"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{isVerifyingKey ? 'Verifying...' : 'Save & Convert to ONLINE'}</span>
-                  </button>
-
-                  {hasApiKey && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        clearGeminiApiKey();
-                        setApiKeyInput('');
-                        setHasApiKey(false);
-                        setApiVerifyStatus('✓ Disconnected. Switched to OFFLINE mode.');
-                      }}
-                      className="px-3 py-2.5 rounded-xl bg-[#2E3036] hover:bg-[#BA1A1A]/30 text-xs text-[#C4C6D0] hover:text-[#F87171] font-mono transition"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* Offline JSON Data Backup & File Restore Section */}
             <div className="p-4 rounded-2xl bg-[#111318] border border-[#D1E1FF]/30 space-y-3 mt-2">
               <div className="flex items-center space-x-2">
@@ -515,7 +432,7 @@ export const RemindersAnchorsView: React.FC = () => {
                   onClick={() => document.getElementById('tab-json-file-input')?.click()}
                   className="py-2.5 px-3 rounded-xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-1.5 transition border border-[#86EFAC]/40"
                 >
-                  <CloudDownload className="w-3.5 h-3.5" />
+                  <Upload className="w-3.5 h-3.5" />
                   <span>Import JSON</span>
                 </button>
               </div>

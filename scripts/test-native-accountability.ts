@@ -103,13 +103,16 @@ assert.equal(duplicateMeeting.state.meetings.length, 1, 'Meeting replay must not
 assert.equal(duplicateMeeting.state.timeline.filter((item) => item.id === meetingEvent.nativeEventId).length, 1, 'Meeting replay must not duplicate the timeline row');
 
 const mainActivitySource = readFileSync(new URL('../android/app/src/main/java/com/amarsingh/daytrace/MainActivity.java', import.meta.url), 'utf8');
+const manifestSource = readFileSync(new URL('../android/app/src/main/AndroidManifest.xml', import.meta.url), 'utf8');
 assert.match(mainActivitySource, /WindowInsetsCompat\.Type\.displayCutout\(\)/, 'Android shell must account for display cutouts');
-assert.match(mainActivitySource, /WindowInsetsCompat\.Type\.ime\(\)/, 'Android shell must keep focused inputs above the keyboard');
+assert.match(manifestSource, /android:windowSoftInputMode="adjustResize"/, 'Android must resize the Activity above the keyboard');
+assert.doesNotMatch(mainActivitySource, /WindowInsetsCompat\.Type\.ime\(\)/, 'The keyboard inset must not be applied twice');
 assert.match(mainActivitySource, /marginParams\.setMargins\(/, 'Android shell must inset the WebView with native layout margins');
-assert.doesNotMatch(mainActivitySource, /result\.getResultCode\(\) == Activity\.RESULT_OK/, 'Google authorization results must be decoded by Google Identity Services');
+assert.doesNotMatch(mainActivitySource, /GoogleAuthorization|AuthorizationClient/, 'Removed Google Sheets authorization must not remain in the Activity');
 
 const nativePluginSource = readFileSync(new URL('../android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java', import.meta.url), 'utf8');
-assert.match(nativePluginSource, /getAuthorizationResultFromIntent\(data\)/, 'Google Identity Services must decode the authorization result intent');
-assert.match(nativePluginSource, /MessageDigest\.getInstance\("SHA-1"\)/, 'The installed OAuth signing fingerprint must be available for diagnostics');
+assert.doesNotMatch(nativePluginSource, /GoogleSheets|AuthorizationClient|NightlySyncWorker/, 'Removed cloud sync code must not remain in the native plugin');
+assert.match(nativePluginSource, /MediaStore\.Downloads\.EXTERNAL_CONTENT_URI/, 'JSON export must use scoped Android Downloads storage');
+assert.match(nativePluginSource, /PREFS_GEOFENCE_NAMES/, 'Native geofences must preserve user-facing saved-place names');
 
 console.log('Native accountability reconciliation tests passed.');

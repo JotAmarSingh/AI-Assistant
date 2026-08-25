@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "daytrace",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.3.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -16,7 +16,8 @@
     "test:multi-triggers": "node --import tsx scripts/test-multi-trigger-parser.ts",
     "test:meetings": "node --import tsx scripts/test-meeting-processor.ts",
     "test:task-parsing": "node --import tsx scripts/test-task-parsing.ts",
-    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing"
+    "test:ai-context": "node --import tsx scripts/test-ai-context.ts",
+    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing && npm run test:ai-context"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

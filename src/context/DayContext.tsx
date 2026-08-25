@@ -28,10 +28,9 @@ import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, re
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
 import { parseVoiceAutomations } from '../utils/localAutomationParser';
 import { classifyUserIntent, executeDayTraceQuery, extractSaveCurrentLocationIntent, speakQueryResponse } from '../utils/intentClassifier';
-import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, persistNativeSyncQueue, markNativeSyncCompleted, syncNativePeriodicPromptConfig, triggerNativeTestPrompt, getCurrentCoordinates, checkNativeNotificationPermission, requestNativeNotificationPermission, deleteNativeMeetingAudio } from '../services/nativeBridge';
+import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, syncNativePeriodicPromptConfig, triggerNativeTestPrompt, getCurrentCoordinates, checkNativeNotificationPermission, requestNativeNotificationPermission, deleteNativeMeetingAudio } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
 import { soundEffects } from '../services/soundEffects';
-import { syncStateToGoogleSheets, fetchLatestBackupFromGoogleSheets, fetchBackupForDateFromGoogleSheets, disconnectGoogle } from '../services/googleSheetsSync';
 import { speechService } from '../services/speechRecognition';
 import { DEFAULT_REWARDS, INITIAL_GAMIFICATION_STATE, updateStreak } from '../services/rewardsCatalog';
 import { reconcileNativeAccountabilityEvents, selectNativeSuggestedTasks } from '../utils/nativeAccountability';
@@ -109,11 +108,6 @@ interface DayContextType {
   triggerManualPromptCheck: () => void;
   recordPeriodicPromptCompletion: () => void;
   triggerNativePromptTest: (delaySeconds?: number) => Promise<{ scheduled: boolean; delaySeconds: number }>;
-  syncToGoogleSheets: () => Promise<{ success: boolean; url?: string; error?: string }>;
-  disconnectGoogleSheets: () => void;
-  isSyncingSheets: boolean;
-  restoreFromGoogleSheetsBackup: (spreadsheetId?: string) => Promise<{ success: boolean; message?: string }>;
-  isRestoringBackup: boolean;
   // Deep Work & Pomodoro Focus Engine
   focusTimer: FocusSessionState;
   startFocusTimer: (mode: FocusTimerMode, taskId?: string, taskTitle?: string) => void;
@@ -142,7 +136,6 @@ interface DayContextType {
   resetToDefault: () => void;
   resetToFreshStart: () => void;
   exportDataJSON: () => string;
-  exportDataSheetsCSV: () => { [tab: string]: string };
   importDataJSON: (jsonStr: string) => boolean;
   currentTimeString: string;
   learningProfile: AutoLearningProfile;
@@ -227,7 +220,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [pendingLocationLearning, setPendingLocationLearning] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationNameConflict, setLocationNameConflict] = useState<LocationNameConflict | null>(null);
   const [isPeriodicPromptOpen, setIsPeriodicPromptOpen] = useState<boolean>(false);
-  const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
 
   // Active triggered alert (Heads-up in-app card)
   const [activeTriggeredAlert, setActiveTriggeredAlert] = useState<{
@@ -326,25 +318,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (localSnapshot) {
       setHistoricalState(localSnapshot);
       return;
-    }
-
-    const spreadsheetId = stateRef.current.userSettings?.googleSpreadsheetId;
-    if (spreadsheetId) {
-      setIsLoadingHistoricalDate(true);
-      try {
-        const cloudSnapshot = await fetchBackupForDateFromGoogleSheets(spreadsheetId, normalizedDate);
-        if (cloudSnapshot?.state) {
-          const normalized = normalizeDailyStateDates({ ...cloudSnapshot.state, date: normalizedDate });
-          saveDailySnapshot(normalized);
-          setHistoricalState(normalized);
-          setHistoricalDateMessage('Loaded from Google Sheets backup');
-          return;
-        }
-      } catch (error: any) {
-        setHistoricalDateMessage(error?.message || 'Could not load this date from Google Sheets');
-      } finally {
-        setIsLoadingHistoricalDate(false);
-      }
     }
 
     setHistoricalState(createEmptyHistoricalState(normalizedDate, stateRef.current));
@@ -515,25 +488,12 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [state]);
 
-  // 1. Sync active automations and unified pending sync queue to native SharedPreferences
+  // Persist active automations for dead-process geofence matching.
   useEffect(() => {
     if (state.automations) {
       persistNativeAutomations(state.automations);
     }
-    const unsyncedTimeline = (state.timeline || []).filter((t) => t.syncStatus !== 'SYNCED');
-    persistNativeSyncQueue({
-      pendingTimeline: unsyncedTimeline,
-      pendingTasks: state.tasks || [],
-      pendingAutomations: state.automations || [],
-      pendingReminders: state.reminders || [],
-      dailySummary: {
-        date: state.date,
-        location: state.current.location,
-        energy: state.current.energy,
-        activity: state.current.activity,
-      },
-    });
-  }, [state.automations, state.timeline, state.tasks, state.reminders, state.date, state.current]);
+  }, [state.automations]);
 
   // 1b. Sync periodic accountability prompt configuration with native Android AlarmManager
   useEffect(() => {
@@ -1457,28 +1417,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // 2. Try Server-side AI endpoint
-      if (!parseResult) {
-        try {
-          const res = await fetch('/api/ai/process-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userInput,
-              currentState: state,
-              mode,
-              currentTime: userTimestamp,
-            }),
-          });
-          if (res.ok) {
-            parseResult = await res.json();
-          }
-        } catch {
-          // Server offline or unavailable, fallback to deterministic parser
-        }
-      }
-
-      // 3. Robust Offline Deterministic Parser (always succeeds offline with 0 latency)
+      // 2. Robust Offline Deterministic Parser (always succeeds offline with 0 latency).
+      // Device actions never upload the full app state or consume cloud tokens.
       if (!parseResult || !parseResult.extractedStateUpdate) {
         parseResult = parseOfflineUserInput(userInput, state, userTimestamp);
       }
@@ -2751,30 +2691,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return JSON.stringify(state, null, 2);
   }, [state]);
 
-  const exportDataSheetsCSV = useCallback(() => {
-    const todayCSV = `Metric,Value\nDate,${state.date}\nLocation,${state.current.location}\nEnergy,${state.current.energy}\nFocus Task,${state.nextBestAction?.title || 'None'}\nUpdated,${state.current.updatedAt}`;
-    
-    const tasksCSV = `ID,Title,Category,Owner,Status,Priority,DueAt,BlockedBy,Trigger\n` +
-      state.tasks.map(t => `"${t.id}","${t.title}","${t.category}","${t.owner}","${t.status}",${t.priority},"${t.dueAt || ''}","${t.blockedBy || ''}","${t.trigger || ''}"`).join('\n');
-
-    const timelineCSV = `Time,Type,Description,Location,Variance\n` +
-      state.timeline.map(e => `"${e.time}","${e.type}","${e.description}","${e.location || ''}","${e.varianceMinutes ? `${e.varianceMinutes}m` : ''}"`).join('\n');
-
-    const waitingCSV = `Title,Owner,Category,Status,Notes\n` +
-      state.tasks.filter(t => t.status === 'WAITING' || t.status === 'BLOCKED').map(t => `"${t.title}","${t.owner}","${t.category}","${t.status}","${t.blockedBy || t.notes || ''}"`).join('\n');
-
-    const timetableCSV = `Slot,Category,Time Window,Duration,Days,Status,Goal\n` +
-      (state.timetable || []).map(s => `"${s.title}","${s.category}","${s.startTime}-${s.endTime}",${s.durationMinutes},"${s.days}","${s.status}","${s.targetMetric || ''}"`).join('\n');
-
-    return {
-      TODAY: todayCSV,
-      TIMETABLE: timetableCSV,
-      TASKS: tasksCSV,
-      TIMELINE: timelineCSV,
-      WAITING: waitingCSV,
-    };
-  }, [state]);
-
   const importDataJSON = useCallback((jsonStr: string): boolean => {
     try {
       const parsed = JSON.parse(jsonStr);
@@ -2790,157 +2706,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return false;
   }, []);
-
-  const [isRestoringBackup, setIsRestoringBackup] = useState<boolean>(false);
-
-  const restoreFromGoogleSheetsBackup = useCallback(async (customSpreadsheetId?: string): Promise<{ success: boolean; message?: string }> => {
-    setIsRestoringBackup(true);
-    try {
-      const sheetId = customSpreadsheetId || state.userSettings?.googleSpreadsheetId;
-      if (!sheetId) {
-        throw new Error('No Google Spreadsheet connected. Please connect your Google account or provide a Spreadsheet ID.');
-      }
-
-      const snapshot = await fetchLatestBackupFromGoogleSheets(sheetId);
-      if (!snapshot) {
-        throw new Error('No backup records found in this Google Spreadsheet.');
-      }
-
-      // 1. Restore DailyState
-      if (snapshot.state) {
-        setState(migrateDailyState({
-          ...createFreshDailyState(),
-          ...snapshot.state,
-          userSettings: {
-            ...DEFAULT_USER_SETTINGS,
-            ...(snapshot.state.userSettings || {}),
-            googleSpreadsheetId: sheetId,
-            googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
-          },
-        }).state);
-      }
-
-      // 2. Restore AutoLearning Profile
-      if (snapshot.learningProfile) {
-        saveLearningProfile(snapshot.learningProfile);
-        setLearningProfileState(snapshot.learningProfile);
-      }
-
-      soundEffects.playTaskDone();
-      setNotificationToast(`✅ Restored DayTrace from backup (${snapshot.date})!`);
-      return { success: true, message: `Restored ${snapshot.stats?.totalTasks || 0} tasks & ${snapshot.stats?.learningInteractions || 0} learned patterns` };
-    } catch (err: any) {
-      console.error('Failed to restore backup from Google Sheets:', err);
-      const msg = err?.message || 'Failed to restore backup';
-      setNotificationToast(`⚠️ Restore Error: ${msg}`);
-      return { success: false, message: msg };
-    } finally {
-      setIsRestoringBackup(false);
-    }
-  }, [state.userSettings?.googleSpreadsheetId]);
-
-  // WhatsApp-style Automated Nightly Backup (e.g. 02:00 AM)
-  useEffect(() => {
-    const checkNightlySync = async () => {
-      const settings = state.userSettings || DEFAULT_USER_SETTINGS;
-      if (settings.enableNightlySync === false || !settings.googleSpreadsheetId) return;
-
-      const now = new Date();
-      const currentHour = now.getHours();
-      const targetHour = settings.nightlySyncHour ?? 2; // 2 AM
-      const todayDateStr = toLocalDateKey(now);
-
-      const lastBackupDate = settings.lastNightlyBackupAt ? settings.lastNightlyBackupAt.split('T')[0] : '';
-      if (currentHour === targetHour && lastBackupDate !== todayDateStr) {
-        try {
-          const res = await syncStateToGoogleSheets(state, settings.googleSpreadsheetId);
-          updateUserSettings({
-            lastSyncedAt: res.syncedAt,
-            lastNightlyBackupAt: now.toISOString(),
-          });
-          setNotificationToast(`🌙 Nightly Backup: Synced all tasks, logs & learnings to Google Sheets`);
-        } catch (e) {
-          console.warn('Nightly auto-backup attempt skipped/failed', e);
-        }
-      }
-    };
-
-    const interval = setInterval(checkNightlySync, 60 * 1000);
-    return () => clearInterval(interval);
-  }, [state, updateUserSettings]);
-
-  const syncToGoogleSheets = useCallback(async (): Promise<{ success: boolean; url?: string; error?: string }> => {
-    setIsSyncingSheets(true);
-    try {
-      const settings = state.userSettings || DEFAULT_USER_SETTINGS;
-      const res = await syncStateToGoogleSheets(state, settings.googleSpreadsheetId);
-      
-      updateUserSettings({
-        googleSpreadsheetId: res.spreadsheetId,
-        googleSpreadsheetUrl: res.spreadsheetUrl,
-        googleSpreadsheetTitle: res.spreadsheetTitle,
-        lastSyncedAt: res.syncedAt,
-        googleAuthStatus: 'CONNECTED',
-        googleAuthError: null,
-      });
-
-      if (res.updatedTimeline) {
-        setState((prev) => ({
-          ...prev,
-          timeline: res.updatedTimeline!,
-        }));
-      }
-
-      await markNativeSyncCompleted();
-
-      if (res.newEntriesSynced > 0 || res.recordsUpdated > 0) {
-        setNotificationToast(`📊 Synced: ${res.newEntriesSynced} new, ${res.recordsUpdated} updated + full backup!`);
-      } else {
-        setNotificationToast(`📊 Google Sheets: All records up-to-date (Full backup saved).`);
-      }
-
-      soundEffects.playTaskDone();
-      return { success: true, url: res.spreadsheetUrl };
-    } catch (err: any) {
-      console.error('Google Sheets sync error:', err);
-      const errMsg = err?.message || 'Sync failed. Please check permissions.';
-      updateUserSettings({
-        googleAuthStatus: /cancel/i.test(errMsg) ? 'CANCELLED' : 'ERROR',
-        googleAuthError: errMsg,
-      });
-      setNotificationToast(`⚠️ Google Sheets Sync: ${errMsg}`);
-      return { success: false, error: errMsg };
-    } finally {
-      setIsSyncingSheets(false);
-    }
-  }, [state, updateUserSettings]);
-
-  const disconnectGoogleSheets = useCallback(() => {
-    requestDestructiveConfirmation({
-      title: 'Disconnect Google Sheets?',
-      description: 'DayTrace will revoke its Google Sheets and Drive-file access. Your local DayTrace data and the spreadsheet itself will not be deleted.',
-      confirmLabel: 'Disconnect Google',
-      onConfirm: () => {
-        void (async () => {
-          try {
-            await disconnectGoogle();
-            updateUserSettings({
-              googleSpreadsheetId: null,
-              googleSpreadsheetUrl: null,
-              googleSpreadsheetTitle: null,
-              googleAuthStatus: 'DISCONNECTED',
-              googleAuthError: null,
-            });
-            setNotificationToast('Google Sheets disconnected. Local DayTrace data was preserved.');
-          } catch (error: any) {
-            const message = error?.message || 'Google access could not be disconnected.';
-            updateUserSettings({ googleAuthStatus: 'ERROR', googleAuthError: message });
-            setNotificationToast(message);
-          }
-        })();
-      },
-    });
-  }, [requestDestructiveConfirmation, updateUserSettings]);
 
   const triggerNativePromptTest = useCallback(async (delaySeconds: number = 10) => {
     if (isNativeAndroid()) {
@@ -3006,11 +2771,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         triggerManualPromptCheck,
         recordPeriodicPromptCompletion,
         triggerNativePromptTest,
-        syncToGoogleSheets,
-        disconnectGoogleSheets,
-        isSyncingSheets,
-        restoreFromGoogleSheetsBackup,
-        isRestoringBackup,
         // Deep Work & Pomodoro Focus Engine
         focusTimer,
         startFocusTimer,
@@ -3047,7 +2807,6 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetToDefault,
         resetToFreshStart,
         exportDataJSON,
-        exportDataSheetsCSV,
         importDataJSON,
         currentTimeString,
         learningProfile,

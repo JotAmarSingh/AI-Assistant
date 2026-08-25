@@ -135,6 +135,21 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     ...(raw.migrationMetadata?.appliedVersions || []),
     CURRENT_STATE_SCHEMA_VERSION,
   ])).sort((a, b) => a - b);
+  // Schema 6 permanently removed the abandoned Google Sheets/OAuth path. Drop
+  // only those legacy settings while preserving every user-owned local field.
+  const {
+    googleSpreadsheetId: _googleSpreadsheetId,
+    googleSpreadsheetUrl: _googleSpreadsheetUrl,
+    googleSpreadsheetTitle: _googleSpreadsheetTitle,
+    lastSyncedAt: _lastSyncedAt,
+    autoSyncOnReview: _autoSyncOnReview,
+    enableNightlySync: _enableNightlySync,
+    nightlySyncHour: _nightlySyncHour,
+    lastNightlyBackupAt: _lastNightlyBackupAt,
+    googleAuthStatus: _googleAuthStatus,
+    googleAuthError: _googleAuthError,
+    ...localUserSettings
+  } = (raw.userSettings || {}) as Record<string, unknown>;
 
   const merged: DailyState = {
     ...fresh,
@@ -142,7 +157,7 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
     userSettings: {
       ...DEFAULT_USER_SETTINGS,
-      ...(raw.userSettings || {}),
+      ...localUserSettings,
       // Old example locations must never keep tracking enabled on their own.
       geofenceEnabled: locations.length > 0 && !!raw.userSettings?.geofenceEnabled,
     },
@@ -167,7 +182,7 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     meetings: raw.meetings || [],
     migrationMetadata: {
       ...(raw.migrationMetadata || {}),
-      ...(removedSeedRecords > 0 || fromVersion < CURRENT_STATE_SCHEMA_VERSION
+      ...(removedSeedRecords > 0
         ? { seededExamplesPurgedAt: raw.migrationMetadata?.seededExamplesPurgedAt || now }
         : {}),
       appliedVersions,

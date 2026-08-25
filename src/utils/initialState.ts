@@ -1,7 +1,7 @@
 import { DailyState, GeofenceLocation, TaskCategoryDefinition } from '../types';
 import { INITIAL_GAMIFICATION_STATE } from '../services/rewardsCatalog';
 
-export const CURRENT_STATE_SCHEMA_VERSION = 5;
+export const CURRENT_STATE_SCHEMA_VERSION = 6;
 export const UNCATEGORISED_CATEGORY_ID = 'UNCATEGORISED';
 
 const category = (
@@ -48,16 +48,11 @@ export const DEFAULT_USER_SETTINGS = {
   gamingModeActive: false,
   snoozedUntil: null,
   alarmSoundEnabled: true,
-  enableNightlySync: true,
-  nightlySyncHour: 2,
-  lastNightlyBackupAt: null,
   geofenceEnabled: false,
   geofenceRadiusMeters: 200,
   locationLearningEnabled: false,
   locationDwellMinutes: 10,
   meetingAudioRetention: 'KEEP' as const,
-  googleAuthStatus: 'DISCONNECTED' as const,
-  googleAuthError: null,
 };
 
 const localDateKey = (date = new Date()) => {

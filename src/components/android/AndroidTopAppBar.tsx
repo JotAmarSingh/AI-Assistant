@@ -16,7 +16,7 @@ import {
   CalendarDays,
   Copy,
   ShieldCheck,
-  CloudDownload
+  Upload
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
@@ -155,7 +155,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
           </div>
         </div>
 
-        {/* Right: Quick Action Tools (Rewards, Meeting Mode, Pomodoro, Sheets, Reset) */}
+        {/* Right: Quick Action Tools (Rewards, Meeting Mode, Pomodoro, Backup, Guide) */}
         <div className="flex items-center space-x-1">
           {/* Rewards & Streak Pill */}
           <button
@@ -195,9 +195,9 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
             )}
           </button>
 
-          {/* Backup & Data Sync Button */}
+          {/* Local JSON Backup & Restore Button */}
           <button
-            id="sync-sheets-btn"
+            id="json-backup-btn"
             onClick={() => setShowSyncModal(true)}
             className="p-1.5 rounded-xl bg-[#2E3036] hover:bg-[#334867] text-[#D1E1FF] transition shadow-xs"
             title="Data Backup & Restore (.json)"
@@ -528,7 +528,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
                 onClick={() => document.getElementById('json-file-input')?.click()}
                 className="w-full py-3 px-4 rounded-2xl bg-[#86EFAC]/20 hover:bg-[#86EFAC]/30 text-[#86EFAC] text-xs font-bold flex items-center justify-center space-x-2 transition border border-[#86EFAC]/40"
               >
-                <CloudDownload className="w-4 h-4 text-[#86EFAC]" />
+                <Upload className="w-4 h-4 text-[#86EFAC]" />
                 <span>Select & Restore (.json File)</span>
               </button>
 

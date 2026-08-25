@@ -7,7 +7,6 @@ export interface DayTraceAIProps {
   mode?: 'idle' | 'listening' | 'thinking' | 'talking' | 'alert';
   statusText?: string;
   height?: number | string;
-  assetPath?: string;
   onClick?: () => void;
 }
 
@@ -24,17 +23,13 @@ interface Particle {
 export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   active = true,
   mode = 'idle',
-  statusText = 'CYBERNETIC AI CORE ACTIVE',
+  statusText = 'DAYTRACE AI READY',
   height = 360,
-  assetPath = '/assets/daytrace-ai.webp',
   onClick
 }) => {
   const rainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [isGlitching, setIsGlitching] = useState(false);
   const [isAppVisible, setIsAppVisible] = useState(true);
 
   // 3D Gyroscope / Accelerator Motion State
@@ -302,20 +297,6 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
     };
   }, [isFullyActive, height]);
 
-  // 4. Micro Glitch Controller
-  useEffect(() => {
-    if (!isFullyActive) return;
-
-    const glitchInterval = setInterval(() => {
-      if (Math.random() > 0.5) {
-        setIsGlitching(true);
-        setTimeout(() => setIsGlitching(false), 120);
-      }
-    }, 10000);
-
-    return () => clearInterval(glitchInterval);
-  }, [isFullyActive]);
-
   const isAlert = mode === 'alert';
   const isListening = mode === 'listening';
   const isThinking = mode === 'thinking';
@@ -323,7 +304,7 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
   return (
     <div 
       onClick={onClick}
-      className={`daytrace-ai-container ${!isFullyActive ? 'paused' : ''} ${isGlitching ? 'glitching' : ''} ${isListening ? 'mode-listening' : ''} ${onClick ? 'interactive' : ''}`} 
+      className={`daytrace-ai-container ${!isFullyActive ? 'paused' : ''} mode-${mode} ${onClick ? 'interactive' : ''}`}
       style={{ height }}
       title={onClick ? (isListening ? "Listening... Tap to stop" : "Tap AI to speak") : undefined}
     >
@@ -338,36 +319,15 @@ export const DayTraceAI: React.FC<DayTraceAIProps> = ({
       <div className={`daytrace-ai-ring ring-middle ${isListening ? 'border-[#FFB4AB]' : ''}`} />
       <div className={`daytrace-ai-ring ring-inner ${isListening ? 'border-[#FF8D80]' : ''}`} />
 
-      {/* Layer 4: 3D Sensor Motion Tilt Wrapper */}
+      {/* Reactive energy orb: no raster avatar asset. */}
       <div className="daytrace-ai-tilt-wrapper" style={tiltStyle}>
-        {/* Layer 4b: Humanoid Visual Asset OR Clean Holographic Projection Field */}
-        <div className="daytrace-ai-humanoid-wrapper">
-          {!imageError && (
-            <img
-              src={assetPath}
-              alt=""
-              className={`daytrace-ai-image ${imageLoaded ? 'loaded' : ''}`}
-              onLoad={() => setImageLoaded(true)}
-              onError={() => {
-                setImageError(true);
-                console.warn('DayTrace AI Asset Not Found (/assets/daytrace-ai.webp) - Rendering empty holographic field');
-              }}
-            />
-          )}
-
-          {imageError && (
-            /* Clean Empty Holographic Projection Field (NO TEXT, NO BROKEN ICON, NO FABRICATED VECTOR FACE) */
-            <div className="relative w-full h-full flex flex-col items-center justify-center text-center p-4">
-              <div className="w-24 h-24 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/5 flex items-center justify-center shadow-[0_0_25px_rgba(0,240,255,0.15)] animate-pulse" />
-            </div>
-          )}
-
-          {/* Layer 7: Extremely Subtle Chest Core */}
-          {!imageError && imageLoaded && (
-            <div className="daytrace-ai-core" style={{ backgroundColor: isAlert || isListening ? '#F87171' : '#00F0FF' }}>
-              <div className="daytrace-ai-core-pulse" style={{ borderColor: isAlert || isListening ? '#F87171' : '#00F0FF' }} />
-            </div>
-          )}
+        <div className="daytrace-energy-orb" role="img" aria-label={`AI ${mode}`}>
+          <div className="daytrace-orb-halo" />
+          <div className="daytrace-orb-shell" />
+          <div className="daytrace-orb-flow flow-a" />
+          <div className="daytrace-orb-flow flow-b" />
+          <div className="daytrace-orb-flow flow-c" />
+          <div className="daytrace-orb-core" />
         </div>
       </div>
 

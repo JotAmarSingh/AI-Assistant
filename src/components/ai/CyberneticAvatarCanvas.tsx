@@ -170,7 +170,7 @@ export const CyberneticAvatarCanvas: React.FC<CyberneticAvatarCanvasProps> = ({
                 <Cpu className="w-3 h-3 animate-spin text-[#FBBF24]" />
                 CYBERNETIC AI EXECUTING TASK...
               </span>
-              <span className="text-[9px] text-[#00F0FF]/70">GEMINI PRO 2.5</span>
+              <span className="text-[9px] text-[#00F0FF]/70">GEMINI ONLINE</span>
             </div>
 
             <div className="space-y-1 max-h-32 overflow-y-auto">

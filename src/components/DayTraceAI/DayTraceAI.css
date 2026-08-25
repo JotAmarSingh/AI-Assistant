@@ -94,44 +94,157 @@
   will-change: transform;
 }
 
-/* Layer 4b: Humanoid Visual Asset & Idle Breathing Float */
-.daytrace-ai-humanoid-wrapper {
+/* Voice-reactive, asset-free energy orb */
+.daytrace-energy-orb {
   position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: daytrace-ai-breathe 6.5s ease-in-out infinite alternate;
-  will-change: filter;
+  width: 164px;
+  height: 164px;
+  border-radius: 50%;
+  isolation: isolate;
+  animation: daytrace-orb-breathe 3.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 24px rgba(63, 214, 255, 0.55));
+  transition: filter 260ms ease, transform 260ms ease;
 }
 
-@keyframes daytrace-ai-breathe {
-  0% {
-    transform: translateY(2px);
-    filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.25));
-  }
-  100% {
-    transform: translateY(-4px);
-    filter: drop-shadow(0 0 25px rgba(0, 240, 255, 0.45));
-  }
-}
-
-.daytrace-ai-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  filter: brightness(1.08) contrast(1.08) blur(6px) drop-shadow(0 0 10px rgba(0, 240, 255, 0.2));
-  opacity: 0;
-  transform: scale(0.95);
-  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+.daytrace-orb-halo,
+.daytrace-orb-shell,
+.daytrace-orb-flow,
+.daytrace-orb-core {
+  position: absolute;
+  border-radius: 50%;
   pointer-events: none;
 }
 
-.daytrace-ai-image.loaded {
-  opacity: 1;
-  transform: scale(1);
-  filter: brightness(1.08) contrast(1.08) blur(0px) drop-shadow(0 0 20px rgba(0, 240, 255, 0.45));
+.daytrace-orb-halo {
+  inset: -22px;
+  background: radial-gradient(circle, rgba(76, 219, 255, 0.28), rgba(93, 76, 255, 0.12) 42%, transparent 72%);
+  filter: blur(10px);
+  animation: daytrace-orb-halo 2.8s ease-in-out infinite;
+}
+
+.daytrace-orb-shell {
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.95) 0 4%, rgba(117, 229, 255, 0.68) 11%, transparent 31%),
+    conic-gradient(from 25deg, #2fe5ff, #4968ff 24%, #b33cff 48%, #ff4db8 68%, #48f4bd 86%, #2fe5ff);
+  box-shadow:
+    inset 12px -14px 30px rgba(20, 11, 90, 0.48),
+    inset -10px 12px 24px rgba(205, 252, 255, 0.28),
+    0 0 32px rgba(74, 190, 255, 0.65);
+  animation: daytrace-orb-turn 7s linear infinite;
+}
+
+.daytrace-orb-flow {
+  mix-blend-mode: screen;
+  filter: blur(13px);
+  opacity: 0.82;
+}
+
+.flow-a {
+  width: 110px;
+  height: 72px;
+  left: -3px;
+  top: 25px;
+  border-radius: 48% 52% 68% 32%;
+  background: linear-gradient(115deg, #3deaff, #2962ff 70%);
+  animation: daytrace-flow-a 3.2s ease-in-out infinite alternate;
+}
+
+.flow-b {
+  width: 104px;
+  height: 90px;
+  right: -3px;
+  bottom: 16px;
+  border-radius: 62% 38% 45% 55%;
+  background: linear-gradient(135deg, #ff4fc8, #8c45ff 60%, #4169ff);
+  animation: daytrace-flow-b 3.7s ease-in-out infinite alternate;
+}
+
+.flow-c {
+  width: 92px;
+  height: 54px;
+  left: 35px;
+  bottom: 4px;
+  border-radius: 34% 66% 48% 52%;
+  background: linear-gradient(90deg, #3af2b4, #46dcff);
+  animation: daytrace-flow-c 2.9s ease-in-out infinite alternate;
+}
+
+.daytrace-orb-core {
+  inset: 42px;
+  background: radial-gradient(circle at 42% 38%, #ffffff, rgba(194, 247, 255, 0.82) 18%, rgba(91, 142, 255, 0.34) 52%, transparent 75%);
+  filter: blur(2px);
+  animation: daytrace-orb-core 1.8s ease-in-out infinite;
+}
+
+.daytrace-ai-container.mode-listening .daytrace-energy-orb {
+  animation-duration: 0.78s;
+  filter: drop-shadow(0 0 38px rgba(255, 77, 184, 0.82));
+}
+
+.daytrace-ai-container.mode-listening .daytrace-orb-shell {
+  animation-duration: 2.1s;
+}
+
+.daytrace-ai-container.mode-thinking .daytrace-energy-orb {
+  animation: daytrace-orb-think 1.25s ease-in-out infinite;
+  filter: drop-shadow(0 0 38px rgba(150, 79, 255, 0.8));
+}
+
+.daytrace-ai-container.mode-thinking .daytrace-orb-shell {
+  animation-duration: 1.3s;
+}
+
+.daytrace-ai-container.mode-talking .daytrace-energy-orb {
+  animation: daytrace-orb-talk 0.92s ease-in-out infinite;
+  filter: drop-shadow(0 0 34px rgba(55, 240, 199, 0.75));
+}
+
+.daytrace-ai-container.mode-alert .daytrace-energy-orb {
+  filter: drop-shadow(0 0 38px rgba(255, 92, 92, 0.8));
+}
+
+@keyframes daytrace-orb-breathe {
+  0%, 100% { transform: scale(0.96); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes daytrace-orb-halo {
+  0%, 100% { opacity: 0.62; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes daytrace-orb-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes daytrace-flow-a {
+  to { transform: translate(25px, 35px) rotate(42deg) scale(1.16); }
+}
+
+@keyframes daytrace-flow-b {
+  to { transform: translate(-28px, -24px) rotate(-46deg) scale(1.12); }
+}
+
+@keyframes daytrace-flow-c {
+  to { transform: translate(-20px, -58px) rotate(30deg) scale(1.2); }
+}
+
+@keyframes daytrace-orb-core {
+  0%, 100% { opacity: 0.68; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.22); }
+}
+
+@keyframes daytrace-orb-think {
+  0%, 100% { transform: scale(0.94) rotate(-2deg); }
+  50% { transform: scale(1.08) rotate(3deg); }
+}
+
+@keyframes daytrace-orb-talk {
+  0%, 100% { transform: scale(0.97); }
+  35% { transform: scale(1.07, 0.95); }
+  65% { transform: scale(0.96, 1.08); }
 }
 
 /* Layer 5: Fine Scanlines & Periodic Vertical Laser Scan Beam */
@@ -178,67 +291,17 @@
   }
 }
 
-/* Layer 7: Micro Digital Glitch Animation (60-160ms Duration) */
-.daytrace-ai-container.glitching .daytrace-ai-humanoid-wrapper {
-  animation: daytrace-glitch-flicker 0.12s steps(2, start) 1;
-}
-
-@keyframes daytrace-glitch-flicker {
-  0% {
-    transform: translate(0, 0);
-    filter: drop-shadow(-2px 0 cyan) drop-shadow(2px 0 blue);
-  }
-  50% {
-    transform: translate(-3px, 1px);
-    filter: drop-shadow(2px 0 cyan);
-  }
-  100% {
-    transform: translate(0, 0);
-  }
-}
-
-/* Layer 7: Extremely Subtle Chest Core (No Iron Man Reactor) */
-.daytrace-ai-core {
-  position: absolute;
-  top: 68%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #00F0FF;
-  box-shadow: 0 0 8px #00F0FF;
-  z-index: 15;
-  pointer-events: none;
-}
-
-.daytrace-ai-core-pulse {
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  border: 1px fill rgba(0, 240, 255, 0.4);
-  animation: daytrace-core-expand 3s cubic-bezier(0, 0.2, 0.8, 1) infinite;
-}
-
-@keyframes daytrace-core-expand {
-  0% {
-    transform: scale(0.6);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(2);
-    opacity: 0;
-  }
-}
-
 /* Reduced Motion Override */
 @media (prefers-reduced-motion: reduce) {
-  .daytrace-ai-humanoid-wrapper,
+  .daytrace-energy-orb,
+  .daytrace-orb-halo,
+  .daytrace-orb-shell,
+  .daytrace-orb-flow,
+  .daytrace-orb-core,
   .ring-outer,
   .ring-middle,
   .ring-inner,
-  .daytrace-ai-laser-beam,
-  .daytrace-ai-core-pulse {
+  .daytrace-ai-laser-beam {
     animation: none !important;
   }
 }

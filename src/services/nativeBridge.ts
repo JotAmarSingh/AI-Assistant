@@ -21,20 +21,18 @@ export interface DayTraceNativePluginInterface {
   }): Promise<{ scheduled: boolean; isExact: boolean }>;
   cancelAlarm(options: { reminderId: string }): Promise<{ cancelled: boolean }>;
   canScheduleExactAlarms(): Promise<{ canScheduleExact: boolean }>;
+  openExactAlarmSettings(): Promise<{ success: boolean; alreadyGranted?: boolean }>;
 
   // Geofencing
   registerGeofences(options: { locations: GeofenceLocation[] }): Promise<{ success: boolean; registeredCount: number }>;
   removeAllGeofences(): Promise<{ success: boolean }>;
   getCurrentLocation(): Promise<{ latitude: number; longitude: number; accuracyMeters: number }>;
+  requestGeofencePermissions(): Promise<{ foregroundGranted: boolean; backgroundGranted: boolean }>;
 
   // Native Automation Persistence (Dead-Process Geofence Matching)
   syncNativeAutomations(options: { automations: Automation[] }): Promise<{ success: boolean; count: number }>;
   getNativePendingState(): Promise<{ pendingEvents?: any[]; pendingLogs: any[]; automations: any[] }>;
   acknowledgeNativeEvents(options: { eventIds: string[] }): Promise<{ success: boolean; acknowledged: number }>;
-  syncPendingQueue(options: { queue: any }): Promise<{ success: boolean }>;
-  getPendingQueue(): Promise<{ queue: any; syncStatus: string; lastQueuedAt: number }>;
-  markNativeSyncCompleted(): Promise<{ success: boolean }>;
-  configureNightlySync(options: { syncEndpoint?: string; authToken?: string }): Promise<{ scheduled: boolean }>;
 
   // On-Device AI / Gemini Nano Status Check
   checkGeminiNanoStatus(): Promise<{
@@ -62,14 +60,11 @@ export interface DayTraceNativePluginInterface {
 
   triggerTestPeriodicPrompt(options?: { delaySeconds?: number }): Promise<{ scheduled: boolean; delaySeconds: number }>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
-  requestAllPermissions(): Promise<{ notifications: boolean; recordAudio: boolean; location: boolean; granted: boolean }>;
-  exportJsonBackup(options: { jsonText: string; fileName?: string }): Promise<{ success: boolean; path?: string }>;
+  exportJsonBackup(options: { jsonText: string; fileName?: string }): Promise<{ success: boolean; path?: string; uri?: string }>;
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
+  getCapabilityStatus(): Promise<{ permissions: DevicePermissionContext }>;
   openNotificationSettings(): Promise<{ success: boolean }>;
-  requestGoogleSheetsAccess(): Promise<{ accessToken: string; expiresInSeconds: number }>;
   getAppIdentity(): Promise<NativeAppIdentity>;
-  clearGoogleSheetsAccess(): Promise<{ success: boolean }>;
-  revokeGoogleSheetsAccess(): Promise<{ success: boolean; revoked: boolean }>;
 
   // Meeting Mode foreground recording
   startMeetingRecording(options: { meetingId: string; title: string }): Promise<NativeMeetingRecordingState>;
@@ -125,6 +120,16 @@ export interface NativeAppIdentity {
   buildType: string;
 }
 
+export type DevicePermissionContext = Partial<Record<
+  'notifications' | 'microphone' | 'location' | 'backgroundLocation' | 'exactAlarms',
+  string
+>>;
+
+export interface DeviceCapabilityContext {
+  features: string[];
+  permissions: DevicePermissionContext;
+}
+
 export interface NativeMeetingRecordingState {
   meetingId: string;
   title: string;
@@ -142,6 +147,53 @@ export interface NativeMeetingRecordingState {
  */
 export const isNativeAndroid = (): boolean => {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+};
+
+/** Read permission state only when the user's question needs it. */
+export const getDeviceCapabilityContext = async (): Promise<DeviceCapabilityContext> => {
+  const features = [
+    'local tasks and timetable',
+    'native exact reminders',
+    'lock-screen accountability prompts',
+    'saved-place geofences',
+    'live location on request',
+    'voice input and meeting recording',
+    'local JSON backup and restore',
+    'optional Gemini online answers',
+  ];
+
+  if (isNativeAndroid()) {
+    try {
+      const result = await DayTraceNative.getCapabilityStatus();
+      return { features, permissions: result.permissions || {} };
+    } catch (error) {
+      console.warn('Could not read native capability status', error);
+    }
+  }
+
+  return {
+    features,
+    permissions: {
+      notifications: typeof Notification !== 'undefined' ? Notification.permission.toUpperCase() : 'UNKNOWN',
+      microphone: 'UNKNOWN',
+      location: 'UNKNOWN',
+      backgroundLocation: 'NOT_AVAILABLE_IN_BROWSER',
+      exactAlarms: 'NOT_AVAILABLE_IN_BROWSER',
+    },
+  };
+};
+
+export const requestNativeGeofencePermissions = async (): Promise<{
+  foregroundGranted: boolean;
+  backgroundGranted: boolean;
+}> => {
+  if (!isNativeAndroid()) return { foregroundGranted: true, backgroundGranted: true };
+  return DayTraceNative.requestGeofencePermissions();
+};
+
+export const openNativeExactAlarmSettings = async (): Promise<{ success: boolean; alreadyGranted?: boolean }> => {
+  if (!isNativeAndroid()) return { success: false };
+  return DayTraceNative.openExactAlarmSettings();
 };
 
 /**
@@ -224,20 +276,54 @@ export const promptOnDeviceAi = async (promptText: string): Promise<string | nul
 /**
  * Schedules an exact native Android Alarm via AlarmManager
  */
+export const parseReminderTriggerTime = (timeText: string, now = new Date()): number | null => {
+  const text = timeText.trim().toLowerCase();
+  if (!text) return null;
+
+  const isoMillis = /^\d{4}-\d{2}-\d{2}t/i.test(text) ? Date.parse(timeText) : Number.NaN;
+  if (Number.isFinite(isoMillis)) return isoMillis;
+
+  const match = text.match(/(?:^|\b)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\b|$)/i);
+  if (!match) return null;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] || 0);
+  const meridiem = match[3]?.toLowerCase();
+  if (minutes < 0 || minutes > 59) return null;
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null;
+    if (hours === 12) hours = 0;
+    if (meridiem === 'pm') hours += 12;
+  } else if (hours < 0 || hours > 23) {
+    return null;
+  }
+
+  const target = new Date(now);
+  target.setHours(hours, minutes, 0, 0);
+  if (/\btomorrow\b/.test(text)) {
+    target.setDate(target.getDate() + 1);
+  } else if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target.getTime();
+};
+
 export const scheduleNativeReminder = async (reminderId: string, timeStr: string, message: string) => {
   if (!isNativeAndroid()) return;
 
   try {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    const target = new Date();
-    target.setHours(hours || 9, minutes || 0, 0, 0);
-    if (target.getTime() <= Date.now()) {
-      target.setDate(target.getDate() + 1); // schedule for tomorrow if time already passed
+    const triggerTimeMillis = parseReminderTriggerTime(timeStr);
+    if (!triggerTimeMillis) throw new Error(`Unsupported reminder time: ${timeStr}`);
+
+    const notificationStatus = await DayTraceNative.checkNotificationPermission();
+    if (!notificationStatus.granted) {
+      const requested = await DayTraceNative.requestNotificationPermission();
+      if (!requested.granted) throw new Error('Notification permission is required for reminders.');
     }
 
     await DayTraceNative.scheduleExactAlarm({
       reminderId,
-      triggerTimeMillis: target.getTime(),
+      triggerTimeMillis,
       title: 'DayTrace Reminder',
       message,
     });
@@ -310,50 +396,6 @@ export const acknowledgeNativeEvents = async (eventIds: string[]): Promise<numbe
 };
 
 /**
- * Persists the unified pending sync queue to Android SharedPreferences
- * so NightlySyncWorker and background services access the same dataset as manual sync
- */
-export const persistNativeSyncQueue = async (queue: {
-  pendingTimeline: any[];
-  pendingTasks: any[];
-  pendingAutomations: any[];
-  pendingReminders: any[];
-  dailySummary?: any;
-}) => {
-  if (!isNativeAndroid()) return;
-  try {
-    await DayTraceNative.syncPendingQueue({ queue });
-  } catch (e) {
-    console.warn('Failed to persist sync queue to native storage:', e);
-  }
-};
-
-/**
- * Retrieves the unified pending sync queue status from native storage
- */
-export const fetchNativeSyncQueue = async (): Promise<{ queue: any; syncStatus: string; lastQueuedAt: number } | null> => {
-  if (!isNativeAndroid()) return null;
-  try {
-    return await DayTraceNative.getPendingQueue();
-  } catch (e) {
-    console.warn('Failed to retrieve native sync queue:', e);
-    return null;
-  }
-};
-
-/**
- * Marks native sync queue as completed after successful Google Sheets sync
- */
-export const markNativeSyncCompleted = async () => {
-  if (!isNativeAndroid()) return;
-  try {
-    await DayTraceNative.markNativeSyncCompleted();
-  } catch (e) {
-    console.warn('Failed to mark native sync completed:', e);
-  }
-};
-
-/**
  * Synchronizes accountability prompt configuration with native Android AlarmManager
  */
 export const syncNativePeriodicPromptConfig = async (config: {
@@ -412,17 +454,7 @@ export const requestNativeNotificationPermission = async (): Promise<boolean> =>
   }
 };
 
-export const requestAllNativePermissions = async (): Promise<{ notifications: boolean; recordAudio: boolean; location: boolean; granted: boolean }> => {
-  if (!isNativeAndroid()) return { notifications: true, recordAudio: true, location: true, granted: true };
-  try {
-    return await DayTraceNative.requestAllPermissions();
-  } catch (e) {
-    console.warn('Failed to request all native permissions:', e);
-    return { notifications: false, recordAudio: false, location: false, granted: false };
-  }
-};
-
-export const exportNativeJsonBackup = async (jsonText: string, fileName: string): Promise<{ success: boolean; path?: string }> => {
+export const exportNativeJsonBackup = async (jsonText: string, fileName: string): Promise<{ success: boolean; path?: string; uri?: string }> => {
   if (isNativeAndroid()) {
     try {
       return await DayTraceNative.exportJsonBackup({ jsonText, fileName });
@@ -443,18 +475,6 @@ export const exportNativeJsonBackup = async (jsonText: string, fileName: string)
   }
 };
 
-/** Uses Android Google Identity Services instead of loading the browser GIS SDK in a WebView. */
-export const requestNativeGoogleSheetsAccess = async (): Promise<string> => {
-  if (!isNativeAndroid()) {
-    throw new Error('Native Google authorization is only available in the Android app.');
-  }
-  const result = await DayTraceNative.requestGoogleSheetsAccess();
-  if (!result?.accessToken) {
-    throw new Error('Google authorization did not return an access token.');
-  }
-  return result.accessToken;
-};
-
 export const getNativeAppIdentity = async (): Promise<NativeAppIdentity | null> => {
   if (!isNativeAndroid()) return null;
   try {
@@ -463,16 +483,6 @@ export const getNativeAppIdentity = async (): Promise<NativeAppIdentity | null> 
     console.warn('Failed to read installed Android app identity:', error);
     return null;
   }
-};
-
-export const clearNativeGoogleSheetsAccess = async (): Promise<void> => {
-  if (!isNativeAndroid()) return;
-  await DayTraceNative.clearGoogleSheetsAccess();
-};
-
-export const revokeNativeGoogleSheetsAccess = async (): Promise<void> => {
-  if (!isNativeAndroid()) return;
-  await DayTraceNative.revokeGoogleSheetsAccess();
 };
 
 export const checkNativeNotificationPermission = async (): Promise<NativeNotificationPermissionStatus> => {

@@ -45,15 +45,6 @@ const androidSplashDrawables = [
 ];
 
 async function generateAll() {
-  // Sync daytrace-ai.webp to public/assets/ if placed in root assets/
-  const rootAsset = path.resolve('assets/daytrace-ai.webp');
-  const publicAsset = path.resolve('public/assets/daytrace-ai.webp');
-  if (fs.existsSync(rootAsset)) {
-    fs.mkdirSync(path.dirname(publicAsset), { recursive: true });
-    fs.copyFileSync(rootAsset, publicAsset);
-    console.log('   ✓ Synced assets/daytrace-ai.webp -> public/assets/daytrace-ai.webp');
-  }
-
   // Generate Android Mipmaps
   for (const m of androidMipmaps) {
     const dir = path.resolve(m.dir);

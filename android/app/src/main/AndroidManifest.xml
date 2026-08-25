@@ -72,7 +72,7 @@
         <receiver
             android:name=".GeofenceBroadcastReceiver"
             android:enabled="true"
-            android:exported="true" />
+            android:exported="false" />
 
         <!-- Notification Direct Action Receiver (Handles DONE/SNOOZE when app is dead) -->
         <receiver

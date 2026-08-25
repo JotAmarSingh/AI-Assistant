@@ -106,28 +106,24 @@ if (parsed.automations.length === 2 &&
   process.exit(1);
 }
 
-// 5. Test Native Source Code Completeness & Unified Sync Queue
-console.log('\n5. ANDROID NATIVE SOURCE CODE & UNIFIED SYNC QUEUE VALIDATION:');
+// 5. Test native source completeness and local-only backup behavior
+console.log('\n5. ANDROID NATIVE SOURCE & LOCAL BACKUP VALIDATION:');
 const nativePluginSrc = fs.readFileSync('android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java', 'utf8');
 const geofenceReceiverSrc = fs.readFileSync('android/app/src/main/java/com/amarsingh/daytrace/GeofenceBroadcastReceiver.java', 'utf8');
 const actionReceiverSrc = fs.readFileSync('android/app/src/main/java/com/amarsingh/daytrace/NotificationActionReceiver.java', 'utf8');
-const nightlyWorkerSrc = fs.readFileSync('android/app/src/main/java/com/amarsingh/daytrace/NightlySyncWorker.java', 'utf8');
-const sheetsSyncSrc = fs.readFileSync('src/services/googleSheetsSync.ts', 'utf8');
+const mainActivitySrc = fs.readFileSync('android/app/src/main/java/com/amarsingh/daytrace/MainActivity.java', 'utf8');
 
 const checks = [
   { name: 'syncNativeAutomations in Plugin', ok: nativePluginSrc.includes('syncNativeAutomations') },
   { name: 'getNativePendingState in Plugin', ok: nativePluginSrc.includes('getNativePendingState') },
-  { name: 'syncPendingQueue in Plugin', ok: nativePluginSrc.includes('syncPendingQueue') },
-  { name: 'getPendingQueue in Plugin', ok: nativePluginSrc.includes('getPendingQueue') },
-  { name: 'markNativeSyncCompleted in Plugin', ok: nativePluginSrc.includes('markNativeSyncCompleted') },
   { name: 'Dead process persistence in GeofenceBroadcastReceiver', ok: geofenceReceiverSrc.includes('DayTraceNativePlugin.PREFS_AUTOMATIONS') && geofenceReceiverSrc.includes('findMatchingAutomations') },
+  { name: 'Saved-place display names survive native geofence transitions', ok: nativePluginSrc.includes('PREFS_GEOFENCE_NAMES') && geofenceReceiverSrc.includes('resolveLocationName') },
   { name: 'TRIGGERED status update (not completed on geofence fire)', ok: geofenceReceiverSrc.includes('updateAutomationToTriggered') },
   { name: 'NotificationActionReceiver handles DONE & SNOOZE', ok: actionReceiverSrc.includes('COMPLETED') && actionReceiverSrc.includes('SNOOZED') },
   { name: 'Smart Alert PowerManager check', ok: geofenceReceiverSrc.includes('isInteractive') },
-  { name: 'NightlySyncWorker reads unified sync queue', ok: nightlyWorkerSrc.includes('PREFS_SYNC_QUEUE') && nightlyWorkerSrc.includes('pendingTimeline') },
-  { name: 'NightlySyncWorker handles missing auth without data loss', ok: nightlyWorkerSrc.includes('QUEUED_FOR_APP_LAUNCH') },
-  { name: 'Google Sheets sync implements ID-based deduplication & upsert', ok: sheetsSyncSrc.includes('existingTimelineMap') && sheetsSyncSrc.includes('existingTaskMap') && sheetsSyncSrc.includes('existingReminderMap') },
-  { name: 'Full State Backups snapshot tab support', ok: sheetsSyncSrc.includes("'Full State Backups'!A:G") },
+  { name: 'JSON backup uses Android MediaStore Downloads', ok: nativePluginSrc.includes('MediaStore.Downloads.EXTERNAL_CONTENT_URI') },
+  { name: 'Keyboard inset is not double-counted', ok: !mainActivitySrc.includes('WindowInsetsCompat.Type.ime()') },
+  { name: 'Removed Google Sheets code is absent', ok: !nativePluginSrc.includes('GoogleSheets') && !fs.existsSync('src/services/googleSheetsSync.ts') },
   { name: 'GitHub Actions downloads official Gradle 8.14.3 wrapper with SHA-256', ok: fs.readFileSync('.github/workflows/build-android.yml', 'utf8').includes('7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172') },
   { name: 'GitHub Actions generates PNG assets from SVG', ok: fs.readFileSync('.github/workflows/build-android.yml', 'utf8').includes('generate:assets') },
 ];

@@ -222,7 +222,7 @@ export const SmartAICardView: React.FC<SmartAICardViewProps> = ({
           <div className="flex items-center space-x-2 border-b border-white/10 pb-2">
             <Sparkles className={`w-4 h-4 shrink-0 ${card.engineMode === 'ONLINE_CLOUD' ? 'text-[#00F0FF]' : 'text-[#C084FC]'}`} />
             <span className={`font-mono font-bold text-xs ${card.engineMode === 'ONLINE_CLOUD' ? 'text-[#00F0FF]' : 'text-[#C084FC]'}`}>
-              {card.engineMode === 'ONLINE_CLOUD' ? 'Gemini Pro Grounded Response' : 'DayTrace On-Device Assistant'}
+              {card.engineMode === 'ONLINE_CLOUD' ? 'Gemini Online Response' : 'DayTrace On-Device Assistant'}
             </span>
           </div>
           <div className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-[#E2E2E6]">

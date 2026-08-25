@@ -173,7 +173,7 @@ public class PeriodicPromptActionReceiver extends BroadcastReceiver {
     ) {
         if (manager == null) return;
         NotificationCompat.Builder confirmation = new NotificationCompat.Builder(context, PeriodicPromptReceiver.CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_daytrace)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

@@ -1,4 +1,4 @@
-name: Build Android Debug APK
+name: Build Android APK
 
 on:
   push:
@@ -81,12 +81,16 @@ jobs:
           npm run test:state-migrations
           npm run test:multi-triggers
           npm run test:meetings
+          npm run test:task-parsing
+          npm run test:ai-context
 
       - name: Build Web Application
         run: npm run build
 
       - name: Sync Capacitor Android
-        run: npx cap sync android
+        run: |
+          rm -f dist/server.cjs dist/server.cjs.map
+          npx cap sync android
 
       - name: Prepare Stable DayTrace Signing Identity
         if: ${{ env.DAYTRACE_KEYSTORE_BASE64 != '' }}
@@ -109,7 +113,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --version
 
-      - name: Report Debug Signing SHA-1 for Google Sheets OAuth
+      - name: Report APK Signing Identity
         run: |
           cd android
           bash ../scripts/run-gradle-with-retry.sh :app:signingReport --stacktrace

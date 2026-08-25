@@ -239,7 +239,7 @@ public class MeetingRecordingService extends Service {
         PendingIntent togglePendingIntent = PendingIntent.getBroadcast(this, 42022, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setSmallIcon(R.drawable.ic_stat_daytrace)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setOngoing(true)

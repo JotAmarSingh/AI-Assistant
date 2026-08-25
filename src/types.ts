@@ -198,23 +198,12 @@ export interface UserSettings {
   gamingModeActive: boolean; // Pause all popup dialogues during gaming
   snoozedUntil: string | null; // ISO string if temporarily snoozed (e.g. 1 hour)
   alarmSoundEnabled: boolean;
-  // Google Sheets Auto-Sync & Nightly Backup Configuration
-  googleSpreadsheetId?: string | null;
-  googleSpreadsheetUrl?: string | null;
-  googleSpreadsheetTitle?: string;
-  lastSyncedAt?: string | null;
-  autoSyncOnReview?: boolean;
-  enableNightlySync?: boolean; // WhatsApp-style automated sync at night (e.g. 02:00 AM)
-  nightlySyncHour?: number; // default 2 (2 AM)
-  lastNightlyBackupAt?: string | null;
   // Geofence configuration
   geofenceEnabled?: boolean;
   geofenceRadiusMeters?: number;
   locationLearningEnabled?: boolean;
   locationDwellMinutes?: number;
   meetingAudioRetention?: 'KEEP' | 'DELETE_AFTER_PROCESSING';
-  googleAuthStatus?: 'DISCONNECTED' | 'CONNECTED' | 'CANCELLED' | 'ERROR';
-  googleAuthError?: string | null;
   homeCoords?: { latitude: number; longitude: number };
   officeCoords?: { latitude: number; longitude: number };
   gymCoords?: { latitude: number; longitude: number };

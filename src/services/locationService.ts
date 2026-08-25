@@ -54,7 +54,7 @@ export class LocationService {
     this.learningOptions = learningOptions;
 
     // 1. PRIMARY: Register native geofences with Android Play Services
-    if (isNativeAndroid() && userLocations && userLocations.length > 0) {
+    if (isNativeAndroid()) {
       try {
         if (this.nativeGeofenceHandle) {
           await this.nativeGeofenceHandle.remove();
@@ -65,10 +65,18 @@ export class LocationService {
           this.onLocationChangeCallback?.(data.locationName);
         });
 
-        await DayTraceNative.registerGeofences({ locations: userLocations });
+        if (userLocations && userLocations.length > 0) {
+          await DayTraceNative.registerGeofences({ locations: userLocations });
+        } else {
+          await DayTraceNative.removeAllGeofences();
+        }
       } catch (e) {
         console.warn('Native geofence registration warning:', e);
       }
+
+      // Native geofences already handle known places. Keep a lightweight
+      // WebView position watcher only when opt-in location learning needs it.
+      if (!learningOptions?.enabled) return;
     }
 
     // 2. Browser / WebView Geolocation watcher fallback
@@ -90,9 +98,13 @@ export class LocationService {
   }
 
   public async syncLocationsToNative(locations: GeofenceLocation[]) {
-    if (isNativeAndroid() && locations.length > 0) {
+    if (isNativeAndroid()) {
       try {
-        await DayTraceNative.registerGeofences({ locations });
+        if (locations.length > 0) {
+          await DayTraceNative.registerGeofences({ locations });
+        } else {
+          await DayTraceNative.removeAllGeofences();
+        }
       } catch (e) {
         console.warn('Failed to sync geofences to native client:', e);
       }

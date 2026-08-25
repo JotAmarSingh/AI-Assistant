@@ -10,7 +10,7 @@ import {
   History, 
   Bell, 
   FileCheck, 
-  FileSpreadsheet, 
+  FileJson,
   ExternalLink 
 } from 'lucide-react';
 import { AndroidTab } from './AndroidNavigationBar';
@@ -109,13 +109,13 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose, o
       ],
     },
     {
-      title: '7. Backup & Sync',
-      subtitle: 'Google Sheets & Private Storage',
+      title: '7. Backup & Restore',
+      subtitle: 'Private JSON files',
       tab: 'hub',
-      icon: FileSpreadsheet,
-      description: 'Your data belongs to you. Export your entire daily state, timetable routines, and task history to structured Google Sheets CSV tables or downloadable JSON backups anytime.',
+      icon: FileJson,
+      description: 'Your data belongs to you. Export your complete DayTrace state to a local JSON backup file and restore it whenever needed.',
       highlights: [
-        'One-click Google Sheets CSV copy & download',
+        'One-tap JSON backup saved to Downloads',
         '100% persistent local storage on your device',
         'Full JSON restore capability across devices',
       ],

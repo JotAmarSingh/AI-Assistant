@@ -78,8 +78,7 @@ public class GeofenceBroadcastReceiver extends BroadcastReceiver {
 
             Log.d(TAG, "Geofence transition: " + transitionTypeStr + " for location: " + locationKey);
 
-            // Clean location name (e.g. geo-office -> Office)
-            String displayLocation = cleanLocationName(locationKey);
+            String displayLocation = resolveLocationName(context, locationKey);
 
             // 1. Check Native Persistent Automations Store
             List<JSONObject> matchingAutomations = findMatchingAutomations(context, displayLocation, requiredTriggerType);
@@ -117,8 +116,23 @@ public class GeofenceBroadcastReceiver extends BroadcastReceiver {
             }
 
             // Forward event to active native plugin if app is in memory
-            DayTraceNativePlugin.notifyGeofenceEvent(locationKey, transitionTypeStr);
+            DayTraceNativePlugin.notifyGeofenceEvent(locationKey, displayLocation, transitionTypeStr);
         }
+    }
+
+    private String resolveLocationName(Context context, String locationKey) {
+        SharedPreferences prefs = context.getSharedPreferences(
+                DayTraceNativePlugin.PREFS_GEOFENCE_NAMES,
+                Context.MODE_PRIVATE
+        );
+        try {
+            JSONObject names = new JSONObject(prefs.getString("names_json", "{}"));
+            String savedName = names.optString(locationKey, "").trim();
+            if (!savedName.isEmpty()) return savedName;
+        } catch (Exception error) {
+            Log.w(TAG, "Could not read saved geofence name", error);
+        }
+        return cleanLocationName(locationKey);
     }
 
     private List<JSONObject> findMatchingAutomations(Context context, String locationName, String requiredTriggerType) {
@@ -256,7 +270,7 @@ public class GeofenceBroadcastReceiver extends BroadcastReceiver {
         String subtitle = ("EXIT".equals(transition) ? "Leaving " : "Arrived at ") + locationName + " • " + reminderText;
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, targetChannelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_daytrace)
                 .setContentTitle(notifTitle)
                 .setContentText(subtitle)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(subtitle))
@@ -331,7 +345,7 @@ public class GeofenceBroadcastReceiver extends BroadcastReceiver {
         String message = actionVerb + " " + locationName + ". Timeline updated.";
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, targetChannelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_daytrace)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

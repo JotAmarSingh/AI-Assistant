@@ -21,8 +21,6 @@ import { GeofenceManagerModal } from './components/geofence/GeofenceManagerModal
 import { LocationLearningPrompts } from './components/geofence/LocationLearningPrompts';
 import { DestructiveConfirmationModal } from './components/common/DestructiveConfirmationModal';
 
-import { isNativeAndroid, requestAllNativePermissions } from './services/nativeBridge';
-
 const MainScreen: React.FC = () => {
   const { 
     isPeriodicPromptOpen, 
@@ -48,17 +46,30 @@ const MainScreen: React.FC = () => {
   } = useDay();
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-
-  useEffect(() => {
-    if (isNativeAndroid()) {
-      void requestAllNativePermissions();
-    }
-  }, []);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
     const openMeetings = () => setActiveTab('meetings');
     window.addEventListener('daytrace-open-meetings', openMeetings);
     return () => window.removeEventListener('daytrace-open-meetings', openMeetings);
+  }, []);
+
+  useEffect(() => {
+    const isTextEditor = (element: Element | null) => Boolean(
+      element?.matches('input:not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]'),
+    );
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isTextEditor(event.target as Element | null)) setIsKeyboardOpen(true);
+    };
+    const handleFocusOut = () => {
+      window.setTimeout(() => setIsKeyboardOpen(isTextEditor(document.activeElement)), 80);
+    };
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
+    };
   }, []);
 
   const renderActiveView = () => {
@@ -112,7 +123,7 @@ const MainScreen: React.FC = () => {
       <FloatingFocusHUD onOpenModal={() => setIsFocusModalOpen(true)} />
 
       {/* Android Bottom Navigation Bar */}
-      <AndroidNavigationBar activeTab={activeTab} onSelectTab={setActiveTab} />
+      {!isKeyboardOpen && <AndroidNavigationBar activeTab={activeTab} onSelectTab={setActiveTab} />}
 
       {/* 30-Minute Recurring Accountability Dialogue Modal */}
       <PeriodicPromptModal

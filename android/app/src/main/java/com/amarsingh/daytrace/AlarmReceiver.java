@@ -109,7 +109,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         );
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, targetChannelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_daytrace)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(message))

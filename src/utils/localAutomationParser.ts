@@ -1,6 +1,6 @@
 import { Automation, DailyState, GeofenceLocation, TimelineEvent, EventSource } from '../types';
 import { extractExplicitTime } from './offlineParser';
-import { classifyUserIntent } from './intentClassifier';
+import { classifyUserIntent, extractCompoundCheckInIntent } from './intentClassifier';
 import { detectContextEvent } from './accountabilityEngine';
 
 export interface ParsedAutomationResult {
@@ -485,6 +485,21 @@ export function parseActivityLogUtterance(
   const today = new Date().toISOString().split('T')[0];
 
   const results: Omit<TimelineEvent, 'id'>[] = [];
+
+  // A compound check-in may mention location first and the current work later.
+  // Keep the activity even when another local action appears in the same voice message.
+  const compoundActivity = extractCompoundCheckInIntent(text)?.activityDescription;
+  if (compoundActivity) {
+    results.push({
+      date: today,
+      time: now,
+      type: 'TASK_STARTED',
+      description: compoundActivity,
+      source: 'CHECK_IN',
+      syncStatus: 'PENDING',
+    });
+    return results;
+  }
 
   // Pattern 1: "from [start] to [end] [activity] and then [activity 2]"
   // e.g. "Had lunch from 1:15 to 1:45 and then worked on emails."

@@ -49,6 +49,44 @@ export interface GroundedReminderPlan {
   scheduledAt?: string;
 }
 
+export type DayTraceActionType =
+  | 'SAVE_CURRENT_LOCATION'
+  | 'LOG_ACTIVITY'
+  | 'CREATE_TASK'
+  | 'CREATE_REMINDER'
+  | 'COMPLETE_TASK'
+  | 'SAVE_MEMORY';
+
+export interface DayTracePlannedAction {
+  type: DayTraceActionType;
+  label?: string;
+  description?: string;
+  title?: string;
+  category?: string;
+  priority?: number;
+  scheduledAt?: string;
+  reminderMessage?: string;
+  taskReference?: string;
+  fact?: string;
+  memoryCategory?: 'FAMILY' | 'HEALTH' | 'WORK' | 'PREFERENCE' | 'VEHICLE' | 'FINANCE' | 'GENERAL';
+}
+
+export interface DayTraceActionPlan {
+  intentSummary: string;
+  actions: DayTracePlannedAction[];
+  clarification?: string;
+  clarificationOptions?: string[];
+}
+
+export interface DayTraceActionPlanningContext {
+  now?: Date;
+  currentLocation?: string;
+  savedLocationNames?: string[];
+  pendingTaskTitles?: string[];
+  features?: string[];
+  permissions?: Record<string, string>;
+}
+
 export const getStoredGeminiApiKey = (): string | null => {
   if (typeof localStorage !== 'undefined') {
     const savedKey = localStorage.getItem('daytrace_gemini_api_key');
@@ -389,6 +427,145 @@ const extractJsonPayload = (raw: string): Record<string, unknown> | null => {
   } catch {
     return null;
   }
+};
+
+const ACTION_TYPES = new Set<DayTraceActionType>([
+  'SAVE_CURRENT_LOCATION',
+  'LOG_ACTIVITY',
+  'CREATE_TASK',
+  'CREATE_REMINDER',
+  'COMPLETE_TASK',
+  'SAVE_MEMORY',
+]);
+
+const limitedString = (value: unknown, maxLength: number): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const cleaned = value.replace(/\s+/g, ' ').trim();
+  return cleaned ? cleaned.slice(0, maxLength) : undefined;
+};
+
+/** Parses and allowlists a Gemini action plan before any local state can change. */
+export const parseDayTraceActionPlan = (raw: string): DayTraceActionPlan | null => {
+  const payload = extractJsonPayload(raw);
+  if (!payload) return null;
+
+  const rawActions = Array.isArray(payload.actions) ? payload.actions.slice(0, 8) : [];
+  const actions = rawActions.flatMap<DayTracePlannedAction>((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const item = candidate as Record<string, unknown>;
+    const type = limitedString(item.type, 40) as DayTraceActionType | undefined;
+    if (!type || !ACTION_TYPES.has(type)) return [];
+    const priorityValue = typeof item.priority === 'number' && Number.isFinite(item.priority)
+      ? Math.max(1, Math.min(10, Math.round(item.priority)))
+      : undefined;
+    const category = limitedString(item.memoryCategory, 24)?.toUpperCase();
+    const memoryCategory = category && ['FAMILY', 'HEALTH', 'WORK', 'PREFERENCE', 'VEHICLE', 'FINANCE', 'GENERAL'].includes(category)
+      ? category as DayTracePlannedAction['memoryCategory']
+      : undefined;
+    return [{
+      type,
+      label: limitedString(item.label, 80),
+      description: limitedString(item.description, 500),
+      title: limitedString(item.title, 240),
+      category: limitedString(item.category, 80),
+      priority: priorityValue,
+      scheduledAt: limitedString(item.scheduledAt, 80),
+      reminderMessage: limitedString(item.reminderMessage, 240),
+      taskReference: limitedString(item.taskReference, 240),
+      fact: limitedString(item.fact, 500),
+      memoryCategory,
+    }];
+  }).filter((action) => {
+    if (action.type === 'SAVE_CURRENT_LOCATION') return Boolean(action.label);
+    if (action.type === 'LOG_ACTIVITY') return Boolean(action.description);
+    if (action.type === 'CREATE_TASK') return Boolean(action.title);
+    if (action.type === 'CREATE_REMINDER') return Boolean(action.scheduledAt && (action.reminderMessage || action.title));
+    if (action.type === 'COMPLETE_TASK') return Boolean(action.taskReference || action.title);
+    if (action.type === 'SAVE_MEMORY') return Boolean(action.fact);
+    return false;
+  });
+
+  const clarification = limitedString(payload.clarification, 300);
+  const clarificationOptions = Array.isArray(payload.clarificationOptions)
+    ? payload.clarificationOptions
+      .map((option) => limitedString(option, 80))
+      .filter((option): option is string => Boolean(option))
+      .slice(0, 4)
+    : undefined;
+  if (actions.length === 0 && !clarification) return null;
+  return {
+    intentSummary: limitedString(payload.intentSummary, 240) || 'Apply the requested DayTrace actions',
+    actions,
+    clarification,
+    clarificationOptions: clarificationOptions?.length ? clarificationOptions : undefined,
+  };
+};
+
+/**
+ * Uses Gemini only as a semantic planner. The returned plan is inert until the
+ * Android app validates and executes each allowlisted action locally.
+ */
+export const planDayTraceActions = async (
+  request: string,
+  context: DayTraceActionPlanningContext = {},
+): Promise<DayTraceActionPlan> => {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('No Gemini API Key configured for cloud action planning.');
+
+  const now = context.now || new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'device-local';
+  const compactContext = {
+    deviceDateTime: now.toISOString(),
+    timeZone,
+    currentLocation: context.currentLocation || 'Unknown',
+    savedLocations: (context.savedLocationNames || []).slice(0, 12),
+    pendingTasks: (context.pendingTaskTitles || []).slice(0, 12),
+    features: (context.features || []).slice(0, 20),
+    permissions: context.permissions || {},
+  };
+  const prompt = `You are the semantic command planner inside DayTrace, an accountability Android app.
+Interpret the user's complete message, including every independent command and personal status update. Return JSON only. Never answer conversationally and never claim an action already happened.
+
+Supported local actions:
+- SAVE_CURRENT_LOCATION: explicit request to tag/name the device's current GPS place. Required field: label.
+- LOG_ACTIVITY: a present/past activity or check-in that belongs in Timeline. Required field: description. Preserve the user's actual activity details; do not replace them with coaching.
+- CREATE_TASK: an assigned future commitment. Fields: title, category, priority, scheduledAt. Every task needs a linked reminder time; if the user did not provide enough date/time, ask one clarification instead of inventing it.
+- CREATE_REMINDER: a standalone time reminder. Fields: reminderMessage, scheduledAt.
+- COMPLETE_TASK: explicit completion of an existing task. Field: taskReference.
+- SAVE_MEMORY: an explicit durable preference/fact/rule. Fields: fact, memoryCategory.
+
+Rules:
+1. A single message may require multiple actions. Return all of them in spoken order.
+2. Do not turn a requested action into a generic acknowledgement or follow-up discussion.
+3. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
+4. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
+5. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.
+6. Treat context as read-only. Use only the minimum relevant items and never invent app capabilities or permissions.
+
+JSON shape:
+{"intentSummary":"short summary","actions":[{"type":"ACTION_TYPE","label":"...","description":"...","title":"...","category":"...","priority":7,"scheduledAt":"...","reminderMessage":"...","taskReference":"...","fact":"...","memoryCategory":"GENERAL"}],"clarification":"optional required question","clarificationOptions":["optional concise choice"]}
+
+Trusted compact app context: ${JSON.stringify(compactContext)}
+User message: ${JSON.stringify(request.slice(0, 1600))}`;
+
+  const ai = new GoogleGenAI({ apiKey });
+  let lastError: unknown;
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const response = await withTimeout(ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: { responseMimeType: 'application/json', temperature: 0.1 },
+      }));
+      const plan = response.text ? parseDayTraceActionPlan(response.text) : null;
+      if (plan) return plan;
+      lastError = new Error('Gemini returned an invalid action plan.');
+    } catch (error) {
+      lastError = error;
+      console.warn(`Gemini action planner ${modelName} error, trying next:`, error);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Gemini could not produce a safe action plan.');
 };
 
 /**

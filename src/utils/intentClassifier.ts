@@ -35,6 +35,11 @@ export interface SaveCurrentLocationIntent {
   label: string;
 }
 
+export interface CompoundCheckInIntent {
+  locationLabel?: string;
+  activityDescription?: string;
+}
+
 /** Must run before question detection so “Can you log my current location as Office?” is an action. */
 export function extractSaveCurrentLocationIntent(rawInput: string): SaveCurrentLocationIntent | null {
   const input = rawInput.trim();
@@ -42,6 +47,7 @@ export function extractSaveCurrentLocationIntent(rawInput: string): SaveCurrentL
     /^(?:can|could|would)\s+you\s+(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:my\s+|the\s+)?current\s+location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
     /^(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:this|my|the)\s+(?:current\s+)?location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
     /^(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:my\s+|the\s+)?current\s+location\s+(?:as|to)\s+(.+?)\s*[?.!]*$/i,
+    /(?:^|[.!?;,]\s*)(?:please\s+)?(?:tag|save|log|name|mark)\s+(?:this|my|the)\s+(?:current\s+)?location\s+(?:as|to)\s+(.+?)(?=\s*(?:[.!?;,]|\band\s+(?:i|we)\b|$))/i,
   ];
   for (const pattern of patterns) {
     const match = input.match(pattern);
@@ -49,6 +55,22 @@ export function extractSaveCurrentLocationIntent(rawInput: string): SaveCurrentL
     if (label) return { label };
   }
   return null;
+}
+
+/** Extracts explicit location tagging and current work from one voice message. */
+export function extractCompoundCheckInIntent(rawInput: string): CompoundCheckInIntent | null {
+  const locationLabel = extractSaveCurrentLocationIntent(rawInput)?.label;
+  const activityMatch = rawInput.match(
+    /\b(?:i(?:'m| am)\s+)?(?:currently\s+)?working\s+on\s+(.+?)(?=\s*(?:[.!?;]|$))/i,
+  );
+  const activitySubject = activityMatch?.[1]
+    ?.trim()
+    .replace(/[.!?;,]+$/g, '');
+  const activityDescription = activitySubject
+    ? `Working on ${activitySubject}`
+    : undefined;
+  if (!locationLabel && !activityDescription) return null;
+  return { locationLabel, activityDescription };
 }
 
 /**

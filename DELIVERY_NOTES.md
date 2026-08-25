@@ -1,6 +1,11 @@
-# DayTrace 1.4.1 delivery notes
+# DayTrace 1.4.2 delivery notes
 
 ## Fixed
+
+- Compound Accountability commands now use Gemini as a structured semantic planner and can execute several requested operations, such as saving the current GPS location and logging current work, instead of returning a generic acknowledgement.
+- Cloud action plans are strictly allowlisted and validated before DayTrace mutates local data; Gemini cannot directly write, delete, or claim completion of an operation that the device did not execute.
+- Simple known commands remain on-device to conserve tokens. Complex commands send only compact capability/permission status and relevant saved-place or pending-task names, never the complete user database.
+- Completed action commands no longer receive invented conversational follow-up questions; DayTrace asks only for information required to safely finish an operation.
 
 - Fixed the Tasks tab crash caused by a UI icon shadowing JavaScript's built-in `Map` collection.
 - Fixed the Anchors tab crash caused by the provider omitting the persisted automations array.
@@ -40,7 +45,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.1 (2026082506), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.2 (2026082507), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.

@@ -3,7 +3,7 @@
 DayTrace is a React/TypeScript + Capacitor Android accountability assistant with local tasks, exact reminders, interactive lock-screen check-ins, day-separated history, saved places/geofences, Meeting Mode, optional Gemini answers, and local JSON backup/restore.
 
 - Android application ID: \`com.amarsingh.daytrace\`
-- Version: \`1.3.0\` (\`versionCode 2026082501\`)
+- Version: \`1.3.1\` (\`versionCode 2026082502\`)
 - Local actions: deterministic and offline; task/reminder commands do not upload app state or use cloud tokens.
 - Online answers: the user adds a Gemini API key once from the AI Agent OFFLINE button. A verified key is stored on-device and reused automatically.
 - Backup: JSON export writes directly to Android Downloads through MediaStore; restore accepts that JSON without an account.
@@ -35,7 +35,7 @@ Android accepts an in-place update only when the application ID and signing cert
 ## Pixel 10a verification
 
 1. Install with \`adb install -r path/to/app-release.apk\`; confirm tasks, settings, saved places, history, and the stored Gemini key remain.
-2. On AI Agent, verify the saved key reconnects without asking again. Ask a normal question, then tap a generated follow-up.
+2. On AI Agent, verify the saved key reconnects without asking again. Ask “Which festival is upcoming in Punjab?”, then correct the answer with “No, it is Rakhi or Bhai Dooj.” Confirm both turns stay in one live-grounded conversation and the correction is not logged as an activity.
 3. Ask “Where am I?” at a saved place; confirm the saved name is returned. Test an untagged place and verify the answer gives a cautious grounded road/neighborhood/city without inventing a house number.
 4. Focus the AI typing field; confirm the bottom navigation hides and the composer sits directly above Gboard.
 5. Speak a request; confirm the energy orb changes for listening, thinking, and speaking.
@@ -47,6 +47,6 @@ Android accepts an in-place update only when the application ID and signing cert
 
 ## Data migrations
 
-State schema version 6 is migrated non-destructively at load/import/restore. Tasks, settings, history, categories, learned data, locations, meetings, and pending native events are retained. Removed legacy cloud-sync fields are discarded without touching user records. Sample records are removed only when proven seed identifiers/template constellations identify them.
+State schema version 7 is migrated non-destructively at load/import/restore. Tasks, settings, history, categories, learned data, memories, locations, meetings, and pending native events are retained. Removed legacy cloud-sync fields are discarded without touching user records. Sample records are removed only when proven seed identifiers/template constellations identify them.
 
 See \`DELIVERY_NOTES.md\` for the release changelog and verification record.

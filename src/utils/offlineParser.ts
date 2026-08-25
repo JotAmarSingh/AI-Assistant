@@ -47,8 +47,64 @@ export function parseOfflineUserInput(
   let currentEnergy = currentState.current.energy;
   let responseNotes: string[] = [];
 
+  if (/\b(exhausted|very tired|too tired|drained|don'?t feel like working|do not feel like working)\b/i.test(lower)) {
+    currentEnergy = 'TIRED';
+    newTimelineEvents.push({
+      time: now,
+      type: 'UPDATE',
+      description: 'Energy reported as tired/exhausted',
+      location: currentLocation,
+      source: 'CHECK_IN',
+      notes: rawInput,
+    });
+    const priorityTask = [...currentState.tasks]
+      .filter((task) => task.status === 'ACTIVE' || task.status === 'NEXT')
+      .sort((left, right) => (right.priority || 5) - (left.priority || 5))[0];
+    responseNotes.push(priorityTask
+      ? `Energy logged as tired. Priority task still pending: "${priorityTask.title}". Complete it now or move it to the next available timetable slot`
+      : 'Energy logged as tired. Take a short recovery break before choosing a lighter task');
+  }
+
+  const compoundGymInterruption = /\b(?:going|went|started|heading)\s+(?:to|for)\s+(?:the\s+)?gym\b/i.test(lower)
+    && /\brain(?:ing|ed)?\b/i.test(lower)
+    && /\b(?:came|went|returned)\s+(?:back\s+)?home\b/i.test(lower);
+
+  if (compoundGymInterruption) {
+    currentLocation = 'Home';
+    currentActivity = 'At Home • Gym remains pending';
+    newTimelineEvents.push(
+      {
+        time: now,
+        type: 'TASK_STARTED',
+        description: 'Started trip to Gym',
+        location: currentState.current.location,
+        source: 'CHECK_IN',
+      },
+      {
+        time: now,
+        type: 'INTERRUPTION',
+        description: 'Gym trip interrupted by rain',
+        location: 'Transit',
+        source: 'CHECK_IN',
+        notes: rawInput,
+      },
+      {
+        time: now,
+        type: 'DEPARTURE',
+        description: 'Returned home after interrupted Gym trip',
+        location: 'Home',
+        source: 'CHECK_IN',
+      },
+    );
+    const gymTask = currentState.tasks.find((task) => /\bgym|workout|exercise\b/i.test(task.title) && task.status !== 'DONE');
+    if (gymTask) {
+      updatedTasks.push({ id: gymTask.id, status: 'NEXT', notes: `${gymTask.notes ? `${gymTask.notes}\n` : ''}Interrupted by rain at ${now}` });
+    }
+    responseNotes.push('Logged Gym trip, rain interruption and return Home; Gym remains pending');
+  }
+
   // 2. Location arrivals & departures
-  if (/\b(reached|arrived at|in|at)\s+(office|work|workplace)\b/i.test(lower)) {
+  if (!compoundGymInterruption && /\b(reached|arrived at|in|at)\s+(office|work|workplace)\b/i.test(lower)) {
     currentLocation = 'Office';
     const parsedTime = extractExplicitTime(rawInput) || now;
     newTimelineEvents.push({
@@ -58,7 +114,7 @@ export function parseOfflineUserInput(
       location: 'Office',
     });
     responseNotes.push('Recorded arrival at Office');
-  } else if (/\b(reached|arrived at|at|back at)\s+(home|house)\b/i.test(lower)) {
+  } else if (!compoundGymInterruption && /\b(reached|arrived at|at|back at)\s+(home|house)\b/i.test(lower)) {
     currentLocation = 'Home';
     const parsedTime = extractExplicitTime(rawInput) || now;
     newTimelineEvents.push({
@@ -68,7 +124,7 @@ export function parseOfflineUserInput(
       location: 'Home',
     });
     responseNotes.push('Recorded arrival at Home');
-  } else if (/\b(reached|at|in)\s+(gym|fitness center)\b/i.test(lower)) {
+  } else if (!compoundGymInterruption && /\b(reached|at|in)\s+(gym|fitness center)\b/i.test(lower)) {
     currentLocation = 'Gym';
     newTimelineEvents.push({
       time: now,
@@ -125,9 +181,11 @@ export function parseOfflineUserInput(
 
     for (const clause of clauses) {
       const isNegative = isNegatedClause(clause);
+      const normalizedClause = normalizeTaskMatchText(clause);
       
       for (const item of taskSubItems) {
-        if (clause.toLowerCase().includes(item)) {
+        const normalizedItem = normalizeTaskMatchText(item);
+        if (normalizedItem && normalizedClause.includes(normalizedItem)) {
           if (isNegative) {
             negativeSubItems.push(item);
           } else if (isPositiveAction(clause)) {
@@ -138,7 +196,8 @@ export function parseOfflineUserInput(
     }
 
     if (!isCompound) {
-      const mentionsTask = taskSubItems.some(sub => lower.includes(sub));
+      const normalizedInput = normalizeTaskMatchText(lower);
+      const mentionsTask = taskSubItems.some((sub) => normalizedInput.includes(normalizeTaskMatchText(sub)));
       const hasPositiveWord = isPositiveAction(lower);
       const hasNegativeWord = isNegatedClause(lower);
 
@@ -317,6 +376,16 @@ function isNegatedClause(clause: string): boolean {
 
 function isPositiveAction(clause: string): boolean {
   return /\b(brought|took|picked up|completed|finished|sent|submitted|bought|done|published|got|took along|handled)\b/i.test(clause);
+}
+
+function normalizeTaskMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b(bought|purchased|got|picked up|brought)\b/g, 'buy')
+    .replace(/\b(the|a|an|to)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function extractExplicitTime(text: string): string | null {

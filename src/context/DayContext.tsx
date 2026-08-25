@@ -21,7 +21,8 @@ import {
   GeofenceLocation,
   IgnoredLocationCluster,
   MeetingRecord,
-  TaskCategoryDefinition
+  TaskCategoryDefinition,
+  UserMemoryItem
 } from '../types';
 import { createFreshDailyState, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
@@ -80,9 +81,12 @@ interface DayContextType {
   setMode: (mode: AppMode) => void;
   isProcessing: boolean;
   processUserInput: (input: string) => Promise<string>;
+  saveMemory: (fact: string, options?: Partial<Pick<UserMemoryItem, 'category' | 'source' | 'status' | 'triggerKeywords'>>) => string;
+  updateMemory: (memoryId: string, updates: Partial<Pick<UserMemoryItem, 'fact' | 'category' | 'status' | 'triggerKeywords'>>) => void;
+  deleteMemory: (memoryId: string) => void;
   startAccountabilityTask: (task: { id?: string; title: string; category?: string }) => void;
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => void;
-  addTask: (task: Omit<TaskItem, 'id' | 'createdAt'>) => void;
+  addTask: (task: Omit<TaskItem, 'id' | 'createdAt'>) => string;
   deleteTask: (taskId: string) => void;
   editTask: (taskId: string, updates: Partial<TaskItem>) => void;
   addTimelineEvent: (event: Omit<TimelineEvent, 'id'>) => void;
@@ -91,6 +95,7 @@ interface DayContextType {
   deleteFixedEvent: (eventId: string) => void;
   toggleReminder: (reminderId: string) => void;
   addReminder: (reminder: Omit<ReminderItem, 'id' | 'createdAt' | 'isDone'>) => void;
+  editReminder: (reminderId: string, updates: Partial<ReminderItem>) => void;
   deleteReminder: (reminderId: string) => void;
   addTimetableSlot: (slot: Omit<TimetableSlot, 'id'>) => void;
   updateTimetableSlot: (id: string, updates: Partial<TimetableSlot>) => void;
@@ -1685,15 +1690,34 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshLearningProfile, evaluateEventTriggeredReminders]);
 
   const addTask = useCallback((taskData: Omit<TaskItem, 'id' | 'createdAt'>) => {
+    const now = Date.now();
+    const taskId = `task-${now}`;
+    const trigger = taskData.scheduledAt || taskData.dueAt;
+    const reminderId = `rem-task-${now}`;
     setState((prev) => ({
       ...prev,
       tasks: [{
-        id: `task-${Date.now()}`,
+        id: taskId,
         date: prev.date,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(now).toISOString(),
         ...taskData,
       }, ...prev.tasks],
+      reminders: trigger ? [
+        ...prev.reminders,
+        {
+          id: reminderId,
+          date: taskData.date || prev.date,
+          type: 'TIME_BASED',
+          triggerCondition: trigger,
+          message: taskData.title,
+          relatedTaskId: taskId,
+          isDone: false,
+          createdAt: new Date(now).toISOString(),
+        },
+      ] : prev.reminders,
     }));
+    if (trigger) scheduleNativeReminder(reminderId, trigger, taskData.title);
+    return taskId;
   }, []);
 
   const startAccountabilityTask = useCallback((selection: { id?: string; title: string; category?: string }) => {
@@ -1866,6 +1890,69 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   }, []);
 
+  const saveMemory = useCallback((
+    fact: string,
+    options: Partial<Pick<UserMemoryItem, 'category' | 'source' | 'status' | 'triggerKeywords'>> = {},
+  ): string => {
+    const normalized = fact.trim();
+    if (!normalized) return '';
+    const id = `memory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = Date.now();
+    setState((prev) => {
+      const existing = (prev.memories || []).find(
+        (item) => item.fact.trim().toLowerCase() === normalized.toLowerCase(),
+      );
+      if (existing) {
+        return {
+          ...prev,
+          memories: (prev.memories || []).map((item) => item.id === existing.id
+            ? {
+                ...item,
+                ...options,
+                updatedAt: now,
+              }
+            : item),
+        };
+      }
+      return {
+        ...prev,
+        memories: [
+          ...(prev.memories || []),
+          {
+            id,
+            category: options.category || 'GENERAL',
+            fact: normalized,
+            source: options.source || 'AI_AGENT',
+            status: options.status || 'ACTIVE',
+            triggerKeywords: options.triggerKeywords,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+    });
+    return id;
+  }, []);
+
+  const updateMemory = useCallback((
+    memoryId: string,
+    updates: Partial<Pick<UserMemoryItem, 'fact' | 'category' | 'status' | 'triggerKeywords'>>,
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      memories: (prev.memories || []).map((memory) => memory.id === memoryId
+        ? { ...memory, ...updates, updatedAt: Date.now() }
+        : memory),
+    }));
+  }, []);
+
+  const deleteMemory = useCallback((memoryId: string) => {
+    setState((prev) => ({
+      ...prev,
+      memories: (prev.memories || []).filter((memory) => memory.id !== memoryId),
+    }));
+  }, []);
+
   const addReminder = useCallback((reminderData: Omit<ReminderItem, 'id' | 'createdAt' | 'isDone'>) => {
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const newId = `rem-${Date.now()}`;
@@ -1885,6 +1972,20 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (reminderData.type === 'TIME_BASED' && reminderData.triggerCondition) {
       scheduleNativeReminder(newId, reminderData.triggerCondition, reminderData.message);
+    }
+  }, []);
+
+  const editReminder = useCallback((reminderId: string, updates: Partial<ReminderItem>) => {
+    const existing = stateRef.current.reminders.find((item) => item.id === reminderId);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setState((prev) => ({
+      ...prev,
+      reminders: prev.reminders.map((item) => item.id === reminderId ? updated : item),
+    }));
+    if (updated.type === 'TIME_BASED' && updated.triggerCondition) {
+      cancelNativeReminder(reminderId);
+      scheduleNativeReminder(reminderId, updated.triggerCondition, updated.message);
     }
   }, []);
 
@@ -2743,6 +2844,9 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setMode,
         isProcessing,
         processUserInput,
+        saveMemory,
+        updateMemory,
+        deleteMemory,
         startAccountabilityTask,
         updateTaskStatus,
         addTask,
@@ -2754,6 +2858,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteFixedEvent,
         toggleReminder,
         addReminder,
+        editReminder,
         deleteReminder,
         addTimetableSlot,
         updateTimetableSlot,

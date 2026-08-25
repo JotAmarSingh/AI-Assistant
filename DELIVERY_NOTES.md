@@ -1,4 +1,4 @@
-# DayTrace 1.3.0 delivery notes
+# DayTrace 1.3.1 delivery notes
 
 ## Fixed
 
@@ -14,12 +14,18 @@
 - JSON export uses Android scoped MediaStore Downloads and no longer opens an unsolicited share sheet.
 - Notification small icons now use a valid monochrome DayTrace status icon.
 - Startup no longer bulk-requests notification, microphone, and location permissions.
+- AI corrections and short follow-ups remain attached to the recent cloud answer instead of being logged as unrelated offline activities.
+- Festivals, weather, news, prices, opening hours, nearby-place searches, outfit/weather advice, and medical questions require live grounding and never fall back to stale model memory.
+- The trusted device date, year, time, and timezone are included in cloud questions; only the last two compact conversation exchanges are retained.
+- Mixed requests such as finding an event date and reminding before it verify the date live, ask for a clock time when missing, and then create the linked task/reminder.
+- Offline live-data failures now offer contextual actions to fetch after reconnection, show a timestamped verified cache, or open the relevant installed app.
+- Unclassified statements enter a pending local memory inbox; explicit preferences can trigger narrowly relevant reminders and can be paused or disabled.
 
 ## Changed
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded local state schema to version 6 and Android version to 1.3.0 (2026082501), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded local state schema to version 7 and Android version to 1.3.1 (2026082502), preserving package \`com.amarsingh.daytrace\`.
 
 ## Verification completed
 
@@ -29,6 +35,7 @@
 - Native accountability/reconciliation regression tests: passed.
 - Daily history, state migration, multi-trigger, meeting processing, and task parsing tests: passed.
 - AI context isolation and reminder-time tests: passed.
+- AI routing, grounded follow-up, and changing-fact classification tests: passed.
 - Static checks cover scoped JSON export, saved geofence names, keyboard inset handling, and absence of legacy cloud-sync code.
 
 ## Delivery gate

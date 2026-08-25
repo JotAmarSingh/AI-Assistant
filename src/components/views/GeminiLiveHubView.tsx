@@ -4,18 +4,23 @@ import { Send, Mic, Square, Sparkles, Flame } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { SmartAICardView } from '../ai/SmartAICardView';
 import { calculateGamificationStats } from '../../utils/gamificationEngine';
-import { 
+import {
   queryGeminiAPI, 
+  queryGroundedReminderPlan,
   getStoredGeminiApiKey, 
   setGeminiApiKey, 
   clearGeminiApiKey,
   verifyGeminiApiKey,
-  AppContextPayload 
+  AppContextPayload,
+  CloudConversationTurn,
+  GroundedReminderPlan,
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
-import { getCurrentCoordinates, getDeviceCapabilityContext } from '../../services/nativeBridge';
+import { getCurrentCoordinates, getDeviceCapabilityContext, openRelevantExternalApp, parseReminderTriggerTime } from '../../services/nativeBridge';
 import { calculateDistanceMeters } from '../../services/locationService';
 import { SmartAICard } from '../../types';
+import { classifyAIAgentRoute, requiresLiveGrounding } from '../../utils/aiRouting';
+import { extractExplicitTime } from '../../utils/offlineParser';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
 
@@ -24,6 +29,14 @@ export const GeminiLiveHubView: React.FC = () => {
     state, 
     addTask, 
     addFixedEvent, 
+    addReminder,
+    editReminder,
+    addTimelineEvent,
+    editTask,
+    saveCurrentLocation,
+    saveMemory,
+    updateMemory,
+    deleteMemory,
     processUserInput
   } = useDay();
 
@@ -44,6 +57,19 @@ export const GeminiLiveHubView: React.FC = () => {
   const cloudReady = hasCustomKey && isOnline;
 
   const silenceTimerRef = useRef<number | null>(null);
+  const onlineConversationRef = useRef<CloudConversationTurn[]>([]);
+  const onlineConversationUpdatedAtRef = useRef(0);
+  const onlineConversationRequiresGroundingRef = useRef(false);
+  const lastLocalActionAtRef = useRef(0);
+  const pendingReminderPlanRef = useRef<GroundedReminderPlan | null>(null);
+  const pendingTaskCreationRef = useRef<{ title: string; date: string } | null>(null);
+  const pendingGymSkipReasonRef = useRef<{ override: boolean } | null>(null);
+  const pendingOfficeExitTaskRef = useRef<{ title: string; suggestedTime: string } | null>(null);
+  const lastShoppingTaskIdRef = useRef<string | null>(null);
+  const pendingMemoryByCardRef = useRef(new Map<string, string>());
+  const managedMemoryByCardRef = useRef(new Map<string, string>());
+  const sourceQueryByCardRef = useRef(new Map<string, string>());
+  const pendingOnlineQueryRef = useRef<string | null>(null);
   const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
 
   // Network & lifecycle listeners
@@ -56,6 +82,7 @@ export const GeminiLiveHubView: React.FC = () => {
     const saved = getStoredGeminiApiKey();
     setCustomKeyInput(saved || '');
     setHasCustomKey(Boolean(saved && saved.trim()));
+    pendingOnlineQueryRef.current = localStorage.getItem('daytrace_pending_online_query_v1');
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -77,18 +104,256 @@ export const GeminiLiveHubView: React.FC = () => {
     silenceTimerRef.current = window.setTimeout(callback, 6500);
   };
 
-  // Commands must stay on-device; only knowledge/advice questions go to Gemini.
-  const isQuestionOrAdvice = (query: string): boolean => {
-    const text = query.toLowerCase().trim();
-    const actionCommand = /^(add|remind|schedule|create|log|start|stop|mark|save|set|move|reschedule|plan|buy|call|email|complete|finish|cancel)\b/;
-    if (actionCommand.test(text)) return false;
-    if (text.endsWith('?')) return true;
-    return /^(what|why|how|which|who|where|when|should|can|could|would|is|are|do|does|did|tell me|explain|compare|recommend|give me advice)\b/.test(text)
-      || /\b(dosage|dose|meaning|difference|weather|price|news|information|advice)\b/.test(text);
+  const ONLINE_CONTEXT_TTL_MS = 15 * 60 * 1000;
+
+  const hasRecentOnlineContext = () =>
+    onlineConversationRef.current.length > 0
+    && Date.now() - onlineConversationUpdatedAtRef.current <= ONLINE_CONTEXT_TTL_MS;
+
+  const rememberOnlineExchange = (userText: string, assistantText: string, liveGrounded = false) => {
+    onlineConversationRef.current = [
+      ...onlineConversationRef.current,
+      { role: 'user', text: userText },
+      { role: 'assistant', text: assistantText },
+    ].slice(-4);
+    onlineConversationUpdatedAtRef.current = Date.now();
+    onlineConversationRequiresGroundingRef.current = liveGrounded;
+    lastLocalActionAtRef.current = 0;
+  };
+
+  const rememberLocalAction = () => {
+    lastLocalActionAtRef.current = Date.now();
+    onlineConversationRef.current = [];
+    onlineConversationUpdatedAtRef.current = 0;
+    onlineConversationRequiresGroundingRef.current = false;
+  };
+
+  const findNamedArrival = (input: string): string | null => {
+    const match = input.trim().match(/^(?:i(?:'m| am)|we(?:'re| are))\s+at\s+(.+?)\s*[.!]?$/i)
+      || input.trim().match(/^(?:i\s+)?(?:reached|arrived at)\s+(.+?)\s*[.!]?$/i);
+    const label = match?.[1]?.trim();
+    if (!label || /^(home|office|work|workplace|gym|fitness center)$/i.test(label)) return null;
+    return label.replace(/\bhouse$/i, 'House');
+  };
+
+  const contextualMemoryNudges = (input: string): string[] => {
+    const lower = input.toLowerCase();
+    const isRelevantPurchase = /\b(buy|buying|bought|get|getting|groceries|shopping)\b/i.test(lower)
+      && /\b(food|grocery|groceries|sweet|sweets|dessert|ice cream|drink|snack|cake|chocolate|family treat)\b/i.test(lower);
+    if (!isRelevantPurchase) return [];
+    return (state.memories || [])
+      .filter((memory) => (memory.status || 'ACTIVE') === 'ACTIVE')
+      .filter((memory) => /sugar[- ]?free/i.test(memory.fact) && /wife|simran/i.test(memory.fact))
+      .map(() => 'Remember to choose a sugar-free option for your wife.')
+      .slice(0, 1);
+  };
+
+  const ONLINE_CACHE_KEY = 'daytrace_verified_online_cache_v1';
+  const cacheVerifiedAnswer = (query: string, answer: string) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem(ONLINE_CACHE_KEY) || '{}') as Record<string, unknown>;
+      const key = query.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim().slice(0, 120);
+      const next = {
+        ...existing,
+        [key]: { query, answer, fetchedAt: new Date().toISOString() },
+      };
+      const limited = Object.fromEntries(Object.entries(next).slice(-20));
+      localStorage.setItem(ONLINE_CACHE_KEY, JSON.stringify(limited));
+    } catch (error) {
+      console.warn('Could not cache verified online answer', error);
+    }
+  };
+
+  const readLastVerifiedAnswer = (query: string): { query: string; answer: string; fetchedAt: string } | null => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(ONLINE_CACHE_KEY) || '{}') as Record<string, { query: string; answer: string; fetchedAt: string }>;
+      const words = new Set(query.toLowerCase().match(/[a-z0-9]+/g) || []);
+      const ranked = Object.values(stored)
+        .map((entry) => ({
+          entry,
+          score: (entry.query.toLowerCase().match(/[a-z0-9]+/g) || []).filter((word) => words.has(word)).length,
+        }))
+        .sort((a, b) => b.score - a.score || Date.parse(b.entry.fetchedAt) - Date.parse(a.entry.fetchedAt));
+      return ranked[0]?.score > 0 ? ranked[0].entry : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const createReminderFromPlan = (plan: GroundedReminderPlan, timeText?: string): string => {
+    let scheduledAt = plan.scheduledAt;
+    if (!scheduledAt) {
+      const clock = timeText ? extractExplicitTime(timeText) : null;
+      if (!clock) throw new Error(`What time on ${plan.reminderDate} should I remind you?`);
+      const [year, month, day] = plan.reminderDate.split('-').map(Number);
+      const [hours, minutes] = clock.split(':').map(Number);
+      const target = new Date(year, month - 1, day, hours, minutes, 0, 0);
+      if (target.getTime() <= Date.now()) throw new Error('That reminder time is already in the past. Choose another time.');
+      scheduledAt = target.toISOString();
+    }
+    addReminder({
+      date: plan.reminderDate,
+      type: 'TIME_BASED',
+      triggerCondition: scheduledAt,
+      message: plan.reminderTitle,
+    });
+    pendingReminderPlanRef.current = null;
+    rememberLocalAction();
+    const displayTime = new Date(scheduledAt).toLocaleString([], {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `✓ ${plan.answer}\nReminder created for ${displayTime}: ${plan.reminderTitle}`;
+  };
+
+  const applyRecentReminderTimeCorrection = (input: string): string | null => {
+    if (Date.now() - lastLocalActionAtRef.current > ONLINE_CONTEXT_TTL_MS) return null;
+    if (!/^(?:no\b|actually\b|make it\b|change it\b|move it\b)/i.test(input.trim())) return null;
+    const clock = extractExplicitTime(input);
+    if (!clock) return null;
+    const latest = [...state.reminders].reverse().find((reminder) => !reminder.isDone);
+    if (!latest) return null;
+    const baselineMillis = parseReminderTriggerTime(latest.triggerCondition) || Date.now();
+    const target = new Date(baselineMillis);
+    const [hours, minutes] = clock.split(':').map(Number);
+    target.setHours(hours, minutes, 0, 0);
+    if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+    editReminder(latest.id, { triggerCondition: target.toISOString() });
+    return `✓ Updated “${latest.message}” to ${target.toLocaleString([], {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    })}.`;
+  };
+
+  const tomorrowDateKey = (): string => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+
+  const extractUnderspecifiedTomorrowTask = (input: string): { title: string; date: string } | null => {
+    if (!/\btomorrow\b/i.test(input) || extractExplicitTime(input)) return null;
+    if (!/\b(i need to|i have to|add (?:a )?task|create (?:a )?task|task:)\b/i.test(input)) return null;
+    const title = input
+      .replace(/^.*?\b(?:i need to|i have to|add (?:a )?task(?: to)?|create (?:a )?task(?: to)?|task:)\s*/i, '')
+      .replace(/\btomorrow\b/ig, '')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+    if (!title) return null;
+    return { title: title.charAt(0).toUpperCase() + title.slice(1), date: tomorrowDateKey() };
+  };
+
+  const extractScheduledTask = (input: string): { title: string; target: Date } | null => {
+    if (!extractExplicitTime(input)) return null;
+    if (!/\b(i need to|i have to|i want to|i must|i plan to|add (?:a )?task|create (?:a )?task|task:)\b/i.test(input)) return null;
+    const targetMillis = parseReminderTriggerTime(input);
+    if (!targetMillis) return null;
+    const target = new Date(targetMillis);
+    const title = input
+      .replace(/^.*?\b(?:i need to|i have to|i want to|i must|i plan to|add (?:a )?task(?: to)?|create (?:a )?task(?: to)?|task:)\s*/i, '')
+      .replace(/\b(?:today|tomorrow|tonight)\b/ig, '')
+      .replace(/\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/ig, '')
+      .replace(/[.!?]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!title) return null;
+    return { title: title.charAt(0).toUpperCase() + title.slice(1), target };
+  };
+
+  const createPendingTaskAtTime = (timeText: string): string => {
+    const pending = pendingTaskCreationRef.current;
+    if (!pending) throw new Error('There is no pending task waiting for a time.');
+    const clock = extractExplicitTime(timeText);
+    if (!clock) throw new Error(`What time on ${pending.date} should I remind you?`);
+    const [year, month, day] = pending.date.split('-').map(Number);
+    const [hours, minutes] = clock.split(':').map(Number);
+    const target = new Date(year, month - 1, day, hours, minutes, 0, 0);
+    if (target.getTime() <= Date.now()) throw new Error('That time is already in the past. Choose another time.');
+    addTask({
+      date: pending.date,
+      title: pending.title,
+      category: 'PERSONAL',
+      owner: 'ME',
+      status: 'NEXT',
+      priority: 6,
+      scheduledAt: target.toISOString(),
+    });
+    pendingTaskCreationRef.current = null;
+    rememberLocalAction();
+    return `✓ Task and linked reminder created for ${target.toLocaleString([], {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    })}: ${pending.title}`;
+  };
+
+  const createOfficeExitTask = (timeText: string): string => {
+    const pending = pendingOfficeExitTaskRef.current;
+    if (!pending) throw new Error('There is no Office-exit task waiting for confirmation.');
+    const clock = extractExplicitTime(timeText);
+    if (!clock) throw new Error('Tell me the exact Office leaving time for today.');
+    const target = new Date();
+    const [hours, minutes] = clock.split(':').map(Number);
+    target.setHours(hours, minutes, 0, 0);
+    if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+    const date = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+    const taskId = addTask({
+      date,
+      title: pending.title,
+      category: /milk|curd|grocery|ice cream|buy/i.test(pending.title) ? 'HOME' : 'PERSONAL',
+      owner: 'ME',
+      status: 'NEXT',
+      priority: 7,
+      scheduledAt: target.toISOString(),
+      context: 'ERRAND',
+      trigger: 'Leaving Office',
+    });
+    if (/milk|curd|grocery|ice cream|buy/i.test(pending.title)) lastShoppingTaskIdRef.current = taskId;
+    pendingOfficeExitTaskRef.current = null;
+    rememberLocalAction();
+    return `✓ Task and linked reminder created for ${target.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}: ${pending.title}`;
+  };
+
+  const gymWeekKey = (date = new Date()): string => {
+    const monday = new Date(date);
+    const day = monday.getDay() || 7;
+    monday.setDate(monday.getDate() - day + 1);
+    return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  };
+
+  const readGymSkips = (): Array<{ week: string; reason: string; at: string }> => {
+    try {
+      return JSON.parse(localStorage.getItem('daytrace_gym_skip_reasons_v1') || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const saveGymSkipReason = (reason: string, override: boolean): string => {
+    const clean = reason.trim();
+    if (!clean) throw new Error('Tell me the reason for skipping Gym today.');
+    const skips = readGymSkips();
+    const record = { week: gymWeekKey(), reason: clean, at: new Date().toISOString() };
+    localStorage.setItem('daytrace_gym_skip_reasons_v1', JSON.stringify([...skips, record].slice(-52)));
+    pendingGymSkipReasonRef.current = null;
+    const normalized = clean.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+    const repeated = skips.filter((item) => item.reason.toLowerCase().replace(/[^a-z0-9 ]/g, '') === normalized).length + 1;
+    const pattern = repeated >= 2
+      ? `\n\nI found this same reason ${repeated} times. This is becoming a pattern. I will prioritise a smaller rescue workout or an earlier protected Gym slot next time.`
+      : '';
+    return `${override ? '⚠ Weekly Gym skip rule overridden. ' : ''}Gym skip reason saved: ${clean}.${pattern}`;
   };
 
   // Primary Query & Task Execution Handler
-  const submitQuery = async (queryText: string) => {
+  const submitQuery = async (queryText: string, options: { forceOnlineFollowUp?: boolean } = {}) => {
     const query = queryText.trim();
     if (!query || isProcessing) return;
 
@@ -100,6 +365,164 @@ export const GeminiLiveHubView: React.FC = () => {
     setStatusText('Processing with DayTrace AI...');
 
     const lower = query.toLowerCase();
+
+    if (pendingOfficeExitTaskRef.current) {
+      if (/^no\b/i.test(query) && !extractExplicitTime(query)) {
+        const followUps = ['6:30 PM', '7:00 PM', '8:00 PM'];
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Office leaving time needed',
+          subtitle: 'Today may be an overtime day',
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: 'What exact time are you leaving Office today?',
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Tell me today’s leaving time');
+        return;
+      }
+      try {
+        const timeText = /^yes\b/i.test(query)
+          ? pendingOfficeExitTaskRef.current.suggestedTime
+          : query;
+        const response = createOfficeExitTask(timeText);
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Office-exit task scheduled',
+          subtitle: 'Task and reminder linked',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: response },
+        }, ...prev]);
+        setStatusText('Office-exit reminder created');
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+      } catch (error) {
+        setStatusText(error instanceof Error ? error.message : 'Tell me the leaving time');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (pendingGymSkipReasonRef.current) {
+      try {
+        const response = saveGymSkipReason(query, pendingGymSkipReasonRef.current.override);
+        addTimelineEvent({
+          date: state.date,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          type: 'INTERRUPTION',
+          description: 'Gym skipped',
+          category: 'HEALTH',
+          notes: query,
+          source: 'CHECK_IN',
+          syncStatus: 'PENDING',
+        });
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Gym skip recorded',
+          subtitle: 'Reason saved for habit learning',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: response },
+        }, ...prev]);
+        setStatusText('Gym reason saved');
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 3500);
+      } catch (error) {
+        setStatusText(error instanceof Error ? error.message : 'Tell me the Gym skip reason');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (pendingTaskCreationRef.current) {
+      try {
+        const confirmation = createPendingTaskAtTime(query);
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Task and reminder created',
+          subtitle: 'On-device • linked commitment',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: confirmation },
+        }, ...prev]);
+        setStatusText('Task and reminder scheduled');
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 3500);
+      } catch (error) {
+        const followUps = ['9:00 AM', '1:00 PM', '6:00 PM'];
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Task time needed',
+          subtitle: `Scheduled date • ${pendingTaskCreationRef.current?.date}`,
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: error instanceof Error ? error.message : 'Tell me the reminder time.',
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setStatusText('Tell me the task time');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // A grounded event date was already verified; only the missing clock time
+    // remains. Complete the local reminder without making another cloud call.
+    if (pendingReminderPlanRef.current) {
+      try {
+        const confirmation = createReminderFromPlan(pendingReminderPlanRef.current, query);
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Verified reminder created',
+          subtitle: 'Live date • local Android reminder',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: confirmation },
+        }, ...prev]);
+        setStatusText('Verified reminder scheduled');
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 3500);
+      } catch (error) {
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Reminder time needed',
+          subtitle: `Date verified • ${pendingReminderPlanRef.current?.reminderDate}`,
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: ['9:00 AM', '6:00 PM', '7:30 PM'],
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: error instanceof Error ? error.message : 'Tell me the reminder time.',
+            followUpQuestions: ['9:00 AM', '6:00 PM', '7:30 PM'],
+          },
+        }, ...prev]);
+        setStatusText('Tell me the reminder time');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
 
     // 0. Account / Login / Auth Inquiry
     if (
@@ -165,19 +588,128 @@ export const GeminiLiveHubView: React.FC = () => {
       return;
     }
 
-    // Intent Classification: Question / Advice vs Task Assignment
-    const isQuestion = isQuestionOrAdvice(query);
+    const route = classifyAIAgentRoute(query, {
+      hasRecentOnlineTurn: hasRecentOnlineContext(),
+      hasRecentLocalAction: Date.now() - lastLocalActionAtRef.current <= ONLINE_CONTEXT_TTL_MS,
+      forcedOnlineFollowUp: options.forceOnlineFollowUp,
+    });
 
-    if (isQuestion) {
+    if (route === 'PENDING_MEMORY') {
+      const cardId = `card-${Date.now()}`;
+      saveMemory(query, { status: 'PENDING', source: 'AI_AGENT_PENDING' });
+      pendingMemoryByCardRef.current.set(cardId, query);
+      const followUps = ['Continue this message', 'Save as a preference or rule', 'Turn it into a task or reminder'];
+      setSmartCards((prev) => [{
+        id: cardId,
+        type: 'PERSISTENT_MEMORY',
+        title: 'Saved to Pending Memory',
+        subtitle: 'Incomplete information is saved but not active',
+        engineMode: 'OFFLINE_LOCAL',
+        followUpQuestions: followUps,
+        createdAt: Date.now(),
+        data: {
+          memoryFact: query,
+          memoryCategory: 'PENDING',
+          safetyWarning: `I saved this locally so it is not lost. What should I do with it?\n\n“${query}”`,
+          followUpQuestions: followUps,
+        },
+      }, ...prev]);
+      setIsProcessing(false);
+      setAvatarMode('talking');
+      setStatusText('Pending message saved');
+      setTimeout(() => setAvatarMode('idle'), 3000);
+      return;
+    }
+
+    if (route === 'HYBRID_GROUNDED_REMINDER') {
+      try {
+        const plan = await queryGroundedReminderPlan(query, {
+          conversationTurns: hasRecentOnlineContext() ? onlineConversationRef.current : [],
+        });
+        rememberOnlineExchange(query, plan.answer, true);
+        cacheVerifiedAnswer(query, plan.answer);
+        let responseText: string;
+        let followUps: string[] = [];
+        if (plan.scheduledAt) {
+          responseText = createReminderFromPlan(plan);
+        } else {
+          pendingReminderPlanRef.current = plan;
+          responseText = `${plan.answer}\n\nThe reminder date is ${plan.reminderDate}. What time should I remind you?`;
+          followUps = ['9:00 AM', '6:00 PM', '7:30 PM'];
+        }
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: plan.scheduledAt ? 'Live fact verified • reminder created' : 'Live fact verified • time needed',
+          subtitle: 'Google Search grounded • minimal context',
+          engineMode: 'ONLINE_CLOUD',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: { safetyWarning: responseText, followUpQuestions: followUps },
+        }, ...prev]);
+        setStatusText(plan.scheduledAt ? 'Verified reminder created' : 'Tell me the reminder time');
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 4000);
+      } catch (error) {
+        const followUps = ['Fetch when online', 'Show last stored result', 'Open the relevant app'];
+        const cardId = `card-${Date.now()}`;
+        sourceQueryByCardRef.current.set(cardId, query);
+        setSmartCards((prev) => [{
+          id: cardId,
+          type: 'EXPERT_ADVICE',
+          title: 'Live verification unavailable',
+          subtitle: 'No unverified reminder was created',
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: error instanceof Error ? error.message : 'The device is offline, so I cannot verify this safely.',
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setStatusText('Live verification needed');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (route === 'LOCAL_QUERY') {
+      try {
+        const localAnswer = await processUserInput(query);
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'DayTrace local answer',
+          subtitle: 'On-device data • no cloud tokens',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: localAnswer },
+        }, ...prev]);
+        rememberLocalAction();
+        setAvatarMode('talking');
+        setStatusText('Local answer ready');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (route === 'ONLINE_KNOWLEDGE' || route === 'ONLINE_FOLLOW_UP') {
       const isCapabilityQuery = lower.includes('permission') || lower.includes('feature') || lower.includes('what can you do') || lower.includes('can you access') || lower.includes('access do you have');
-      const isLocationQuery = !isCapabilityQuery && (lower.includes('where am i') || lower.includes('where i am') || lower.includes('my current location') || lower.includes('where are we') || lower.includes('what city') || lower.includes('where is this'));
+      const isOutfitQuery = /\b(what should i wear|what to wear|outfit|dress suggestion|clothes for today)\b/i.test(lower);
+      const isNearbyQuery = /\b(nearest|nearby|near me|closest)\b/i.test(lower);
+      const isDirectLocationQuery = !isCapabilityQuery && (lower.includes('where am i') || lower.includes('where i am') || lower.includes('my current location') || lower.includes('where are we') || lower.includes('what city') || lower.includes('where is this'));
+      const isLocationQuery = isDirectLocationQuery || isNearbyQuery;
 
 
       let liveCoords: { latitude: number; longitude: number } | undefined;
       let savedPlace: string | undefined;
       let locationPermission: AppContextPayload['locationPermission'] = 'UNKNOWN';
 
-      if (isLocationQuery) {
+      if (isLocationQuery || isOutfitQuery) {
         try {
           const fetched = await getCurrentCoordinates();
           if (fetched && Number.isFinite(fetched.latitude) && Number.isFinite(fetched.longitude)) {
@@ -204,7 +736,7 @@ export const GeminiLiveHubView: React.FC = () => {
       const capabilityContext = isCapabilityQuery ? await getDeviceCapabilityContext() : undefined;
 
       const appContext: AppContextPayload = {
-        location: isLocationQuery ? state.current.location : undefined,
+        location: isLocationQuery || isOutfitQuery ? state.current.location : undefined,
         coords: liveCoords,
         savedPlace,
         locationPermission,
@@ -215,13 +747,19 @@ export const GeminiLiveHubView: React.FC = () => {
           category: t.category,
           priority: t.priority
         })),
+        timetableSlots: isOutfitQuery
+          ? state.timetable
+            .filter((slot) => slot.status !== 'SKIPPED')
+            .slice(0, 8)
+            .map((slot) => ({ time: `${slot.startTime}-${slot.endTime}`, title: slot.title, status: slot.status }))
+          : undefined,
         features: capabilityContext?.features,
         permissions: capabilityContext?.permissions,
       };
 
       // A live GPS match against a user-named place is already authoritative;
       // answer locally instead of spending a Gemini request on reverse geocoding.
-      if (isLocationQuery && savedPlace) {
+      if (isDirectLocationQuery && savedPlace) {
         const followUps = ['What are my pending tasks?', 'Save another location'];
         setSmartCards((prev) => [{
           id: `card-${Date.now()}`,
@@ -244,7 +782,14 @@ export const GeminiLiveHubView: React.FC = () => {
       }
 
       try {
-        const aiResponse = await queryGeminiAPI(query, appContext);
+        const forceLiveSearch = requiresLiveGrounding(query)
+          || (route === 'ONLINE_FOLLOW_UP' && onlineConversationRequiresGroundingRef.current);
+        const aiResponse = await queryGeminiAPI(query, appContext, {
+          conversationTurns: hasRecentOnlineContext() ? onlineConversationRef.current : [],
+          forceLiveSearch,
+        });
+        rememberOnlineExchange(query, aiResponse.answer, forceLiveSearch);
+        if (forceLiveSearch) cacheVerifiedAnswer(query, aiResponse.answer);
 
         const answerCard: SmartAICard = {
           id: `card-${Date.now()}`,
@@ -270,7 +815,7 @@ export const GeminiLiveHubView: React.FC = () => {
         let fallbackAnswer = '';
         let fallbackFollowUps: string[] = [];
 
-        if (isLocationQuery) {
+        if (isDirectLocationQuery) {
           if (savedPlace) {
             fallbackAnswer = `📍 You are at ${savedPlace}.\n\nThis is a live GPS match against the place you saved on this device.`;
           } else if (liveCoords) {
@@ -287,6 +832,13 @@ export const GeminiLiveHubView: React.FC = () => {
             .map(([name, value]) => `• ${name}: ${value}`)
             .join('\n');
           fallbackAnswer = `DayTrace supports ${capabilityContext.features.join(', ')}.\n\nCurrent device permissions:\n${permissionLines}`;
+        } else if (requiresLiveGrounding(query) || onlineConversationRequiresGroundingRef.current) {
+          fallbackAnswer = 'The device is offline or live verification failed. I cannot safely verify this changing information, so I will not give you a stale answer.';
+          fallbackFollowUps = [
+            'Fetch when online',
+            'Show last stored result',
+            /weather|forecast/i.test(query) ? 'Open the weather app' : 'Open the relevant app',
+          ];
         } else {
           const needsSetup = !getStoredGeminiApiKey();
           fallbackAnswer = needsSetup
@@ -298,11 +850,15 @@ export const GeminiLiveHubView: React.FC = () => {
           ];
         }
 
+        const fallbackCardId = `card-${Date.now()}`;
+        if (requiresLiveGrounding(query) || onlineConversationRequiresGroundingRef.current) {
+          sourceQueryByCardRef.current.set(fallbackCardId, query);
+        }
         const fallbackCard: SmartAICard = {
-          id: `card-${Date.now()}`,
+          id: fallbackCardId,
           type: 'EXPERT_ADVICE',
           title: `DayTrace AI: ${query.length > 36 ? query.substring(0, 36) + '...' : query}`,
-          subtitle: isLocationQuery ? 'Smart Geofence Location' : 'On-Device Response',
+          subtitle: isDirectLocationQuery ? 'Smart Geofence Location' : 'On-Device Response',
           engineMode: 'OFFLINE_LOCAL',
           followUpQuestions: fallbackFollowUps,
           createdAt: Date.now(),
@@ -325,15 +881,221 @@ export const GeminiLiveHubView: React.FC = () => {
     // reminders, geofences and native alarms use the same tested path everywhere.
 
     try {
-      const confirmation = await processUserInput(query);
+      let confirmation = applyRecentReminderTimeCorrection(query);
+
+      const scheduledTask = !confirmation ? extractScheduledTask(query) : null;
+      if (scheduledTask) {
+        const date = `${scheduledTask.target.getFullYear()}-${String(scheduledTask.target.getMonth() + 1).padStart(2, '0')}-${String(scheduledTask.target.getDate()).padStart(2, '0')}`;
+        const isShopping = /\b(buy|milk|curd|grocery|groceries|ice cream)\b/i.test(scheduledTask.title);
+        const taskId = addTask({
+          date,
+          title: scheduledTask.title,
+          category: isShopping ? 'HOME' : 'PERSONAL',
+          owner: 'ME',
+          status: 'NEXT',
+          priority: 7,
+          scheduledAt: scheduledTask.target.toISOString(),
+          ...(isShopping ? { context: 'ERRAND' as const } : {}),
+        });
+        if (isShopping) lastShoppingTaskIdRef.current = taskId;
+        confirmation = `✓ Task and linked reminder created for ${scheduledTask.target.toLocaleString([], {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+        })}: ${scheduledTask.title}`;
+      }
+
+      const stopMemoryMatch = !confirmation
+        ? query.match(/^(?:stop|pause|disable)\s+(?:the\s+)?(?:reminders?|rule|memory)?\s*(?:about|for)?\s*(.+?)\s*[.!]?$/i)
+        : null;
+      if (stopMemoryMatch?.[1]) {
+        const topicWords = stopMemoryMatch[1].toLowerCase().match(/[a-z0-9]+/g) || [];
+        const matchingMemory = (state.memories || [])
+          .filter((memory) => (memory.status || 'ACTIVE') === 'ACTIVE')
+          .map((memory) => ({
+            memory,
+            score: topicWords.filter((word) => memory.fact.toLowerCase().includes(word)).length,
+          }))
+          .sort((a, b) => b.score - a.score)[0];
+        if (matchingMemory?.score) {
+          const cardId = `card-${Date.now()}`;
+          managedMemoryByCardRef.current.set(cardId, matchingMemory.memory.id);
+          const followUps = ['Pause this memory', 'Disable reminder rule', 'Forget saved preference'];
+          setSmartCards((prev) => [{
+            id: cardId,
+            type: 'PERSISTENT_MEMORY',
+            title: 'Manage saved preference',
+            subtitle: 'Choose how strongly to stop it',
+            engineMode: 'OFFLINE_LOCAL',
+            followUpQuestions: followUps,
+            createdAt: Date.now(),
+            data: {
+              safetyWarning: `I found this active memory: “${matchingMemory.memory.fact}”\n\nPause keeps it saved for later. Disable turns off proactive reminders. Forget removes it from active memory.`,
+              followUpQuestions: followUps,
+            },
+          }, ...prev]);
+          setIsProcessing(false);
+          setAvatarMode('talking');
+          setStatusText('Choose how to manage the memory');
+          return;
+        }
+      }
+
+      const additionalErrandItems = !confirmation
+        ? query.match(/^also\s+add\s+(.+?)\s*[.!]?$/i)?.[1]?.trim()
+        : undefined;
+      if (additionalErrandItems) {
+        const shoppingTask = state.tasks.find((task) => task.id === lastShoppingTaskIdRef.current)
+          || state.tasks.find((task) => task.status !== 'DONE' && (task.context === 'ERRAND' || /\b(buy|shopping|grocery|milk|curd)\b/i.test(task.title)));
+        if (shoppingTask) {
+          const updatedTitle = `${shoppingTask.title}, ${additionalErrandItems}`;
+          editTask(shoppingTask.id, { title: updatedTitle });
+          const linkedReminder = state.reminders.find((reminder) => reminder.relatedTaskId === shoppingTask.id && !reminder.isDone);
+          if (linkedReminder) editReminder(linkedReminder.id, { message: updatedTitle });
+          lastShoppingTaskIdRef.current = shoppingTask.id;
+          confirmation = `✓ Added ${additionalErrandItems} to the same shopping task and grouped reminder.`;
+        }
+      }
+
+      if (!confirmation && /\bskip\b[^.]{0,30}\b(?:gym|workout)\b|\b(?:gym|workout)\b[^.]{0,30}\bskip\b/i.test(query)) {
+        const alreadySkipped = readGymSkips().some((item) => item.week === gymWeekKey());
+        pendingGymSkipReasonRef.current = { override: alreadySkipped };
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: alreadySkipped ? 'CONFLICT_WARNING' : 'EXPERT_ADVICE',
+          title: alreadySkipped ? 'Weekly Gym rule warning' : 'Gym skip reason required',
+          subtitle: alreadySkipped ? 'Your one normal skip is already used' : 'Reason will be saved for habit learning',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: alreadySkipped
+              ? 'This is a second Gym skip this week and breaks your weekly rule. You chose to allow an override only after saving the reason. Why are you skipping today?'
+              : 'Why are you skipping Gym today?',
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Tell me the Gym skip reason');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
+
+      const officeExitMatch = !confirmation
+        ? query.match(/^(?:i\s+)?(?:need|have|want)\s+to\s+(.+?)\s+when\s+i\s+leave\s+(?:the\s+)?office\s*[.!]?$/i)
+        : null;
+      if (officeExitMatch?.[1]) {
+        const title = officeExitMatch[1].trim().replace(/^to\s+/i, '');
+        const suggestedTime = state.userSettings.officeLeavingTime || '18:30';
+        pendingOfficeExitTaskRef.current = {
+          title: title.charAt(0).toUpperCase() + title.slice(1),
+          suggestedTime,
+        };
+        const [hours, minutes] = suggestedTime.split(':').map(Number);
+        const suggestedDisplay = new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const followUps = [`Yes, use ${suggestedDisplay}`, 'No, choose another time'];
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Confirm today’s Office leaving time',
+          subtitle: 'Overtime-aware reminder',
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: `Are you leaving Office at ${suggestedDisplay} today? If yes, I will create the task and linked reminder.`,
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Confirm today’s leaving time');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
+
+      const underspecifiedTask = !confirmation ? extractUnderspecifiedTomorrowTask(query) : null;
+      if (underspecifiedTask) {
+        pendingTaskCreationRef.current = underspecifiedTask;
+        const followUps = ['9:00 AM', '1:00 PM', '6:00 PM'];
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Task date understood • time needed',
+          subtitle: `Tomorrow • ${underspecifiedTask.date}`,
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: `I will create “${underspecifiedTask.title}” with its linked reminder. What time tomorrow should I remind you?`,
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Tell me the reminder time');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
+
+      const rememberedFact = !confirmation
+        ? query.match(/^remember(?: that)?\s+(.+?)\s*[.!]?$/i)?.[1]?.trim()
+        : undefined;
+      if (rememberedFact) {
+        const isFamily = /wife|husband|son|daughter|family|simran/i.test(rememberedFact);
+        const isPreference = /prefer|likes?|dislikes?|favourite|favorite|sugar[- ]?free/i.test(rememberedFact);
+        saveMemory(rememberedFact, {
+          status: 'ACTIVE',
+          category: isFamily ? 'FAMILY' : isPreference ? 'PREFERENCE' : 'GENERAL',
+          source: 'EXPLICIT_REMEMBER',
+          triggerKeywords: /sugar[- ]?free/i.test(rememberedFact)
+            ? ['groceries', 'sweets', 'dessert', 'ice cream', 'family treat']
+            : undefined,
+        });
+        confirmation = `✓ Saved privately as an active memory: ${rememberedFact}`;
+      }
+
+      const namedArrival = !confirmation ? findNamedArrival(query) : null;
+      if (namedArrival) {
+        const saved = await saveCurrentLocation(namedArrival);
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        addTimelineEvent({
+          date: state.date,
+          time,
+          type: 'GEOFENCE',
+          description: `Arrived at ${namedArrival}`,
+          location: namedArrival,
+          source: 'CHECK_IN',
+          syncStatus: 'PENDING',
+        });
+        confirmation = `✓ Logged arrival at ${namedArrival}. ${saved}`;
+      }
+
+      if (!confirmation) confirmation = await processUserInput(query);
+      const nudges = contextualMemoryNudges(query);
+      if (nudges.length) confirmation = `${confirmation}\n\n${nudges.map((nudge) => `💡 ${nudge}`).join('\n')}`;
+      rememberLocalAction();
+      const gymInterrupted = /\bgym\b/i.test(query) && /\brain/i.test(query) && /\b(?:back|returned|came)\b[^.]{0,20}\bhome\b/i.test(query);
+      const gymFollowUps = gymInterrupted
+        ? [
+            'Reschedule Gym to the next available timetable slot',
+            'Remind me to go to Gym every hour',
+            ...(readGymSkips().some((item) => item.week === gymWeekKey()) ? [] : ['Skip Gym today']),
+          ]
+        : [];
       const actionCard: SmartAICard = {
         id: `card-${Date.now()}`,
         type: 'EXPERT_ADVICE',
         title: 'DayTrace action completed',
         subtitle: 'On-device • no cloud tokens used',
         engineMode: 'OFFLINE_LOCAL',
+        followUpQuestions: gymFollowUps,
         createdAt: Date.now(),
-        data: { safetyWarning: confirmation || 'The action was processed on this device.' },
+        data: {
+          safetyWarning: confirmation || 'The action was processed on this device.',
+          followUpQuestions: gymFollowUps,
+        },
       };
       setSmartCards((prev) => [actionCard, ...prev]);
       setIsProcessing(false);
@@ -469,6 +1231,165 @@ export const GeminiLiveHubView: React.FC = () => {
     setStatusText(`Added ${steps.length} sub-tasks to your Task Board!`);
   };
 
+  const handleCardFollowUp = async (card: SmartAICard, choice: string) => {
+    const managedMemoryId = managedMemoryByCardRef.current.get(card.id);
+    if (managedMemoryId) {
+      const action = /^pause/i.test(choice) ? 'PAUSED' : /^disable/i.test(choice) ? 'DISABLED' : /forget/i.test(choice) ? 'FORGOTTEN' : null;
+      if (action) {
+        if (action === 'FORGOTTEN') {
+          deleteMemory(managedMemoryId);
+        } else {
+          updateMemory(managedMemoryId, {
+            status: action,
+            ...(action === 'DISABLED' ? { triggerKeywords: [] } : {}),
+          });
+        }
+        managedMemoryByCardRef.current.delete(card.id);
+        setSmartCards((prev) => prev.map((item) => item.id === card.id ? {
+          ...item,
+          subtitle: action === 'PAUSED' ? 'Memory paused' : action === 'FORGOTTEN' ? 'Memory forgotten' : 'Proactive rule disabled',
+          followUpQuestions: [],
+          data: {
+            ...item.data,
+            safetyWarning: action === 'PAUSED'
+              ? '✓ Paused. The preference stays on this device but will not trigger reminders until reactivated.'
+              : action === 'FORGOTTEN'
+                ? '✓ Forgotten. The saved preference has been removed from this device.'
+                : '✓ Disabled. DayTrace will no longer use this preference for proactive reminders.',
+            followUpQuestions: [],
+          },
+        } : item));
+        setStatusText(action === 'PAUSED' ? 'Memory paused' : action === 'FORGOTTEN' ? 'Memory forgotten' : 'Preference disabled');
+        return;
+      }
+    }
+
+    if (/^reschedule gym/i.test(choice)) {
+      const now = new Date();
+      const todayGymSlot = state.timetable
+        .filter((slot) => /gym|workout|exercise/i.test(slot.title) && slot.status === 'PENDING')
+        .map((slot) => {
+          const [hours, minutes] = slot.startTime.split(':').map(Number);
+          const date = new Date(now);
+          date.setHours(hours, minutes, 0, 0);
+          return { slot, date };
+        })
+        .filter(({ date }) => date.getTime() > now.getTime())
+        .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+      const target = todayGymSlot?.date || (() => {
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(6, 0, 0, 0);
+        return tomorrow;
+      })();
+      addTask({
+        date: `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`,
+        title: 'Rescheduled Gym session',
+        category: 'HEALTH',
+        owner: 'ME',
+        status: 'NEXT',
+        priority: 9,
+        scheduledAt: target.toISOString(),
+      });
+      setStatusText(`Gym rescheduled for ${target.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`);
+      return;
+    }
+    if (/gym every hour/i.test(choice)) {
+      const now = new Date();
+      let created = 0;
+      for (let hoursAhead = 1; hoursAhead <= 4; hoursAhead += 1) {
+        const target = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
+        if (target.getHours() >= 22) break;
+        addReminder({
+          date: `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`,
+          type: 'TIME_BASED',
+          triggerCondition: target.toISOString(),
+          message: 'Gym is still pending. Go now or reschedule it.',
+        });
+        created += 1;
+      }
+      setStatusText(created ? `${created} hourly Gym reminders created` : 'No useful hourly window remains today');
+      return;
+    }
+
+    const pendingFact = pendingMemoryByCardRef.current.get(card.id);
+    if (pendingFact) {
+      if (/^continue/i.test(choice)) {
+        setInputText(`${pendingFact} `);
+        setStatusText('Continue the saved message in the typing bar');
+        return;
+      }
+      if (/preference|rule/i.test(choice)) {
+        saveMemory(pendingFact, { status: 'ACTIVE', category: 'PREFERENCE', source: 'USER_CLASSIFIED' });
+        pendingMemoryByCardRef.current.delete(card.id);
+        setSmartCards((prev) => prev.map((item) => item.id === card.id ? {
+          ...item,
+          subtitle: 'Active local preference/rule',
+          followUpQuestions: [],
+          data: {
+            ...item.data,
+            memoryCategory: 'PREFERENCE',
+            safetyWarning: `✓ Saved as an active local preference/rule:\n${pendingFact}`,
+            followUpQuestions: [],
+          },
+        } : item));
+        setStatusText('Memory rule activated');
+        return;
+      }
+      if (/task|reminder/i.test(choice)) {
+        setInputText(`Create a task from this: ${pendingFact}. `);
+        setStatusText('Add the date and reminder time');
+        return;
+      }
+    }
+
+    const sourceQuery = sourceQueryByCardRef.current.get(card.id);
+    if (/fetch when online/i.test(choice) && sourceQuery) {
+      if (navigator.onLine) {
+        void submitQuery(sourceQuery, { forceOnlineFollowUp: true });
+      } else {
+        pendingOnlineQueryRef.current = sourceQuery;
+        localStorage.setItem('daytrace_pending_online_query_v1', sourceQuery);
+        setStatusText('Saved • I will fetch this when the device reconnects');
+      }
+      return;
+    }
+    if (/last stored/i.test(choice) && sourceQuery) {
+      const cached = readLastVerifiedAnswer(sourceQuery);
+      const answer = cached
+        ? `${cached.answer}\n\nStored result fetched: ${new Date(cached.fetchedAt).toLocaleString()}`
+        : 'No previously verified result is stored for this question.';
+      setSmartCards((prev) => [{
+        id: `card-${Date.now()}`,
+        type: 'EXPERT_ADVICE',
+        title: 'Last stored verified result',
+        subtitle: cached ? 'Cached data • timestamp shown' : 'No matching cache',
+        engineMode: 'OFFLINE_LOCAL',
+        createdAt: Date.now(),
+        data: { safetyWarning: answer },
+      }, ...prev]);
+      return;
+    }
+    if (/open the weather app/i.test(choice)) {
+      await openRelevantExternalApp('WEATHER', sourceQuery || 'weather near me');
+      return;
+    }
+    if (/open the relevant app/i.test(choice)) {
+      await openRelevantExternalApp(/location|near|pharmacy|route/i.test(sourceQuery || '') ? 'MAPS' : 'BROWSER', sourceQuery);
+      return;
+    }
+
+    void submitQuery(choice, { forceOnlineFollowUp: card.engineMode === 'ONLINE_CLOUD' });
+  };
+
+  useEffect(() => {
+    if (!isOnline || isProcessing || !pendingOnlineQueryRef.current || !getStoredGeminiApiKey()) return;
+    const queued = pendingOnlineQueryRef.current;
+    pendingOnlineQueryRef.current = null;
+    localStorage.removeItem('daytrace_pending_online_query_v1');
+    void submitQuery(queued, { forceOnlineFollowUp: true });
+  }, [isOnline, isProcessing]);
+
   return (
     <div id="gemini-live-hub" className="flex-1 flex flex-col h-full bg-[#070A10] text-[#E2E2E6] overflow-hidden relative">
       {/* Scrollable Main Content Feed with Bottom Padding to clear Fixed Input Bar */}
@@ -542,7 +1463,7 @@ export const GeminiLiveHubView: React.FC = () => {
               onConfirmReschedule={handleConfirmReschedule}
               onAddRoadmapTasks={handleAddRoadmapTasks}
               onDismissCard={(id) => setSmartCards((prev) => prev.filter((c) => c.id !== id))}
-              onSelectFollowUp={(q) => submitQuery(q)}
+              onSelectFollowUp={(q) => void handleCardFollowUp(card, q)}
             />
           ))}
         </AnimatePresence>

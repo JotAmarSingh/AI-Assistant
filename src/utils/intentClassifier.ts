@@ -209,7 +209,7 @@ function extractQueryDetails(
   }
 
   // 2. "What's next?" / "What should I do?"
-  if (/\b(what's next|what is next|whats next|what next|next task|next up|what should i do next|what to do next)\b/i.test(lower)) {
+  if (/\b(what's next|what is next|whats next|what next|next task|next up|what should i do next|what to do next|what should i work on|what should i focus on)\b/i.test(lower)) {
     return { category: 'NEXT_UP' };
   }
 
@@ -349,6 +349,29 @@ export function executeDayTraceQuery(
         return {
           answerText: `Current Focus:\n• ${focusTask.title} (${focusTask.category})`,
           spokenText: `Your current focus is ${focusTask.title}.`,
+          matchedCount: 1,
+        };
+      }
+    }
+
+    const requestedMinutes = Number(rawInput.match(/\b(\d{1,3})\s*(?:minutes?|mins?)\b/i)?.[1] || 0);
+    if (requestedMinutes > 0) {
+      const currentLocation = state.current.location.toLowerCase();
+      const candidates = (state.tasks || [])
+        .filter((task) => task.status === 'ACTIVE' || task.status === 'NEXT')
+        .filter((task) => !task.estimatedMinutes || task.estimatedMinutes <= requestedMinutes)
+        .map((task) => ({
+          task,
+          score: (task.priority || 5) * 10
+            + (task.location && task.location.toLowerCase() === currentLocation ? 8 : 0)
+            + (task.estimatedMinutes ? Math.max(0, 6 - Math.abs(requestedMinutes - task.estimatedMinutes) / 5) : 0),
+        }))
+        .sort((left, right) => right.score - left.score);
+      if (candidates[0]) {
+        const selected = candidates[0].task;
+        return {
+          answerText: `Best use of ${requestedMinutes} minutes:\n• ${selected.title} (Priority ${selected.priority}${selected.estimatedMinutes ? ` • about ${selected.estimatedMinutes} min` : ''})\n\nThis fits the available time and your current ${state.current.location} context.`,
+          spokenText: `Best use of ${requestedMinutes} minutes is ${selected.title}.`,
           matchedCount: 1,
         };
       }

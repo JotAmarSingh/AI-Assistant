@@ -64,6 +64,7 @@ export interface DayTraceNativePluginInterface {
   checkNotificationPermission(): Promise<NativeNotificationPermissionStatus>;
   getCapabilityStatus(): Promise<{ permissions: DevicePermissionContext }>;
   openNotificationSettings(): Promise<{ success: boolean }>;
+  openExternalApp(options: { kind: 'WEATHER' | 'MAPS' | 'CALENDAR' | 'BROWSER'; query?: string }): Promise<{ success: boolean; target?: string }>;
   getAppIdentity(): Promise<NativeAppIdentity>;
 
   // Meeting Mode foreground recording
@@ -147,6 +148,23 @@ export interface NativeMeetingRecordingState {
  */
 export const isNativeAndroid = (): boolean => {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+};
+
+export const openRelevantExternalApp = async (
+  kind: 'WEATHER' | 'MAPS' | 'CALENDAR' | 'BROWSER',
+  query?: string,
+): Promise<boolean> => {
+  if (isNativeAndroid()) {
+    try {
+      const result = await DayTraceNative.openExternalApp({ kind, query });
+      return result.success;
+    } catch (error) {
+      console.warn('Could not open relevant Android app', error);
+    }
+  }
+  const fallbackQuery = encodeURIComponent(query || (kind === 'WEATHER' ? 'weather near me' : ''));
+  window.open(kind === 'MAPS' ? `https://www.google.com/maps/search/${fallbackQuery}` : `https://www.google.com/search?q=${fallbackQuery}`, '_blank', 'noopener');
+  return true;
 };
 
 /** Read permission state only when the user's question needs it. */

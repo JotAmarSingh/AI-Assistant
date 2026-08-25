@@ -83,6 +83,7 @@ jobs:
           npm run test:meetings
           npm run test:task-parsing
           npm run test:ai-context
+          npm run test:ai-routing
 
       - name: Build Web Application
         run: npm run build

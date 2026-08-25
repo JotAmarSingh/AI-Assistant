@@ -180,6 +180,7 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     ignoredLocationClusters: raw.ignoredLocationClusters || [],
     taskCategories: normalizeCategories({ ...raw, tasks }),
     meetings: raw.meetings || [],
+    memories: raw.memories || [],
     migrationMetadata: {
       ...(raw.migrationMetadata || {}),
       ...(removedSeedRecords > 0

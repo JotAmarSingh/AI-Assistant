@@ -334,6 +334,7 @@ export interface DailyState {
   ignoredLocationClusters?: IgnoredLocationCluster[];
   taskCategories?: TaskCategoryDefinition[];
   meetings?: MeetingRecord[];
+  memories?: UserMemoryItem[];
   migrationMetadata?: {
     seededExamplesPurgedAt?: string;
     appliedVersions?: number[];
@@ -431,6 +432,10 @@ export interface UserMemoryItem {
   fact: string;
   source?: string;
   createdAt: number;
+  status?: 'ACTIVE' | 'PENDING' | 'PAUSED' | 'DISABLED';
+  triggerKeywords?: string[];
+  updatedAt?: number;
+  lastUsedAt?: number;
 }
 
 export type SmartAICardType = 

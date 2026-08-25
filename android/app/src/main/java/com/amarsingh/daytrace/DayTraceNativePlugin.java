@@ -1055,6 +1055,56 @@ public class DayTraceNativePlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void openExternalApp(PluginCall call) {
+        String kind = call.getString("kind", "BROWSER").toUpperCase(Locale.ROOT);
+        String query = call.getString("query", "");
+        Context context = getContext();
+        PackageManager packageManager = context.getPackageManager();
+        Intent intent = null;
+        String target = kind;
+
+        try {
+            if ("WEATHER".equals(kind)) {
+                String[] weatherPackages = {
+                        "com.google.android.apps.weather",
+                        "com.google.android.googlequicksearchbox"
+                };
+                for (String packageName : weatherPackages) {
+                    intent = packageManager.getLaunchIntentForPackage(packageName);
+                    if (intent != null) {
+                        target = packageName;
+                        break;
+                    }
+                }
+            } else if ("MAPS".equals(kind)) {
+                intent = new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(query)));
+                intent.setPackage("com.google.android.apps.maps");
+                target = "Google Maps";
+            } else if ("CALENDAR".equals(kind)) {
+                intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR);
+                target = "Calendar";
+            }
+
+            if (intent == null || intent.resolveActivity(packageManager) == null) {
+                String fallbackQuery = query.isEmpty()
+                        ? ("WEATHER".equals(kind) ? "weather near me" : kind.toLowerCase(Locale.ROOT))
+                        : query;
+                intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(fallbackQuery)));
+                target = "browser fallback";
+            }
+
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("target", target);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to open the relevant app: " + e.getMessage());
+        }
+    }
+
     // ==========================================
     // 8. MEETING MODE FOREGROUND RECORDING
     // ==========================================

@@ -39,4 +39,42 @@ const result4 = parseOfflineUserInput(input4, state1, '12:15');
 assert.equal(result4.extractedStateUpdate.newTasks?.length, 1);
 assert.equal(result4.extractedStateUpdate.newTasks?.[0].title, 'Review pull request');
 
+const gymState = createFreshDailyState();
+gymState.tasks.push({
+  id: 'gym-task',
+  date: gymState.date,
+  title: 'Go to Gym',
+  category: 'HEALTH',
+  owner: 'ME',
+  status: 'ACTIVE',
+  priority: 8,
+  createdAt: new Date().toISOString(),
+});
+const interruptedGym = parseOfflineUserInput(
+  'I was going to the gym, but it started raining, so I came back home',
+  gymState,
+  '18:10',
+);
+assert.deepEqual(
+  interruptedGym.extractedStateUpdate.newTimelineEvents?.map((event) => event.type),
+  ['TASK_STARTED', 'INTERRUPTION', 'DEPARTURE'],
+);
+assert.equal(interruptedGym.extractedStateUpdate.currentLocation, 'Home');
+assert.equal(interruptedGym.extractedStateUpdate.updatedTasks?.[0]?.status, 'NEXT');
+
+const milkState = createFreshDailyState();
+milkState.tasks.push({
+  id: 'milk-task',
+  date: milkState.date,
+  title: 'Buy milk',
+  category: 'HOME',
+  owner: 'ME',
+  status: 'NEXT',
+  priority: 7,
+  createdAt: new Date().toISOString(),
+});
+const boughtMilk = parseOfflineUserInput('I bought the milk', milkState, '18:20');
+assert.deepEqual(boughtMilk.extractedStateUpdate.completedTaskTitles, ['Buy milk']);
+assert.match(boughtMilk.aiResponseText, /Marked "Buy milk" as DONE/);
+
 console.log('Task parsing tests passed successfully!');

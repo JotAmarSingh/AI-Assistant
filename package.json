@@ -1,7 +1,7 @@
 {
   "name": "daytrace",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.3.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -17,7 +17,8 @@
     "test:meetings": "node --import tsx scripts/test-meeting-processor.ts",
     "test:task-parsing": "node --import tsx scripts/test-task-parsing.ts",
     "test:ai-context": "node --import tsx scripts/test-ai-context.ts",
-    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing && npm run test:ai-context"
+    "test:ai-routing": "node --import tsx scripts/test-ai-routing.ts",
+    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing && npm run test:ai-context && npm run test:ai-routing"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

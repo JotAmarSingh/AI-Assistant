@@ -29,6 +29,46 @@ const capabilities = buildSmartTokenContext('Which permissions can you access?',
 assert.match(capabilities, /location=GRANTED/);
 assert.doesNotMatch(capabilities, /30\.901|Private client task|Private memory/, 'Capability questions must not receive user content');
 
+const festival = buildSmartTokenContext('Which festival is upcoming in Punjab?', fullContext, {
+  now: new Date('2026-08-25T11:05:00+05:30'),
+  forceLiveSearch: true,
+});
+assert.match(festival, /2026/);
+assert.match(festival, /live Google Search/);
+assert.doesNotMatch(festival, /Private client task|Private memory|30\.901/);
+
+const correction = buildSmartTokenContext('No, I meant Rakhi or Bhai Dooj', fullContext, {
+  now: new Date('2026-08-25T11:06:00+05:30'),
+  forceLiveSearch: true,
+  conversationTurns: [
+    { role: 'user', text: 'Which festival is upcoming in Punjab?' },
+    { role: 'assistant', text: 'The next festival is Teej.' },
+  ],
+});
+assert.match(correction, /The next festival is Teej/);
+assert.match(correction, /No, I meant Rakhi or Bhai Dooj/);
+assert.doesNotMatch(correction, /Private client task|Private memory|30\.901/);
+
+const nearby = buildSmartTokenContext('Find the nearest open pharmacy', { ...fullContext, savedPlace: undefined }, {
+  now: new Date('2026-08-25T11:08:00+05:30'),
+  forceLiveSearch: true,
+});
+assert.match(nearby, /latitude=30\.901000, longitude=75\.857000/);
+assert.match(nearby, /currently relevant nearby choices/);
+assert.doesNotMatch(nearby, /Private client task|Private memory/);
+
+const outfit = buildSmartTokenContext('What should I wear today?', {
+  ...fullContext,
+  savedPlace: undefined,
+  timetableSlots: [{ time: '18:30-21:00', title: 'Family party' }],
+}, {
+  now: new Date('2026-08-25T11:09:00+05:30'),
+  forceLiveSearch: true,
+});
+assert.match(outfit, /Family party/);
+assert.match(outfit, /2-3 distinct outfit options/);
+assert.doesNotMatch(outfit, /Private client task/);
+
 const now = new Date('2026-08-25T12:00:00+05:30');
 const evening = new Date(parseReminderTriggerTime('7:30 PM', now)!);
 assert.equal(evening.getHours(), 19);

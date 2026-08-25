@@ -86,6 +86,7 @@ jobs:
           npm run test:ai-routing
           npm run test:accountability
           npm run test:release-ui
+          npm run test:view-runtime
 
       - name: Build Web Application
         run: npm run build

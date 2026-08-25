@@ -21,6 +21,7 @@ import { GeofenceManagerModal } from './components/geofence/GeofenceManagerModal
 import { LocationLearningPrompts } from './components/geofence/LocationLearningPrompts';
 import { DestructiveConfirmationModal } from './components/common/DestructiveConfirmationModal';
 import { FirstRunPermissionsModal } from './components/android/FirstRunPermissionsModal';
+import { ViewErrorBoundary } from './components/common/ViewErrorBoundary';
 
 const MainScreen: React.FC = () => {
   const { 
@@ -154,7 +155,9 @@ const MainScreen: React.FC = () => {
             Viewing {selectedDate} • read-only history{historicalDateMessage ? ` • ${historicalDateMessage}` : ''}
           </div>
         )}
-        {renderActiveView()}
+        <ViewErrorBoundary key={activeTab} onReturnHome={() => setActiveTab('hub')}>
+          {renderActiveView()}
+        </ViewErrorBoundary>
       </main>
 
       {/* Floating Focus Countdown HUD (visible when focus session is running) */}

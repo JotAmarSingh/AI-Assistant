@@ -10,12 +10,15 @@ export const RemindersAnchorsView: React.FC = () => {
   const { state, automations, addAutomation, deleteAutomation, markAutomationComplete, snoozeAutomation, addFixedEvent, deleteFixedEvent, addReminder, toggleReminder, deleteReminder } = useDay();
   const [creator, setCreator] = useState<AnchorCreator>(null);
   const [showReview, setShowReview] = useState(false);
-  const activeAutomations = automations.filter((item) => item.status !== 'COMPLETED');
-  const activeReminders = state.reminders.filter((item) => !item.isDone);
-  const activeCount = activeAutomations.length + activeReminders.length + state.fixedEvents.length;
-  const triggeredToday = automations.filter((item) => item.triggeredAt?.startsWith(state.date)).length;
+  const safeAutomations = automations || [];
+  const safeReminders = state.reminders || [];
+  const safeFixedEvents = state.fixedEvents || [];
+  const activeAutomations = safeAutomations.filter((item) => item.status !== 'COMPLETED');
+  const activeReminders = safeReminders.filter((item) => !item.isDone);
+  const activeCount = activeAutomations.length + activeReminders.length + safeFixedEvents.length;
+  const triggeredToday = safeAutomations.filter((item) => item.triggeredAt?.startsWith(state.date)).length;
   const allEmpty = activeCount === 0;
-  const sortedFixed = useMemo(() => [...state.fixedEvents].sort((a, b) => a.time.localeCompare(b.time)), [state.fixedEvents]);
+  const sortedFixed = useMemo(() => [...safeFixedEvents].sort((a, b) => a.time.localeCompare(b.time)), [safeFixedEvents]);
 
   return (
     <div id="reminders-anchors-view" className="daytrace-scene flex h-full flex-1 flex-col overflow-hidden text-slate-100">

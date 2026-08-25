@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DayProvider, useDay } from './context/DayContext';
 import { AndroidStatusBar } from './components/android/AndroidStatusBar';
 import { AndroidNotificationCenter } from './components/android/AndroidNotificationCenter';
@@ -48,6 +48,15 @@ const MainScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AndroidTab>('hub');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const settingsReturnTab = useRef<AndroidTab>('hub');
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const lastSwipeAt = useRef(0);
+  const swipeTabs: AndroidTab[] = ['hub', 'timetable', 'board', 'timeline', 'meetings', 'reminders'];
+
+  const navigateToTab = (tab: AndroidTab) => {
+    if (tab === 'settings' && activeTab !== 'settings') settingsReturnTab.current = activeTab;
+    setActiveTab(tab);
+  };
 
   useEffect(() => {
     const openMeetings = () => setActiveTab('meetings');
@@ -88,7 +97,7 @@ const MainScreen: React.FC = () => {
       case 'reminders':
         return <RemindersAnchorsView />;
       case 'settings':
-        return <SettingsView onClose={() => setActiveTab('hub')} />;
+        return <SettingsView onClose={() => setActiveTab(settingsReturnTab.current)} />;
       default:
         return <TodayHubView onNavigateToTimetable={() => setActiveTab('timetable')} />;
     }
@@ -100,12 +109,40 @@ const MainScreen: React.FC = () => {
       <AndroidStatusBar onOpenNotifications={() => setIsNotificationsOpen(true)} />
 
       {/* Android Material 3 Top App Bar */}
-      <AndroidTopAppBar onNavigateTab={(tab) => setActiveTab(tab)} />
+      {activeTab !== 'settings' && <AndroidTopAppBar onNavigateTab={navigateToTab} />}
 
       {/* Primary Dynamic Screen View */}
       <main
         className="flex-1 flex flex-col overflow-hidden relative"
+        onTouchStart={(event) => {
+          if (activeTab === 'settings' || isKeyboardOpen || (event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) {
+            touchStart.current = null;
+            return;
+          }
+          const touch = event.touches[0];
+          touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+        }}
+        onTouchEnd={(event) => {
+          const start = touchStart.current;
+          touchStart.current = null;
+          const touch = event.changedTouches[0];
+          if (!start || !touch) return;
+          const deltaX = touch.clientX - start.x;
+          const deltaY = touch.clientY - start.y;
+          if (Math.abs(deltaX) < 70 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+          const currentIndex = swipeTabs.indexOf(activeTab);
+          if (currentIndex < 0) return;
+          const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
+          if (nextIndex < 0 || nextIndex >= swipeTabs.length) return;
+          lastSwipeAt.current = Date.now();
+          setActiveTab(swipeTabs[nextIndex]);
+        }}
         onClickCapture={(event) => {
+          if (Date.now() - lastSwipeAt.current < 350) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (!isViewingToday && activeTab !== 'settings') {
             event.preventDefault();
             event.stopPropagation();
@@ -124,7 +161,7 @@ const MainScreen: React.FC = () => {
       <FloatingFocusHUD onOpenModal={() => setIsFocusModalOpen(true)} />
 
       {/* Android Bottom Navigation Bar */}
-      {!isKeyboardOpen && <AndroidNavigationBar activeTab={activeTab} onSelectTab={setActiveTab} />}
+      {!isKeyboardOpen && activeTab !== 'settings' && <AndroidNavigationBar activeTab={activeTab} onSelectTab={navigateToTab} />}
 
       {/* 30-Minute Recurring Accountability Dialogue Modal */}
       <PeriodicPromptModal

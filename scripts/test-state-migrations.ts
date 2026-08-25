@@ -10,6 +10,10 @@ assert.equal(fresh.geofenceLocations?.length, 0);
 assert.equal(fresh.meetings?.length, 0);
 assert.equal(fresh.current.location, 'Unknown');
 assert.equal(fresh.userSettings.periodicPromptEnabled, false);
+assert.deepEqual(fresh.taskCategories?.map((category) => category.label), ['Uncategorised']);
+assert.equal(fresh.gamification?.points, 0);
+assert.equal(fresh.gamification?.currentStreakDays, 0);
+assert.equal(fresh.gamification?.totalTasksCompleted, 0);
 
 const legacy = {
   ...fresh,
@@ -42,5 +46,23 @@ const ordinary = migrateDailyState({
   tasks: [{ id: 'task-1', title: 'Morning content post', category: 'CONTENT', owner: 'ME', status: 'NEXT', priority: 4, createdAt: '2026-08-22T11:00:00.000Z' }],
 });
 assert.equal(ordinary.state.tasks.length, 1, 'One coincidental legacy ID/title is not proof of a seeded board');
+
+const legacyStarterRewards = migrateDailyState({
+  ...fresh,
+  schemaVersion: 7,
+  gamification: {
+    points: 120,
+    currentStreakDays: 1,
+    longestStreakDays: 1,
+    totalFocusMinutes: 25,
+    totalTasksCompleted: 3,
+    totalReviewsCompleted: 0,
+    lastActiveDate: '2026-08-22',
+    claimedRewards: [],
+    customRewards: [],
+  },
+});
+assert.equal(legacyStarterRewards.state.gamification?.points, 0, 'legacy starter XP must not survive migration');
+assert.equal(legacyStarterRewards.state.gamification?.currentStreakDays, 0, 'legacy starter streak must not survive migration');
 
 console.log('state migrations: passed');

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Gift, 
   Flame, 
@@ -36,6 +36,20 @@ export const RewardsVaultModal: React.FC<RewardsVaultModalProps> = ({ isOpen, on
   const [newTier, setNewTier] = useState<RewardTier>('MICRO');
   const [newDesc, setNewDesc] = useState('');
   const [claimedNotice, setClaimedNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  const confettiTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setClaimedNotice(null);
+      confetti.reset();
+    }
+    return () => {
+      if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+      if (confettiTimerRef.current !== null) window.clearTimeout(confettiTimerRef.current);
+      confetti.reset();
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -72,11 +86,14 @@ export const RewardsVaultModal: React.FC<RewardsVaultModalProps> = ({ isOpen, on
           origin: { y: 0.6 },
           colors: ['#D1E1FF', '#86EFAC', '#FBBF24', '#F472B6', '#A78BFA'],
         });
+        if (confettiTimerRef.current !== null) window.clearTimeout(confettiTimerRef.current);
+        confettiTimerRef.current = window.setTimeout(() => confetti.reset(), 2200);
       } catch {
         // ignore
       }
       setClaimedNotice(`🎉 Claimed: ${reward.title}! Enjoy your well-earned reward!`);
-      setTimeout(() => setClaimedNotice(null), 4000);
+      if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = window.setTimeout(() => setClaimedNotice(null), 4000);
     }
   };
 

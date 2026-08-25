@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
 @layer base {
+  html, body, #root {
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow: hidden;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
@@ -10,6 +17,148 @@
   
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+.daytrace-scene {
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(58, 50, 150, 0.18), transparent 36%),
+    radial-gradient(circle at 20% 62%, rgba(8, 145, 178, 0.10), transparent 30%),
+    linear-gradient(180deg, #030617 0%, #071126 48%, #040817 100%);
+}
+
+.daytrace-stars {
+  background-image:
+    radial-gradient(circle at 12% 20%, rgba(255,255,255,.7) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 78% 14%, rgba(139,92,246,.8) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 45% 42%, rgba(34,211,238,.55) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 84% 72%, rgba(255,255,255,.55) 0 1px, transparent 1.5px);
+  background-size: 170px 190px, 230px 210px, 260px 240px, 310px 270px;
+}
+
+.daytrace-water {
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 85%, rgba(50, 66, 190, .28), transparent 55%),
+    repeating-radial-gradient(ellipse at 50% 110%, rgba(34,211,238,.12) 0 2px, transparent 3px 19px),
+    linear-gradient(180deg, transparent, rgba(5,35,79,.34));
+  background-size: 100% 100%, 120% 42%, 100% 100%;
+  animation: daytrace-water-flow 10s linear infinite;
+}
+
+.daytrace-time-river {
+  background:
+    radial-gradient(ellipse at 50% 12%, rgba(251,191,36,.16), transparent 22%),
+    radial-gradient(ellipse at 50% 86%, rgba(139,92,246,.20), transparent 30%),
+    linear-gradient(100deg, transparent 36%, rgba(34,211,238,.06) 50%, transparent 64%);
+}
+
+.daytrace-island-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+}
+
+.daytrace-island-aura {
+  position: absolute;
+  inset: 22% 8%;
+  z-index: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--island-color, #22d3ee) 30%, transparent);
+  filter: blur(22px);
+  animation: daytrace-island-float 4s ease-in-out infinite;
+}
+
+.daytrace-island-card {
+  transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+.daytrace-island-card:active {
+  transform: scale(.97);
+  border-color: rgba(34,211,238,.65);
+}
+
+.task-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .25rem;
+  border-radius: .75rem;
+  background: rgba(30,41,59,.72);
+  padding: .5rem .35rem;
+  font-size: .625rem;
+  font-weight: 800;
+}
+
+.meeting-action,
+.anchor-type {
+  display: flex;
+  min-height: 76px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(2,6,23,.72);
+  font-size: .625rem;
+  font-weight: 800;
+}
+.meeting-action:disabled { opacity: .35; }
+
+.anchor-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .8rem 1rem;
+}
+.delete-icon {
+  border-radius: .75rem;
+  padding: .45rem;
+  color: #fda4af;
+  background: rgba(251,113,133,.1);
+}
+
+.form-label {
+  display: block;
+  color: #94a3b8;
+  font-size: .625rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.form-control {
+  display: block;
+  width: 100%;
+  margin-top: .375rem;
+  border: 1px solid rgba(34,211,238,.2);
+  border-radius: 1rem;
+  background: #020617;
+  padding: .72rem .8rem;
+  color: #f8fafc;
+  font-size: .75rem;
+  outline: none;
+}
+.form-control:focus { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,.1); }
+
+@keyframes daytrace-water-flow {
+  from { background-position: 0 0, 0 0, 0 0; }
+  to { background-position: 0 0, 80px 0, 0 0; }
+}
+@keyframes daytrace-island-float {
+  0%,100% { transform: translateY(3px) scale(.96); opacity: .62; }
+  50% { transform: translateY(-4px) scale(1.08); opacity: .95; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daytrace-water,
+  .daytrace-island-aura,
+  .daytrace-island-art,
+  .daytrace-island-card {
+    animation: none !important;
+    transition: none !important;
   }
 }
 

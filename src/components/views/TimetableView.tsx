@@ -1,269 +1,78 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  CalendarClock, 
-  Plus, 
-  CheckCircle2, 
-  Play, 
-  Trash2, 
-  Edit3, 
-  ChevronDown, 
-  ChevronUp, 
-  MapPin, 
-  Clock, 
-  AlertCircle,
-  ExternalLink,
-  Sparkles
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Clock3, Edit3, MapPin, Play, Plus, Trash2, X } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { TimetableSlot } from '../../types';
+import { RoutineRecurrence, TimetableSlot } from '../../types';
 import { resolveContextualIcon } from '../../services/geminiService';
+import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
+import { UNCATEGORISED_CATEGORY_ID } from '../../utils/initialState';
+
+const durationMinutes = (start: string, end: string) => {
+  const [startHour, startMinute] = start.split(':').map(Number);
+  const [endHour, endMinute] = end.split(':').map(Number);
+  return Math.max(1, (endHour * 60 + endMinute) - (startHour * 60 + startMinute));
+};
+
+const formatDuration = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ''}`.trim() : `${minutes}m`;
+
+const SlotVisual: React.FC<{ slot: TimetableSlot; categoryLabel: string }> = ({ slot, categoryLabel }) => {
+  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', slot.title, [categoryLabel]);
+  return <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-slate-950">{imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={isGenerating ? 'animate-pulse' : ''}>{resolveContextualIcon(slot.title, categoryLabel)}</span>}</div>;
+};
 
 export const TimetableView: React.FC = () => {
-  const {
-    state,
-    addTimetableSlot,
-    updateTimetableSlot,
-    deleteTimetableSlot,
-    toggleSlotStatus,
-    syncTimetableToDailyTasks,
-  } = useDay();
+  const { state, selectedDate, isViewingToday, addTimetableSlot, updateTimetableSlot, deleteTimetableSlot, toggleSlotStatus, taskCategories } = useDay();
+  const slots = useMemo(() => [...(state.timetable || [])].sort((left, right) => left.startTime.localeCompare(right.startTime)), [state.timetable]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<TimetableSlot | null>(null);
+  const plannedMinutes = slots.reduce((sum, slot) => sum + (slot.durationMinutes || durationMinutes(slot.startTime, slot.endTime)), 0);
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const categories = taskCategories.length ? taskCategories : [{ id: UNCATEGORISED_CATEGORY_ID, label: 'Uncategorised' } as any];
+  const categoryLabel = (id: string) => categories.find((category) => category.id === id)?.label || id;
 
-  const [expandedSlotId, setExpandedSlotId] = useState<string | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // Form State
-  const [formTitle, setFormTitle] = useState('');
-  const [formStartTime, setFormStartTime] = useState('09:00');
-  const [formEndTime, setFormEndTime] = useState('10:00');
-  const [formLocation, setFormLocation] = useState('');
-
-  const slots = state.timetableSlots || [
-    { id: '1', startTime: '08:00', endTime: '09:00', title: 'Breakfast (2 chapati with curd and dal)', location: 'Home Dining', status: 'COMPLETED' },
-    { id: '2', startTime: '09:18', endTime: '10:52', title: 'Video & Reel Editing (32yo Sikh Avatar)', location: 'Studio Workstation', status: 'NOW' },
-    { id: '3', startTime: '11:00', endTime: '12:00', title: 'Growth Strategy Meeting', location: 'Conference Room A', status: 'UPCOMING' },
-    { id: '4', startTime: '14:00', endTime: '15:00', title: 'Client Feedback Sync', location: 'Google Meet', status: 'MISSED' }
-  ];
-
-  const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case 'NOW':
-      case 'ACTIVE':
-        return { label: 'NOW', bg: 'bg-[#10B981]/20 text-[#10B981] border-[#10B981]' };
-      case 'MISSED':
-      case 'OVERDUE':
-        return { label: 'MISSED', bg: 'bg-[#EF4444]/20 text-[#EF4444] border-[#EF4444]' };
-      case 'COMPLETED':
-      case 'DONE':
-        return { label: 'DONE', bg: 'bg-[#334867]/40 text-[#C4C6D0]/60 border-[#334867]' };
-      case 'UPCOMING':
-      default:
-        return { label: 'UPCOMING', bg: 'bg-[#FBBF24]/20 text-[#FBBF24] border-[#FBBF24]' };
-    }
-  };
-
-  const handleAddSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formTitle.trim()) return;
-
-    addTimetableSlot({
-      title: formTitle.trim(),
-      startTime: formStartTime,
-      endTime: formEndTime,
-      location: formLocation || undefined,
-      category: 'OFFICE',
-      recurrence: 'DAILY'
-    });
-
-    setFormTitle('');
-    setShowAddModal(false);
-  };
+  const openNew = () => { setEditingSlot(null); setIsEditorOpen(true); };
+  const currentLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 
   return (
-    <div id="timetable-view" className="flex-1 flex flex-col h-full bg-[#070A10] text-[#E2E2E6] overflow-hidden relative">
-      {/* Top Bar Header */}
-      <div className="shrink-0 px-4 py-3 bg-[#0D1527]/95 backdrop-blur-md border-b border-[#00F0FF]/30 flex items-center justify-between z-20 shadow-md">
-        <div className="flex items-center space-x-2">
-          <CalendarClock className="w-4 h-4 text-[#00F0FF]" />
-          <div>
-            <h2 className="font-mono font-bold text-sm text-[#E2E2E6]">Minimalistic Mechanical Timetable</h2>
-            <p className="text-[10px] text-[#C4C6D0]/70 font-mono">Ultra-Sleek Single Line Accordion Cadence</p>
-          </div>
-        </div>
+    <div id="timetable-view" className="daytrace-scene flex h-full flex-1 flex-col overflow-hidden text-slate-100">
+      <header className="z-20 shrink-0 border-b border-cyan-300/20 bg-[#050918]/90 px-4 py-3 backdrop-blur-xl">
+        <div className="flex items-center justify-between"><div><h2 className="text-base font-black">Timetable</h2><p className="text-[10px] text-slate-400">Plan the day before it becomes your timeline</p></div><button id="timetable-add-btn" type="button" onClick={openNew} className="rounded-full border border-cyan-300 bg-cyan-300/10 p-2.5 text-cyan-200 shadow-[0_0_16px_rgba(34,211,238,.3)]" aria-label="Add time block"><Plus className="h-5 w-5" /></button></div>
+        <div className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-cyan-300/20 bg-slate-950/70 px-4 py-2 text-xs"><CalendarDays className="h-4 w-4 text-cyan-300" /><span className="font-bold">{isViewingToday ? 'Today' : currentLabel}</span><span className="text-slate-500">•</span><span className="font-mono text-slate-300">{selectedDate}</span></div>
+      </header>
 
-        <button
-          onClick={() => syncTimetableToDailyTasks()}
-          className="px-2.5 py-1 rounded-full bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] text-[10px] font-mono font-bold hover:bg-[#00F0FF]/25 transition"
-        >
-          Sync to Tasks
-        </button>
-      </div>
+      <div className="relative flex-1 overflow-y-auto overscroll-contain px-4 pb-8 pt-4">
+        <div className="daytrace-time-river pointer-events-none absolute inset-0" />
+        <div className="relative z-10 mx-auto max-w-lg space-y-4">
+          <section className="grid grid-cols-2 gap-3 rounded-[28px] border border-cyan-300/20 bg-slate-950/70 p-4 backdrop-blur-xl"><div className="flex items-center gap-3"><div className="rounded-2xl bg-cyan-300/10 p-2.5 text-cyan-300"><Clock3 className="h-5 w-5" /></div><div><p className="text-xl font-black">{formatDuration(plannedMinutes)}</p><p className="text-[10px] text-slate-400">Planned</p></div></div><div className="flex items-center gap-3 border-l border-white/10 pl-4"><div className="rounded-2xl bg-violet-400/10 p-2.5 text-violet-300"><CalendarDays className="h-5 w-5" /></div><div><p className="text-xl font-black">{slots.length}</p><p className="text-[10px] text-slate-400">Scheduled</p></div></div></section>
 
-      {/* Main Timetable Slots Feed */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-        {slots.map((slot: any) => {
-          const isExpanded = expandedSlotId === slot.id;
-          const statusInfo = getStatusBadge(slot.status);
-          const icon = resolveContextualIcon(slot.title, slot.location);
+          <section className="relative min-h-[520px] rounded-[36px] border border-cyan-300/10 bg-slate-950/35 px-3 py-5 backdrop-blur-sm">
+            <div className="absolute bottom-8 left-11 top-8 w-1 rounded-full bg-gradient-to-b from-amber-300 via-cyan-400 to-violet-500 shadow-[0_0_18px_rgba(34,211,238,.5)]" />
+            {['6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'].map((label, index) => <div key={label} className="absolute left-2 flex items-center gap-2 text-[10px] font-mono text-slate-500" style={{ top: `${6 + index * 17}%` }}><span>{label}</span><span className="h-1.5 w-1.5 rounded-full bg-cyan-300/70" /></div>)}
+            {isViewingToday && <div className="absolute left-20 z-20 flex -translate-y-1/2 items-center gap-2" style={{ top: `${Math.min(94, Math.max(6, ((nowMinutes - 360) / 900) * 88 + 6))}%` }}><span className="rounded-lg border border-cyan-300 bg-slate-950 px-2 py-1 text-[9px] font-black text-cyan-300">NOW</span><span className="h-px w-14 bg-cyan-300 shadow-[0_0_8px_#22d3ee]" /></div>}
 
-          return (
-            <motion.div
-              key={slot.id}
-              layout
-              className={`rounded-2xl border transition shadow-sm overflow-hidden ${
-                slot.status === 'NOW' ? 'bg-[#0D1527] border-[#10B981] shadow-[0_0_15px_rgba(16,185,129,0.3)] ring-1 ring-[#10B981]' :
-                slot.status === 'MISSED' ? 'bg-[#1C0E11] border-[#EF4444]/60' :
-                slot.status === 'COMPLETED' ? 'bg-[#070A10]/60 border-[#334867]/40 opacity-75' :
-                'bg-[#0D1527]/90 border-[#00F0FF]/30'
-              }`}
-            >
-              {/* Collapsed Single-Line Mechanical Bar */}
-              <div
-                onClick={() => setExpandedSlotId(isExpanded ? null : slot.id)}
-                className="p-3.5 flex items-center justify-between cursor-pointer select-none"
-              >
-                <div className="flex items-center space-x-3 min-w-0 pr-2">
-                  <span className="text-xs font-mono font-bold text-[#00F0FF] shrink-0">
-                    {slot.startTime} - {slot.endTime}
-                  </span>
-
-                  <span className="text-sm p-1 rounded-lg bg-[#070A10] border border-[#00F0FF]/30 font-mono shrink-0">
-                    {icon}
-                  </span>
-
-                  <span className={`text-xs font-bold truncate ${slot.status === 'COMPLETED' ? 'line-through text-[#C4C6D0]/50' : 'text-[#E2E2E6]'}`}>
-                    {slot.title}
-                  </span>
-                </div>
-
-                <div className="flex items-center space-x-2 shrink-0">
-                  <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border ${statusInfo.bg}`}>
-                    {statusInfo.label}
-                  </span>
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-[#00F0FF]" /> : <ChevronDown className="w-4 h-4 text-[#C4C6D0]/50" />}
-                </div>
+            {slots.length === 0 ? <div className="absolute inset-x-14 top-1/2 -translate-y-1/2 rounded-[28px] border border-cyan-300/30 bg-[#071126]/90 p-5 text-center shadow-[0_0_26px_rgba(34,211,238,.16)]"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-cyan-300/10 text-cyan-300"><Plus className="h-6 w-6" /></div><h3 className="mt-3 text-base font-black">No plans for this day</h3><p className="mt-1 text-xs text-slate-400">Add a time block to begin.</p><button type="button" onClick={openNew} className="mt-4 rounded-2xl bg-cyan-300 px-5 py-3 text-xs font-black text-slate-950">Plan First Time Block</button></div> : (
+              <div className="relative ml-14 space-y-3 pl-5">
+                {slots.map((slot) => {
+                  const expanded = expandedId === slot.id;
+                  const [hour, minute] = slot.startTime.split(':').map(Number);
+                  const startMinute = hour * 60 + minute;
+                  const isNow = isViewingToday && startMinute <= nowMinutes && nowMinutes < startMinute + slot.durationMinutes;
+                  const done = slot.status === 'COMPLETED';
+                  return <article key={slot.id} className={`relative rounded-[24px] border p-3 backdrop-blur-xl ${isNow || slot.status === 'ACTIVE' ? 'border-cyan-300 bg-cyan-950/50 shadow-[0_0_20px_rgba(34,211,238,.2)]' : done ? 'border-emerald-300/30 bg-emerald-950/30' : 'border-violet-300/20 bg-slate-950/80'}`}><span className={`absolute -left-[30px] top-6 h-4 w-4 rounded-full border-2 ${done ? 'border-emerald-200 bg-emerald-400' : isNow ? 'animate-pulse border-cyan-100 bg-cyan-400 shadow-[0_0_12px_#22d3ee]' : 'border-violet-300 bg-slate-950'}`} /><button id={`timetable-slot-${slot.id}`} type="button" onClick={() => setExpandedId(expanded ? null : slot.id)} className="flex w-full items-center gap-3 text-left"><SlotVisual slot={slot} categoryLabel={categoryLabel(slot.category)} /><div className="min-w-0 flex-1"><p className="font-mono text-[10px] font-bold text-cyan-300">{slot.startTime} – {slot.endTime}</p><h3 className={`mt-0.5 text-sm font-bold ${done ? 'line-through opacity-60' : ''}`}>{slot.title}</h3><p className="mt-0.5 text-[10px] text-slate-400">{categoryLabel(slot.category)}{slot.location ? ` • ${slot.location}` : ''}</p></div>{expanded ? <ChevronUp className="h-4 w-4 text-cyan-300" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}</button>{expanded && <div className="mt-3 grid grid-cols-2 gap-2 border-t border-cyan-300/10 pt-3 sm:grid-cols-4"><button type="button" onClick={() => toggleSlotStatus(slot.id, slot.status === 'ACTIVE' ? 'PENDING' : 'ACTIVE')} className="task-action text-cyan-200"><Play className="h-3.5 w-3.5" />{slot.status === 'ACTIVE' ? 'Pause' : 'Start'}</button><button type="button" onClick={() => toggleSlotStatus(slot.id, done ? 'PENDING' : 'COMPLETED')} className="task-action text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" />{done ? 'Reopen' : 'Complete'}</button><button type="button" onClick={() => { setEditingSlot(slot); setIsEditorOpen(true); }} className="task-action text-violet-200"><Edit3 className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={() => deleteTimetableSlot(slot.id)} className="task-action text-rose-200"><Trash2 className="h-3.5 w-3.5" />Delete</button></div>}</article>;
+                })}
               </div>
-
-              {/* Expanded Details (On Tap) */}
-              {isExpanded && (
-                <div className="px-4 pb-3.5 pt-1 border-t border-[#00F0FF]/15 space-y-2 bg-[#070A10]/60 text-xs">
-                  {slot.location && (
-                    <div className="flex items-center space-x-1.5 text-[11px] text-[#C4C6D0] font-mono">
-                      <MapPin className="w-3.5 h-3.5 text-[#00F0FF]" />
-                      <span>{slot.location}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center space-x-2 pt-2 border-t border-[#00F0FF]/10">
-                    <button
-                      type="button"
-                      onClick={() => toggleSlotStatus(slot.id)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-[#10B981]/20 border border-[#10B981]/40 text-[#10B981] font-mono font-bold text-[11px] flex items-center justify-center space-x-1"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{slot.status === 'COMPLETED' ? 'Mark Active' : 'Mark Complete'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => deleteTimetableSlot(slot.id)}
-                      className="p-2 rounded-xl bg-[#EF4444]/15 border border-[#EF4444]/40 text-[#EF4444]"
-                      title="Delete routine block"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          );
-        })}
+            )}
+          </section>
+        </div>
       </div>
 
-      {/* Floating Quick Add Button */}
-      <button
-        onClick={() => setShowAddModal(true)}
-        className="fixed right-5 bottom-20 p-3.5 rounded-full bg-[#00F0FF] text-[#070A10] shadow-[0_0_25px_#00F0FF] transition hover:scale-105 z-30"
-        title="Add Timetable Slot"
-      >
-        <Plus className="w-5 h-5 font-extrabold" />
-      </button>
-
-      {/* Add Slot Modal */}
-      <AnimatePresence>
-        {showAddModal && (
-          <div className="fixed inset-0 bg-[#070A10]/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[28px] bg-[#0D1527] border border-[#00F0FF]/40 p-5 space-y-4 shadow-2xl"
-            >
-              <h3 className="text-sm font-bold font-mono text-[#00F0FF]">Add Timetable Slot</h3>
-              <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
-                <div>
-                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Slot Title</label>
-                  <input
-                    type="text"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. Breakfast (2 chapati with curd and dal)"
-                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Start Time</label>
-                    <input
-                      type="time"
-                      value={formStartTime}
-                      onChange={(e) => setFormStartTime(e.target.value)}
-                      className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">End Time</label>
-                    <input
-                      type="time"
-                      value={formEndTime}
-                      onChange={(e) => setFormEndTime(e.target.value)}
-                      className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Location / Link</label>
-                  <input
-                    type="text"
-                    value={formLocation}
-                    onChange={(e) => setFormLocation(e.target.value)}
-                    placeholder="e.g. Home Dining or Google Meet"
-                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                  />
-                </div>
-
-                <div className="flex space-x-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="flex-1 py-2.5 rounded-xl bg-[#111827] text-[#C4C6D0] font-bold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] text-[#070A10] font-bold font-mono shadow-[0_0_15px_#00F0FF]"
-                  >
-                    Save Slot
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {isEditorOpen && <TimeBlockEditor slot={editingSlot} categories={categories as any} onClose={() => setIsEditorOpen(false)} onSave={(values) => { if (editingSlot) updateTimetableSlot(editingSlot.id, values); else addTimetableSlot(values); setIsEditorOpen(false); }} />}
     </div>
   );
+};
+
+const TimeBlockEditor: React.FC<{ slot: TimetableSlot | null; categories: Array<{ id: string; label: string }>; onClose: () => void; onSave: (slot: Omit<TimetableSlot, 'id'>) => void }> = ({ slot, categories, onClose, onSave }) => {
+  const [title, setTitle] = useState(slot?.title || ''); const [startTime, setStartTime] = useState(slot?.startTime || '09:00'); const [endTime, setEndTime] = useState(slot?.endTime || '10:00'); const [category, setCategory] = useState(slot?.category || categories[0]?.id || UNCATEGORISED_CATEGORY_ID); const [location, setLocation] = useState(slot?.location || ''); const [days, setDays] = useState<RoutineRecurrence>(slot?.days || 'DAILY');
+  return <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 p-3 sm:items-center" onClick={onClose}><form onSubmit={(event) => { event.preventDefault(); if (!title.trim()) return; onSave({ title: title.trim(), category, startTime, endTime, durationMinutes: durationMinutes(startTime, endTime), days, status: slot?.status || 'PENDING', location: location.trim() || undefined, isRegularHabit: days !== 'CUSTOM', notes: slot?.notes, targetMetric: slot?.targetMetric, iconKey: slot?.iconKey }); }} onClick={(event) => event.stopPropagation()} className="w-full max-w-md space-y-4 rounded-[30px] border border-cyan-300/25 bg-[#090e1d] p-5"><div className="flex justify-between"><div><h3 className="font-black">{slot ? 'Edit time block' : 'Plan time block'}</h3><p className="text-[10px] text-slate-400">This will appear only from your saved data.</p></div><button type="button" onClick={onClose}><X className="h-5 w-5" /></button></div><label className="form-label">Title<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Time block title" className="form-control" /></label><div className="grid grid-cols-2 gap-2"><label className="form-label">Start<input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="form-control" /></label><label className="form-label">End<input type="time" value={endTime} min={startTime} onChange={(event) => setEndTime(event.target.value)} className="form-control" /></label></div><div className="grid grid-cols-2 gap-2"><label className="form-label">Category<select value={category} onChange={(event) => setCategory(event.target.value)} className="form-control">{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="form-label">Repeats<select value={days} onChange={(event) => setDays(event.target.value as RoutineRecurrence)} className="form-control"><option value="DAILY">Daily</option><option value="WEEKDAYS">Weekdays</option><option value="WEEKENDS">Weekends</option><option value="MON_WED_FRI">Mon/Wed/Fri</option><option value="TUE_THU">Tue/Thu</option><option value="CUSTOM">One day / Custom</option></select></label></div><label className="form-label">Location or link<div className="relative"><MapPin className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Optional" className="form-control pl-9" /></div></label><div className="grid grid-cols-2 gap-2"><button type="button" onClick={onClose} className="rounded-2xl bg-slate-800 py-3 text-xs font-bold">Cancel</button><button type="submit" disabled={!title.trim()} className="rounded-2xl bg-cyan-300 py-3 text-xs font-black text-slate-950">Save block</button></div></form></div>;
 };

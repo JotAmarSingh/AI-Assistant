@@ -36,6 +36,19 @@ const SAMPLE_TIMELINE_SIGNATURES: Record<string, string> = {
   'time-3': 'Logged morning update & task alignment',
 };
 
+const LEGACY_DEFAULT_CATEGORY_SIGNATURES: Record<string, Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>> = {
+  OFFICE: { label: 'Office', color: '#60A5FA', icon: 'briefcase' },
+  CAREER: { label: 'Career', color: '#A78BFA', icon: 'graduation-cap' },
+  CLIENT: { label: 'Client', color: '#22D3EE', icon: 'users' },
+  CONTENT: { label: 'Content', color: '#F472B6', icon: 'file-text' },
+  KHABARZAAR: { label: 'Khabarzaar', color: '#F59E0B', icon: 'newspaper' },
+  HOME: { label: 'Home', color: '#34D399', icon: 'home' },
+  FAMILY: { label: 'Family', color: '#FB7185', icon: 'heart' },
+  HEALTH: { label: 'Health', color: '#4ADE80', icon: 'activity' },
+  PERSONAL: { label: 'Personal', color: '#FBBF24', icon: 'user' },
+  IDEAS: { label: 'Ideas', color: '#C084FC', icon: 'lightbulb' },
+};
+
 const nearlyEqual = (left: number, right: number) => Math.abs(left - right) < 0.000001;
 
 const isSeedLocation = (location: GeofenceLocation): boolean => {
@@ -80,6 +93,13 @@ const normalizeCategories = (state: Partial<DailyState>): TaskCategoryDefinition
   DEFAULT_TASK_CATEGORIES.forEach((item) => byId.set(item.id, { ...item }));
   (state.taskCategories || []).forEach((item) => {
     if (!item?.id) return;
+    const legacySignature = LEGACY_DEFAULT_CATEGORY_SIGNATURES[item.id];
+    const isUnusedLegacySeed = !!legacySignature
+      && !state.tasks?.some((task) => task.category === item.id)
+      && item.label === legacySignature.label
+      && item.color === legacySignature.color
+      && item.icon === legacySignature.icon;
+    if (isUnusedLegacySeed) return;
     byId.set(item.id, {
       ...createCategoryForLegacyId(item.id),
       ...item,
@@ -91,6 +111,19 @@ const normalizeCategories = (state: Partial<DailyState>): TaskCategoryDefinition
     if (!byId.has(id)) byId.set(id, createCategoryForLegacyId(id));
   });
   return Array.from(byId.values());
+};
+
+const isLegacyStarterGamification = (state: Partial<DailyState>): boolean => {
+  const gamification = state.gamification;
+  return !!gamification
+    && gamification.points === 120
+    && gamification.currentStreakDays === 1
+    && gamification.longestStreakDays === 1
+    && gamification.totalFocusMinutes === 25
+    && gamification.totalTasksCompleted === 3
+    && gamification.totalReviewsCompleted === 0
+    && (gamification.claimedRewards || []).length === 0
+    && (gamification.customRewards || []).length === 0;
 };
 
 export interface MigrationResult {
@@ -189,6 +222,15 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
       weeklyInsights: raw.accountability?.weeklyInsights,
       lastRecalculatedAt: raw.accountability?.lastRecalculatedAt,
     },
+    gamification: isLegacyStarterGamification(raw)
+      ? { ...fresh.gamification!, claimedRewards: [], customRewards: [], milestoneClaims: [] }
+      : {
+          ...fresh.gamification!,
+          ...(raw.gamification || {}),
+          claimedRewards: raw.gamification?.claimedRewards || [],
+          customRewards: raw.gamification?.customRewards || [],
+          milestoneClaims: raw.gamification?.milestoneClaims || [],
+        },
     migrationMetadata: {
       ...(raw.migrationMetadata || {}),
       ...(removedSeedRecords > 0

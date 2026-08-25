@@ -24,7 +24,7 @@ import {
   TaskCategoryDefinition,
   UserMemoryItem
 } from '../types';
-import { createFreshDailyState, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
+import { createFreshDailyState, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS, UNCATEGORISED_CATEGORY_ID } from '../utils/initialState';
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
 import { contextTriggerLabel, parseVoiceAutomations } from '../utils/localAutomationParser';
@@ -138,6 +138,7 @@ interface DayContextType {
   executeVoiceTranscript: (transcript: string) => void;
   // Gamification & Rewards Vault
   claimReward: (rewardId: string) => boolean;
+  claimMilestone: (id: string, label: string, points: number) => boolean;
   addCustomReward: (reward: Omit<RewardItem, 'id' | 'timesClaimed'>) => void;
   awardPoints: (points: number, reason?: string) => void;
   // Geofence routines
@@ -188,6 +189,22 @@ interface DayContextType {
 }
 
 const DayContext = createContext<DayContextType | undefined>(undefined);
+
+const taskCompletionPoints = (priority: number): number => {
+  if (priority >= 8) return 120;
+  if (priority <= 3) return 30;
+  return 60;
+};
+
+const inferChecklist = (title: string): TaskItem['checklist'] => {
+  const isWorkout = /\b(push[ -]?ups?|pull[ -]?ups?|yoga|squats?|workout|gym)\b/i.test(title);
+  const parts = title
+    .split(/\s*(?:,|;|\band\b)\s*/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
+  if (!isWorkout || parts.length < 2) return undefined;
+  return parts.map((text, index) => ({ id: `check-${Date.now()}-${index}`, text, isDone: false }));
+};
 
 export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<DailyState>(() => {
@@ -437,6 +454,29 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
     return success;
+  }, []);
+
+  const claimMilestone = useCallback((id: string, label: string, points: number): boolean => {
+    const alreadyClaimed = (stateRef.current.gamification?.milestoneClaims || []).some((claim) => claim.id === id);
+    if (alreadyClaimed || points <= 0) return false;
+    const claimedAt = new Date().toISOString();
+    setState((prev) => {
+      const currentGam = prev.gamification || INITIAL_GAMIFICATION_STATE;
+      if ((currentGam.milestoneClaims || []).some((claim) => claim.id === id)) return prev;
+      return {
+        ...prev,
+        gamification: updateStreak({
+          ...currentGam,
+          points: currentGam.points + points,
+          milestoneClaims: [
+            ...(currentGam.milestoneClaims || []),
+            { id, label, points, claimedAt },
+          ],
+        }),
+      };
+    });
+    setNotificationToast(`🏆 +${points} XP: ${label}`);
+    return true;
   }, []);
 
   const addCustomReward = useCallback((rewardData: Omit<RewardItem, 'id' | 'timesClaimed'>) => {
@@ -1059,7 +1099,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             id: activeTaskId!,
             date: prev.date,
             title: activeWorkTitle,
-            category: 'OFFICE' as TaskCategory,
+            category: UNCATEGORISED_CATEGORY_ID,
             owner: 'ME' as const,
             status: 'ACTIVE' as const,
             priority: 7,
@@ -1596,7 +1636,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               id: activeTaskId!,
               date: prev.date,
               title: activeWorkTitle,
-              category: 'OFFICE' as TaskCategory,
+              category: UNCATEGORISED_CATEGORY_ID,
               owner: 'ME' as const,
               status: 'ACTIVE' as const,
               priority: 7,
@@ -1860,8 +1900,14 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [state, mode, currentTimeString, applyLatestExplicitCorrection, evaluateContextualAutomations, evaluateEventTriggeredReminders]);
 
   const updateTaskStatus = useCallback((taskId: string, newStatus: TaskStatus) => {
+    const beforeUpdate = stateRef.current.tasks.find((task) => task.id === taskId);
+    const shouldAwardCompletion = newStatus === 'DONE'
+      && beforeUpdate?.status !== 'DONE'
+      && !beforeUpdate?.xpAwardedAt;
+    const awardedPoints = shouldAwardCompletion ? taskCompletionPoints(beforeUpdate?.priority || 5) : 0;
     setState((prev) => {
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const nowIso = new Date().toISOString();
       const targetTask = prev.tasks.find((t) => t.id === taskId);
       if (!targetTask) return prev;
 
@@ -1879,6 +1925,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...t,
             status: newStatus,
             completedAt: newStatus === 'DONE' ? now : t.completedAt,
+            ...(shouldAwardCompletion ? { xpAwardedAt: nowIso, xpAwarded: awardedPoints } : {}),
           };
         }
         if (newStatus === 'ACTIVE' && t.status === 'ACTIVE') {
@@ -1921,7 +1968,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      return recalculateAccountabilityState({
+      const nextState = recalculateAccountabilityState({
         ...prev,
         current: {
           ...prev.current,
@@ -1932,7 +1979,19 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tasks: updatedTasks,
         timeline: updatedTimeline,
       }, { at: new Date().toISOString() });
+      if (!shouldAwardCompletion) return nextState;
+      const currentGam = nextState.gamification || INITIAL_GAMIFICATION_STATE;
+      return {
+        ...nextState,
+        gamification: updateStreak({
+          ...currentGam,
+          points: currentGam.points + awardedPoints,
+          totalTasksCompleted: currentGam.totalTasksCompleted + 1,
+        }),
+      };
     });
+
+    if (shouldAwardCompletion) setNotificationToast(`✓ Task completed • +${awardedPoints} XP`);
 
     // Check if completing this task triggers any event reminders
     evaluateEventTriggeredReminders(`Completed ${taskId}`);
@@ -1952,11 +2011,30 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...taskData,
         persistent: taskData.persistent ?? true,
         commitmentLevel: taskData.commitmentLevel || (taskData.priority >= 9 ? 'CRITICAL' : 'IMPORTANT'),
+        checklist: taskData.checklist || inferChecklist(taskData.title),
       };
       newTask.requiredResources = taskData.requiredResources || inferTaskResources(newTask);
+      const categoryId = newTask.category || UNCATEGORISED_CATEGORY_ID;
+      const existingCategories = prev.taskCategories || [];
+      const needsCategory = !existingCategories.some((category) => category.id === categoryId);
+      const nowIso = new Date(now).toISOString();
+      const categoryLabel = categoryId
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
       return recalculateAccountabilityState({
         ...prev,
         tasks: [newTask, ...prev.tasks],
+        taskCategories: needsCategory
+          ? [...existingCategories, {
+              id: categoryId,
+              label: categoryLabel,
+              color: '#22D3EE',
+              icon: 'sparkles',
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            }]
+          : existingCategories,
         reminders: trigger ? [
           ...prev.reminders,
           {
@@ -1979,13 +2057,9 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const startAccountabilityTask = useCallback((selection: { id?: string; title: string; category?: string }) => {
     const cleanTitle = selection.title.trim();
     if (!cleanTitle) return;
-    const allowedCategories: TaskCategory[] = [
-      'OFFICE', 'CAREER', 'CLIENT', 'CONTENT', 'KHABARZAAR',
-      'HOME', 'FAMILY', 'HEALTH', 'PERSONAL', 'IDEAS',
-    ];
-    const category = allowedCategories.includes(selection.category as TaskCategory)
+    const category = stateRef.current.taskCategories?.some((item) => item.id === selection.category)
       ? selection.category as TaskCategory
-      : 'PERSONAL';
+      : UNCATEGORISED_CATEGORY_ID;
     const now = new Date();
     const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const knownTask = stateRef.current.tasks.find((task) =>
@@ -3099,6 +3173,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             totalReviewsCompleted: Math.max(imported.gamification?.totalReviewsCompleted || 0, current.gamification?.totalReviewsCompleted || 0),
             claimedRewards: mergeRecordsById(imported.gamification?.claimedRewards, current.gamification?.claimedRewards),
             customRewards: mergeRecordsById(imported.gamification?.customRewards, current.gamification?.customRewards),
+            milestoneClaims: mergeRecordsById(imported.gamification?.milestoneClaims, current.gamification?.milestoneClaims),
           },
           nativeAccountability: {
             processedEventIds: Array.from(new Set([...(imported.nativeAccountability?.processedEventIds || []), ...(current.nativeAccountability?.processedEventIds || [])])),
@@ -3201,6 +3276,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         handleAlertAction,
         // Gamification & Rewards Vault
         claimReward,
+        claimMilestone,
         addCustomReward,
         awardPoints,
         // Geofence routines

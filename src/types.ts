@@ -95,6 +95,12 @@ export type AppMode =
   | 'RESEARCH'
   | 'CREATIVE';
 
+export interface TaskChecklistItem {
+  id: string;
+  text: string;
+  isDone: boolean;
+}
+
 export interface TaskItem {
   id: string;
   date?: string; // YYYY-MM-DD when the task entered DayTrace
@@ -127,6 +133,11 @@ export interface TaskItem {
   postponementChallengeCount?: number;
   carryForwardCount?: number;
   lastCarriedForwardAt?: string;
+  /** Optional checklist for a single multi-step commitment such as one workout. */
+  checklist?: TaskChecklistItem[];
+  /** Prevents awarding the same task completion more than once after reopening it. */
+  xpAwardedAt?: string;
+  xpAwarded?: number;
 }
 
 export type EventSource = 
@@ -368,6 +379,12 @@ export interface UserGamification {
   lastActiveDate: string; // YYYY-MM-DD
   claimedRewards: ClaimedRewardHistory[];
   customRewards: RewardItem[];
+  milestoneClaims?: Array<{
+    id: string;
+    label: string;
+    points: number;
+    claimedAt: string;
+  }>;
 }
 
 export interface DailyState {

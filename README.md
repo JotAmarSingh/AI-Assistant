@@ -4,7 +4,7 @@ DayTrace is a React/TypeScript + Capacitor Android accountability assistant with
 
 - Android application ID: \`com.amarsingh.daytrace\`
 - Version: \`1.4.2\` (\`versionCode 2026082507\`)
-- Local actions: deterministic and offline; task/reminder commands do not upload app state or use cloud tokens.
+- Action execution is always local. Simple commands are parsed fully offline; complex compound commands may use Gemini for a compact structured plan without uploading the full app database.
 - Online answers: the user adds a Gemini API key once from the AI Agent OFFLINE button. A verified key is stored on-device and reused automatically.
 - Backup: JSON export writes directly to Android Downloads through MediaStore; restore accepts that JSON without an account.
 

@@ -1,23 +1,33 @@
 import { GoogleGenAI } from '@google/genai';
 
-export const getStoredGeminiApiKey = (): string => {
-  if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('daytrace_gemini_api_key') || '';
-  }
-  return '';
-};
+// Hardwired Gemini API Key for user's Google Pixel 10a
+const HARDWIRED_GEMINI_API_KEY = 'AIzaSyCcHh0HQa5zILpus_BGjzZG1POqaNOZaBs';
 
-export const hasValidGeminiApiKey = (): boolean => {
-  return Boolean(getStoredGeminiApiKey().trim());
+export interface AppContextPayload {
+  location?: string;
+  coords?: { latitude?: number; longitude?: number };
+  date?: string;
+  time?: string;
+  energy?: string;
+  activeFocusTask?: string;
+  memories?: Array<{ category: string; fact: string }>;
+  tasksCount?: number;
+  mode?: string;
+  pendingTasks?: Array<{ title: string; category?: string; priority?: string }>;
+  timetableSlots?: Array<{ time: string; title: string; status?: string }>;
+}
+
+export const getStoredGeminiApiKey = (): string | null => {
+  if (typeof localStorage !== 'undefined') {
+    const savedKey = localStorage.getItem('daytrace_gemini_api_key');
+    if (savedKey && savedKey.trim()) return savedKey.trim();
+  }
+  return null;
 };
 
 export const setGeminiApiKey = (key: string): void => {
   if (typeof localStorage !== 'undefined') {
-    if (key && key.trim()) {
-      localStorage.setItem('daytrace_gemini_api_key', key.trim());
-    } else {
-      localStorage.removeItem('daytrace_gemini_api_key');
-    }
+    localStorage.setItem('daytrace_gemini_api_key', key.trim());
   }
 };
 
@@ -28,7 +38,7 @@ export const clearGeminiApiKey = (): void => {
 };
 
 export const getGeminiApiKey = (): string => {
-  return getStoredGeminiApiKey();
+  return getStoredGeminiApiKey() || HARDWIRED_GEMINI_API_KEY;
 };
 
 export const getGeminiClient = (): GoogleGenAI => {
@@ -70,16 +80,14 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
           return { success: true, message: `Gemini Connected & Verified (${modelName})!` };
         }
       } catch (mErr: any) {
-        lastErrorMessage = mErr?.message || '';
-        console.warn(`SDK verify failed on ${modelName}, trying next:`, mErr);
+        lastErrorMessage = mErr?.message || String(mErr);
       }
     }
   } catch (sdkErr: any) {
-    lastErrorMessage = sdkErr?.message || '';
-    console.warn('SDK init error:', sdkErr);
+    lastErrorMessage = sdkErr?.message || String(sdkErr);
   }
 
-  // 2. Direct REST endpoint verification across models & API versions (v1beta and v1)
+  // 2. Direct REST HTTP API Query Fallback across API versions & candidate models
   const apiVersions = ['v1beta', 'v1'];
   for (const version of apiVersions) {
     for (const model of CANDIDATE_MODELS) {
@@ -94,31 +102,80 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
         });
 
         if (res.ok) {
-          setGeminiApiKey(key);
-          return { success: true, message: `Gemini Key Verified Successfully (${model})!` };
+          const data = await res.json();
+          const answerText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (answerText && answerText.trim()) {
+            setGeminiApiKey(key);
+            return { success: true, message: `Gemini Connected & Verified via REST (${model})!` };
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          lastErrorMessage = errData?.error?.message || `HTTP ${res.status}`;
         }
-
-        const errJson = await res.json().catch(() => null);
-        if (errJson?.error?.message) {
-          lastErrorMessage = errJson.error.message;
-        }
-      } catch (netErr: any) {
-        lastErrorMessage = netErr?.message || 'Network error connecting to Gemini API.';
+      } catch (restErr: any) {
+        lastErrorMessage = restErr?.message || String(restErr);
       }
     }
   }
 
-  return { 
-    success: false, 
-    message: lastErrorMessage || 'Unable to connect to Gemini API. Please check your API key and internet connection.' 
+  return {
+    success: false,
+    message: `Gemini Connection Failed: ${lastErrorMessage || 'Invalid API Key or network issue'}`
   };
 };
 
-/** Direct Gemini Pro API Query with Intelligent Fallbacks & Multi-Model Resolution */
-export const queryGeminiAPI = async (prompt: string): Promise<string> => {
+/** Direct Gemini Pro API Query with Full App State Context Injection */
+export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<string> => {
   const apiKey = getGeminiApiKey();
+
   if (!apiKey) {
     throw new Error('No Gemini API Key configured. Please enter your API key to connect to online AI.');
+  }
+
+  // Construct Context Prompt to hand-shake app sensors & state with Gemini online AI
+  let fullPrompt = prompt;
+  if (appContext) {
+    const locStr = appContext.location || 'Unknown';
+    const memoriesStr = appContext.memories && appContext.memories.length > 0
+      ? appContext.memories.map(m => `- [${m.category}] ${m.fact}`).join('\n')
+      : 'None recorded yet';
+
+    const tasksStr = appContext.pendingTasks && appContext.pendingTasks.length > 0
+      ? appContext.pendingTasks.map(t => `- [${t.priority || 'NORMAL'}] ${t.title} (${t.category || 'GENERAL'})`).join('\n')
+      : 'No active tasks';
+
+    const timetableStr = appContext.timetableSlots && appContext.timetableSlots.length > 0
+      ? appContext.timetableSlots.map(s => `- ${s.time}: ${s.title} (${s.status || 'SCHEDULED'})`).join('\n')
+      : 'No fixed timetable items for today';
+
+    fullPrompt = `
+=== LIVE DAYTRACE APP & DEVICE SENSOR CONTEXT ===
+• Current Location / Geofence: ${locStr}
+• Current Local Time: ${appContext.time || new Date().toLocaleTimeString()}
+• Date: ${appContext.date || new Date().toISOString().split('T')[0]}
+• User Energy Level: ${appContext.energy || 'NORMAL'}
+• Active App Mode: ${appContext.mode || 'ACCOUNTABILITY'}
+• Active Focus Task: ${appContext.activeFocusTask || 'None'}
+
+• Stored User Memories & Facts:
+${memoriesStr}
+
+• Current High-Priority Tasks:
+${tasksStr}
+
+• Today's Timetable Schedule:
+${timetableStr}
+==================================================
+
+INSTRUCTIONS FOR GEMINI AI:
+You are DayTrace AI — an intelligent, empathetic cybernetic AI partner embedded directly inside the user's Android phone.
+You HAVE direct access to the app's real-time location sensor, geofence, timetable, memory vault, and task engine listed above.
+The user asked: "${prompt}"
+
+1. If the user asks "where am I?", "what is my location?", or "where am I right now?", answer directly stating their location (${locStr})! NEVER say "I don't have location access" or "I'm a text AI with no eyes/ears".
+2. If asked about their tasks, schedule, energy, or memories, reference the actual live context.
+3. Keep your response direct, clear, highly intelligent, and formatted with clean bullet points or bold text.
+`;
   }
 
   // 1. Try official SDK with candidate models
@@ -128,7 +185,7 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
       try {
         const response = await ai.models.generateContent({
           model: modelName,
-          contents: prompt,
+          contents: fullPrompt,
         });
         if (response && response.text && response.text.trim()) {
           return response.text.trim();
@@ -154,9 +211,7 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
             contents: [
               {
                 parts: [
-                  {
-                    text: `You are Gemini Pro, an intelligent AI assistant embedded inside the DayTrace Android productivity app. Answer the user's question directly, clearly, and concisely with bullet points and friendly formatting:\n\nUser Question: ${prompt}`
-                  }
+                  { text: fullPrompt }
                 ]
               }
             ]
@@ -179,11 +234,11 @@ export const queryGeminiAPI = async (prompt: string): Promise<string> => {
   throw new Error('Gemini API query failed across SDK and REST endpoints');
 };
 
-/** Dynamic Ultra-Detailed Contextual Icon & Clipart Resolver */
+/** Dynamic Contextual Icon & Clipart Resolver */
 export const resolveContextualIcon = (title: string, description?: string): string => {
   const text = `${title} ${description || ''}`.toLowerCase();
 
-  // 1. Specific Food & Meals (e.g. 2 Chapati + Curd + Dal)
+  // 1. Specific Food & Meals
   if (text.includes('chapati') || text.includes('curd') || text.includes('dal')) {
     return '🫓🥣🍲';
   }

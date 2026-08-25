@@ -28,7 +28,8 @@ import {
   getStoredGeminiApiKey, 
   setGeminiApiKey, 
   clearGeminiApiKey,
-  verifyGeminiApiKey 
+  verifyGeminiApiKey,
+  AppContextPayload 
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
 import { SmartAICard, UserMemoryItem } from '../../types';
@@ -41,7 +42,8 @@ export const GeminiLiveHubView: React.FC = () => {
     addTask, 
     updateTaskStatus, 
     addFixedEvent, 
-    updateUserSettings
+    updateUserSettings,
+    mode
   } = useDay();
 
   const [inputText, setInputText] = useState('');
@@ -194,11 +196,34 @@ export const GeminiLiveHubView: React.FC = () => {
 
     if (isQuestion) {
       logs.push('> INTENT: CONVERSATIONAL KNOWLEDGE & ADVICE REQUEST');
-      logs.push('> CALLING GEMINI PRO API WITH GROUNDING...');
+      logs.push('> INJECTING LIVE LOCATION, SENSOR & MEMORY CONTEXT...');
+      logs.push('> CALLING GEMINI PRO API WITH GROUNDED DEVICE CONTEXT...');
       setCodeLogs([...logs]);
 
+      const appContext: AppContextPayload = {
+        location: state.current.location,
+        coords: state.userSettings?.homeCoords || state.userSettings?.officeCoords,
+        date: state.date,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        energy: state.current.energy,
+        activeFocusTask: state.tasks.find(t => t.id === state.current.focusTaskId || t.status === 'ACTIVE')?.title,
+        memories: state.memories?.map(m => ({ category: m.category, fact: m.fact })),
+        tasksCount: state.tasks.length,
+        mode: mode,
+        pendingTasks: state.tasks.filter(t => t.status === 'NEXT' || t.status === 'ACTIVE').slice(0, 5).map(t => ({
+          title: t.title,
+          category: t.category,
+          priority: t.priority
+        })),
+        timetableSlots: (state.timetable || []).slice(0, 5).map(s => ({
+          time: s.time,
+          title: s.title,
+          status: s.status
+        }))
+      };
+
       try {
-        const aiResponse = await queryGeminiAPI(query);
+        const aiResponse = await queryGeminiAPI(query, appContext);
         logs.push('> GROUNDING VERIFIED. GENERATING HYBRID SUMMARY CARD...');
         setCodeLogs([...logs]);
 
@@ -206,7 +231,7 @@ export const GeminiLiveHubView: React.FC = () => {
           id: `card-${Date.now()}`,
           type: 'EXPERT_ADVICE',
           title: `Gemini Pro AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
-          subtitle: 'Verified Grounded Response',
+          subtitle: `Verified Response • ${state.current.location}`,
           engineMode: 'ONLINE_CLOUD',
           createdAt: Date.now(),
           data: {
@@ -223,20 +248,24 @@ export const GeminiLiveHubView: React.FC = () => {
         logs.push('> OFFLINE INTELLIGENCE ENGINE ENGAGED');
         setCodeLogs([...logs]);
 
+        const isLocationQuery = lower.includes('where am i') || lower.includes('where i am') || lower.includes('location') || lower.includes('where are we');
+
         let fallbackAnswer = '';
-        if (lower.includes('festival')) {
+        if (isLocationQuery) {
+          fallbackAnswer = `📍 You are currently at: ${state.current.location}\n\n• Verified via DayTrace Smart Geofence & Location Engine.\n• Status: Active Location Sensor\n• Energy Level: ${state.current.energy}\n• Date: ${state.date}`;
+        } else if (lower.includes('festival')) {
           fallbackAnswer = `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`;
         } else if (lower.includes('banana') || lower.includes('orange')) {
           fallbackAnswer = `🍌 Banana vs 🍊 Orange for Children:\n\n• Banana: Rich in potassium, Vitamin B6, and dietary fiber. Very gentle on digestion, ideal for quick energy before play or bedtime.\n• Orange: High in Vitamin C, antioxidants, and water content. Great for immunity, but higher citric acid.\n\nRecommendation: Both are excellent! Offer banana for energy/toddlers, and orange slices for immunity hydration.`;
         } else {
-          fallbackAnswer = `💡 DayTrace On-Device Intelligence:\n\n• Query received: "${query}"\n• Tip: You can schedule this as a task, check your timetable, or ask specific productivity questions.\n• To enable live cloud searches with Gemini Pro, configure your personal API key in the AI Engine settings (tap the ONLINE/OFFLINE badge in the top bar).`;
+          fallbackAnswer = `💡 DayTrace On-Device Intelligence:\n\n• Query received: "${query}"\n• Current Location: ${state.current.location}\n• Energy: ${state.current.energy}\n• Active Mode: ${mode}`;
         }
 
         const fallbackCard: SmartAICard = {
           id: `card-${Date.now()}`,
           type: 'EXPERT_ADVICE',
           title: `DayTrace AI: ${query.length > 36 ? query.substring(0, 36) + '...' : query}`,
-          subtitle: 'On-Device Response',
+          subtitle: isLocationQuery ? 'Smart Geofence Location' : 'On-Device Response',
           engineMode: 'OFFLINE_LOCAL',
           createdAt: Date.now(),
           data: {

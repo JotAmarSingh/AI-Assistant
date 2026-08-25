@@ -57,6 +57,43 @@ const CANDIDATE_MODELS = [
   'gemini-pro'
 ];
 
+/** Token-Optimized Intent-Selective Context Builder */
+export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPayload): string => {
+  if (!appContext) return prompt;
+
+  const text = prompt.toLowerCase().trim();
+
+  // 1. Location / Geofence Intent
+  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we');
+  
+  // 2. Schedule / Task Intent
+  const needsSchedule = text.includes('schedule') || text.includes('timetable') || text.includes('what next') || text.includes('what should i do') || text.includes('my tasks') || text.includes('agenda');
+
+  // 3. Memory / Preference Intent
+  const needsMemory = text.includes('remember') || text.includes('preference') || text.includes('about me') || text.includes('memory');
+
+  // Case 1: Location question -> send ONLY minimal location tag (~10 tokens)
+  if (needsLocation) {
+    return `[Device Context: Current Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location directly & warmly)`;
+  }
+
+  // Case 2: Schedule / Task question -> send ONLY active task & top 3 pending tasks (~20 tokens)
+  if (needsSchedule) {
+    const focusStr = appContext.activeFocusTask ? `Active Task = "${appContext.activeFocusTask}"; ` : '';
+    const topTasks = appContext.pendingTasks?.slice(0, 3).map(t => t.title).join(', ');
+    return `[Device Context: Location = "${appContext.location || 'Home'}"; ${focusStr}Pending Tasks = "${topTasks || 'None'}"]\nUser Question: ${prompt}`;
+  }
+
+  // Case 3: Personal Memory question -> send ONLY 2-3 relevant memory facts (~20 tokens)
+  if (needsMemory && appContext.memories?.length) {
+    const memStr = appContext.memories.slice(0, 3).map(m => m.fact).join('; ');
+    return `[Device Context: Stored Facts = "${memStr}"]\nUser Question: ${prompt}`;
+  }
+
+  // Case 4: General Knowledge / Advice / Default queries -> ultra-compact 1-line tag (~6 tokens total!)
+  return `[Context: Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}`;
+};
+
 /** Verify if a Gemini API Key is valid and functional across all current Gemini models */
 export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boolean; message: string }> => {
   const key = rawKey?.trim();
@@ -124,7 +161,7 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
   };
 };
 
-/** Direct Gemini Pro API Query with Full App State Context Injection */
+/** Direct Gemini Pro API Query with Token-Optimized Intent-Selective Context Injection */
 export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<string> => {
   const apiKey = getGeminiApiKey();
 
@@ -132,51 +169,8 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
     throw new Error('No Gemini API Key configured. Please enter your API key to connect to online AI.');
   }
 
-  // Construct Context Prompt to hand-shake app sensors & state with Gemini online AI
-  let fullPrompt = prompt;
-  if (appContext) {
-    const locStr = appContext.location || 'Unknown';
-    const memoriesStr = appContext.memories && appContext.memories.length > 0
-      ? appContext.memories.map(m => `- [${m.category}] ${m.fact}`).join('\n')
-      : 'None recorded yet';
-
-    const tasksStr = appContext.pendingTasks && appContext.pendingTasks.length > 0
-      ? appContext.pendingTasks.map(t => `- [${t.priority || 'NORMAL'}] ${t.title} (${t.category || 'GENERAL'})`).join('\n')
-      : 'No active tasks';
-
-    const timetableStr = appContext.timetableSlots && appContext.timetableSlots.length > 0
-      ? appContext.timetableSlots.map(s => `- ${s.time}: ${s.title} (${s.status || 'SCHEDULED'})`).join('\n')
-      : 'No fixed timetable items for today';
-
-    fullPrompt = `
-=== LIVE DAYTRACE APP & DEVICE SENSOR CONTEXT ===
-• Current Location / Geofence: ${locStr}
-• Current Local Time: ${appContext.time || new Date().toLocaleTimeString()}
-• Date: ${appContext.date || new Date().toISOString().split('T')[0]}
-• User Energy Level: ${appContext.energy || 'NORMAL'}
-• Active App Mode: ${appContext.mode || 'ACCOUNTABILITY'}
-• Active Focus Task: ${appContext.activeFocusTask || 'None'}
-
-• Stored User Memories & Facts:
-${memoriesStr}
-
-• Current High-Priority Tasks:
-${tasksStr}
-
-• Today's Timetable Schedule:
-${timetableStr}
-==================================================
-
-INSTRUCTIONS FOR GEMINI AI:
-You are DayTrace AI — an intelligent, empathetic cybernetic AI partner embedded directly inside the user's Android phone.
-You HAVE direct access to the app's real-time location sensor, geofence, timetable, memory vault, and task engine listed above.
-The user asked: "${prompt}"
-
-1. If the user asks "where am I?", "what is my location?", or "where am I right now?", answer directly stating their location (${locStr})! NEVER say "I don't have location access" or "I'm a text AI with no eyes/ears".
-2. If asked about their tasks, schedule, energy, or memories, reference the actual live context.
-3. Keep your response direct, clear, highly intelligent, and formatted with clean bullet points or bold text.
-`;
-  }
+  // Build minimal, token-efficient smart context tag based strictly on query intent
+  const fullPrompt = buildSmartTokenContext(prompt, appContext);
 
   // 1. Try official SDK with candidate models
   try {

@@ -17,6 +17,7 @@ const rewards = read('src/components/rewards/RewardsVaultModal.tsx');
 const initialState = read('src/utils/initialState.ts');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const nativePlugin = read('android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java');
+const dayContext = read('src/context/DayContext.tsx');
 
 assert(!navigation.includes("label: 'AI Agent'"), 'AI Agent must not appear in bottom navigation');
 assert(!navigation.includes("id: 'review'"), 'review must not be a bottom tab');
@@ -34,6 +35,7 @@ assert(!app.includes("case 'review'"), 'standalone AI Agent route must be remove
 assert(hub.includes('sticky bottom-0'), 'Home composer must remain attached to the bottom of the resized viewport');
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'), 'Android keyboard must resize the app around the composer');
 assert(app.includes("const swipeTabs: AndroidTab[] = ['hub', 'timetable', 'board', 'timeline', 'meetings', 'reminders']"), 'all six production tabs must support ordered horizontal swipe navigation');
+assert(app.includes('<ViewErrorBoundary key={activeTab}'), 'each tab must be isolated by the runtime recovery boundary');
 
 for (const label of ['Permission Settings', 'Saved Times', 'Check-In Prompt Frequency', 'Gaming Mode', 'Alarm Audio Ringtone', 'Data Backup & Restore']) {
   assert(settings.includes(label), `Settings is missing ${label}`);
@@ -61,6 +63,8 @@ for (const legacyExample of ['Video Editing', 'Growth Strategy', 'Client Feedbac
   assert(!taskBoard.includes(legacyExample), `Tasks must not render legacy example ${legacyExample}`);
 }
 assert(taskBoard.includes('category-island-') && taskBoard.includes('task-card-'), 'category islands and task cards must be tappable');
+assert(taskBoard.includes('Map as MapIcon'), 'the map icon must not shadow the built-in Map collection');
+assert(dayContext.includes('automations: displayedState.automations || []'), 'Anchors must receive persisted automations from context');
 for (const action of ['Start', 'Complete', 'Edit', 'Delete']) assert(taskBoard.includes(action), `task details must expose ${action}`);
 assert(taskBoard.includes("useGeneratedVisual('CATEGORY_ISLAND'") && taskBoard.includes("useGeneratedVisual('TASK_STICKER'"), 'task and category artwork must use generated, cached visual assets');
 assert(timetable.includes('No plans for this day') && timeline.includes('Nothing logged yet'), 'new timetable and timeline must have honest empty states');

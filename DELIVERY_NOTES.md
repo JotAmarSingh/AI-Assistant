@@ -1,7 +1,10 @@
-# DayTrace 1.4.0 delivery notes
+# DayTrace 1.4.1 delivery notes
 
 ## Fixed
 
+- Fixed the Tasks tab crash caused by a UI icon shadowing JavaScript's built-in `Map` collection.
+- Fixed the Anchors tab crash caused by the provider omitting the persisted automations array.
+- Added per-screen crash recovery so a future rendering error cannot blank the entire app or require a force-close.
 - Accountability commitments now persist across days until completed, deliberately postponed, or cancelled; critical commitments receive one challenge before postponement.
 - “What should I do next?” now returns one resource-, deadline-, location-, duration-, energy-, and active-focus-aware action instead of an unranked task dump.
 - Context reminders can trigger when leaving the desk, rendering starts/finishes, work finishes, lunch begins, or a client deadline is due tonight.
@@ -37,7 +40,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.0 (2026082505), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.1 (2026082506), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.
@@ -58,6 +61,7 @@
 - AI routing, grounded follow-up, and changing-fact classification tests: passed.
 - Accountability engine, contextual trigger, focus protection, persistence, correction, postponement, interruption, planned-versus-actual, and habit-analysis tests: passed.
 - Static checks cover scoped JSON export, saved geofence names, keyboard inset handling, and absence of legacy cloud-sync code.
+- Runtime rendering smoke tests cover Tasks and Anchors with the real DayTrace provider.
 
 ## Delivery gate
 

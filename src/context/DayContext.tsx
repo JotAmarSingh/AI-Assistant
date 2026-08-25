@@ -3220,6 +3220,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isLoadingHistoricalDate,
         historicalDateMessage,
         selectViewDate,
+        automations: displayedState.automations || [],
         mode,
         setMode,
         isProcessing,

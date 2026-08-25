@@ -57,14 +57,14 @@ const CANDIDATE_MODELS = [
   'gemini-pro'
 ];
 
-/** Token-Optimized Intent-Selective Context Builder */
+/** Token-Optimized Intent-Selective Context Builder with GPS Coordinates Grounding */
 export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPayload): string => {
   if (!appContext) return prompt;
 
   const text = prompt.toLowerCase().trim();
 
   // 1. Location / Geofence Intent
-  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we');
+  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this');
   
   // 2. Schedule / Task Intent
   const needsSchedule = text.includes('schedule') || text.includes('timetable') || text.includes('what next') || text.includes('what should i do') || text.includes('my tasks') || text.includes('agenda');
@@ -72,9 +72,14 @@ export const buildSmartTokenContext = (prompt: string, appContext?: AppContextPa
   // 3. Memory / Preference Intent
   const needsMemory = text.includes('remember') || text.includes('preference') || text.includes('about me') || text.includes('memory');
 
-  // Case 1: Location question -> send ONLY minimal location tag (~10 tokens)
+  // Case 1: Location question -> send GPS coordinates for live cloud map reverse-geocoding
   if (needsLocation) {
-    return `[Device Context: Current Location = "${appContext.location || 'Home'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location directly & warmly)`;
+    if (appContext.coords?.latitude && appContext.coords?.longitude) {
+      const isTagged = appContext.location && appContext.location !== 'Unknown' && appContext.location !== 'Current Location';
+      const tagInfo = isTagged ? `Tagged Geofence Place: "${appContext.location}", ` : 'App Location: Untagged/Unknown, ';
+      return `[Device Context: ${tagInfo}GPS Axis = Latitude ${appContext.coords.latitude.toFixed(6)}, Longitude ${appContext.coords.longitude.toFixed(6)}]\nUser Question: ${prompt}\n(Instruction: Identify the physical place, neighborhood, and city for these exact GPS coordinates. Tell the user clearly in warm, plain English where they are!)`;
+    }
+    return `[Device Context: Current Location = "${appContext.location || 'Unknown'}"]\nUser Question: ${prompt}\n(Instruction: State the user's location clearly in plain English)`;
   }
 
   // Case 2: Schedule / Task question -> send ONLY active task & top 3 pending tasks (~20 tokens)
@@ -161,13 +166,16 @@ export const verifyGeminiApiKey = async (rawKey: string): Promise<{ success: boo
   };
 };
 
-/** Direct Gemini Pro API Query with Token-Optimized Intent-Selective Context Injection */
+/** Direct Gemini Pro API Query with Token-Optimized Intent-Selective Context & GPS Grounding */
 export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayload): Promise<string> => {
   const apiKey = getGeminiApiKey();
 
   if (!apiKey) {
     throw new Error('No Gemini API Key configured. Please enter your API key to connect to online AI.');
   }
+
+  const text = prompt.toLowerCase().trim();
+  const needsLocation = text.includes('where am i') || text.includes('where i am') || text.includes('location') || text.includes('where are we') || text.includes('what city') || text.includes('where is this');
 
   // Build minimal, token-efficient smart context tag based strictly on query intent
   const fullPrompt = buildSmartTokenContext(prompt, appContext);
@@ -177,9 +185,11 @@ export const queryGeminiAPI = async (prompt: string, appContext?: AppContextPayl
     const ai = new GoogleGenAI({ apiKey });
     for (const modelName of CANDIDATE_MODELS) {
       try {
+        const config = needsLocation ? { tools: [{ googleSearch: {} }] } : undefined;
         const response = await ai.models.generateContent({
           model: modelName,
           contents: fullPrompt,
+          config: config as any
         });
         if (response && response.text && response.text.trim()) {
           return response.text.trim();

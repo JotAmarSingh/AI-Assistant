@@ -32,6 +32,7 @@ import {
   AppContextPayload 
 } from '../../services/geminiService';
 import { speechService } from '../../services/speechRecognition';
+import { getCurrentCoordinates } from '../../services/nativeBridge';
 import { SmartAICard, UserMemoryItem } from '../../types';
 
 import { DayTraceAI } from '../DayTraceAI/DayTraceAI';
@@ -195,14 +196,33 @@ export const GeminiLiveHubView: React.FC = () => {
     const isQuestion = isQuestionOrAdvice(query);
 
     if (isQuestion) {
+      const isLocationQuery = lower.includes('where am i') || lower.includes('where i am') || lower.includes('location') || lower.includes('where are we') || lower.includes('what city') || lower.includes('where is this');
+
       logs.push('> INTENT: CONVERSATIONAL KNOWLEDGE & ADVICE REQUEST');
-      logs.push('> INJECTING LIVE LOCATION, SENSOR & MEMORY CONTEXT...');
-      logs.push('> CALLING GEMINI PRO API WITH GROUNDED DEVICE CONTEXT...');
+      if (isLocationQuery) {
+        logs.push('> DETECTED LIVE LOCATION QUERY ➔ QUERYING GPS SENSORS...');
+      }
+      logs.push('> INJECTING LIVE CONTEXT & CALLING GEMINI PRO API...');
       setCodeLogs([...logs]);
+
+      let liveCoords: { latitude: number; longitude: number } | undefined = state.userSettings?.homeCoords || state.userSettings?.officeCoords;
+
+      if (isLocationQuery) {
+        try {
+          const fetched = await getCurrentCoordinates();
+          if (fetched && fetched.latitude && fetched.longitude) {
+            liveCoords = { latitude: fetched.latitude, longitude: fetched.longitude };
+            logs.push(`> GPS SENSOR LOCK: Lat ${fetched.latitude.toFixed(4)}, Lng ${fetched.longitude.toFixed(4)}`);
+            setCodeLogs([...logs]);
+          }
+        } catch (locErr) {
+          console.warn('GPS location fetch error:', locErr);
+        }
+      }
 
       const appContext: AppContextPayload = {
         location: state.current.location,
-        coords: state.userSettings?.homeCoords || state.userSettings?.officeCoords,
+        coords: liveCoords,
         date: state.date,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         energy: state.current.energy,
@@ -210,12 +230,12 @@ export const GeminiLiveHubView: React.FC = () => {
         memories: state.memories?.map(m => ({ category: m.category, fact: m.fact })),
         tasksCount: state.tasks.length,
         mode: mode,
-        pendingTasks: state.tasks.filter(t => t.status === 'NEXT' || t.status === 'ACTIVE').slice(0, 5).map(t => ({
+        pendingTasks: state.tasks.filter(t => t.status === 'NEXT' || t.status === 'ACTIVE').slice(0, 3).map(t => ({
           title: t.title,
           category: t.category,
           priority: t.priority
         })),
-        timetableSlots: (state.timetable || []).slice(0, 5).map(s => ({
+        timetableSlots: (state.timetable || []).slice(0, 3).map(s => ({
           time: s.time,
           title: s.title,
           status: s.status
@@ -231,7 +251,7 @@ export const GeminiLiveHubView: React.FC = () => {
           id: `card-${Date.now()}`,
           type: 'EXPERT_ADVICE',
           title: `Gemini Pro AI: ${query.length > 40 ? query.substring(0, 40) + '...' : query}`,
-          subtitle: `Verified Response • ${state.current.location}`,
+          subtitle: `Verified Response • ${state.current.location || 'Live GPS'}`,
           engineMode: 'ONLINE_CLOUD',
           createdAt: Date.now(),
           data: {
@@ -248,11 +268,13 @@ export const GeminiLiveHubView: React.FC = () => {
         logs.push('> OFFLINE INTELLIGENCE ENGINE ENGAGED');
         setCodeLogs([...logs]);
 
-        const isLocationQuery = lower.includes('where am i') || lower.includes('where i am') || lower.includes('location') || lower.includes('where are we');
-
         let fallbackAnswer = '';
         if (isLocationQuery) {
-          fallbackAnswer = `📍 You are currently at: ${state.current.location}\n\n• Verified via DayTrace Smart Geofence & Location Engine.\n• Status: Active Location Sensor\n• Energy Level: ${state.current.energy}\n• Date: ${state.date}`;
+          if (liveCoords) {
+            fallbackAnswer = `📍 GPS Location: ${liveCoords.latitude.toFixed(5)}, ${liveCoords.longitude.toFixed(5)}\n\n• Current Place: ${state.current.location || 'Untagged Location'}\n• Detected via Real-Time Device GPS Sensor.\n• Tip: You can save this spot as a custom Geofence in the top app bar location settings.`;
+          } else {
+            fallbackAnswer = `📍 You are currently at: ${state.current.location}\n\n• Verified via DayTrace Smart Geofence & Location Engine.\n• Energy Level: ${state.current.energy}\n• Date: ${state.date}`;
+          }
         } else if (lower.includes('festival')) {
           fallbackAnswer = `🎉 Upcoming Festivals in India:\n\n• Raksha Bandhan (August)\n• Krishna Janmashtami (August)\n• Ganesh Chaturthi (September)\n• Navratri & Durga Puja (October)\n• Diwali (Festival of Lights - October/November)\n\nStay tuned for holiday timetable anchors!`;
         } else if (lower.includes('banana') || lower.includes('orange')) {

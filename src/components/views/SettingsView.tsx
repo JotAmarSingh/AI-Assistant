@@ -4,9 +4,11 @@ import {
   BellRing,
   CheckCircle2,
   Clock3,
-  Copy,
+  Cloud,
+  Cpu,
   Download,
   Gamepad2,
+  KeyRound,
   MapPin,
   Mic2,
   RefreshCw,
@@ -32,6 +34,7 @@ import {
   requestNativeMicrophonePermission,
   requestNativeNotificationPermission,
 } from '../../services/nativeBridge';
+import { clearGeminiApiKey, getStoredGeminiApiKey, verifyGeminiApiKey } from '../../services/geminiService';
 
 interface SettingsViewProps {
   onClose: () => void;
@@ -61,6 +64,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => getStoredGeminiApiKey() || '');
+  const [isVerifyingKey, setIsVerifyingKey] = useState(false);
+  const [apiStatus, setApiStatus] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
 
   const refreshPermissions = useCallback(async () => {
     const [nextCapabilities, nextNotifications] = await Promise.all([
@@ -83,6 +90,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
       window.removeEventListener('focus', refreshPermissions);
     };
   }, [refreshPermissions]);
+
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    return () => {
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
 
   const currentDataSummary = useMemo(() => ({
     tasks: state.tasks.length,
@@ -124,7 +142,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
   ] as const;
 
   return (
-    <div id="settings-view" className="flex-1 h-full overflow-y-auto bg-[#111318] text-[#E2E2E6] p-4 space-y-5">
+    <div id="settings-view" className="daytrace-scene flex-1 h-full overflow-y-auto text-[#E2E2E6] p-4 space-y-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="p-2 rounded-2xl bg-[#334867] text-[#D1E1FF]"><Settings className="w-5 h-5" /></div>
@@ -137,6 +155,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
           <ArrowLeft className="w-3.5 h-3.5" /> Today
         </button>
       </div>
+
+      <section id="ai-connection-settings" className="rounded-[30px] border border-cyan-300/25 bg-[#071126]/85 p-4 shadow-[0_0_24px_rgba(34,211,238,.1)] space-y-3">
+        <div><h3 className="text-sm font-black">AI & Connection</h3><p className="mt-0.5 text-[10px] text-slate-400">The verified key is stored once on this device and reused automatically.</p></div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className={`rounded-2xl border p-3 ${getStoredGeminiApiKey() && isOnline ? 'border-cyan-300/45 bg-cyan-300/10' : 'border-slate-700 bg-slate-950/60'}`}><Cloud className="h-5 w-5 text-cyan-300" /><p className="mt-2 text-xs font-black">Online AI</p><p className={`text-[10px] ${getStoredGeminiApiKey() && isOnline ? 'text-emerald-300' : 'text-slate-500'}`}>{getStoredGeminiApiKey() ? isOnline ? 'Connected' : 'Waiting for internet' : 'API key required'}</p></div>
+          <div className="rounded-2xl border border-violet-300/25 bg-violet-300/10 p-3"><Cpu className="h-5 w-5 text-violet-300" /><p className="mt-2 text-xs font-black">Offline</p><p className="text-[10px] text-violet-200">Local mode available</p></div>
+        </div>
+        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">API Key<div className="relative mt-1.5"><KeyRound className="absolute left-3 top-3.5 h-4 w-4 text-cyan-300" /><input type="password" value={apiKeyInput} onChange={(event) => setApiKeyInput(event.target.value)} placeholder="Add or change API key" autoComplete="off" className="w-full rounded-2xl border border-cyan-300/20 bg-slate-950 py-3 pl-10 pr-3 text-xs outline-none focus:border-cyan-300" /></div></label>
+        <div className="grid grid-cols-2 gap-2"><button type="button" disabled={!apiKeyInput.trim() || isVerifyingKey} onClick={async () => { setIsVerifyingKey(true); setApiStatus('Verifying securely…'); const result = await verifyGeminiApiKey(apiKeyInput); setApiStatus(result.message); setApiKeyInput(getStoredGeminiApiKey() || apiKeyInput); setIsVerifyingKey(false); }} className="rounded-2xl bg-cyan-300 py-2.5 text-xs font-black text-slate-950 disabled:opacity-40">{isVerifyingKey ? 'Verifying…' : 'Verify & Save'}</button><button type="button" disabled={!getStoredGeminiApiKey()} onClick={() => { clearGeminiApiKey(); setApiKeyInput(''); setApiStatus('Saved API key removed. Offline mode remains available.'); }} className="rounded-2xl bg-slate-800 py-2.5 text-xs font-bold disabled:opacity-40">Remove key</button></div>
+        {apiStatus && <p className="rounded-xl bg-slate-950/70 p-2.5 text-[10px] text-cyan-200">{apiStatus}</p>}
+      </section>
 
       <section id="permission-settings" className="bg-[#1D2026] border border-[#44474E]/40 rounded-[30px] p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -261,7 +290,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
           reader.onload = () => typeof reader.result === 'string' && queueImport(reader.result);
           reader.readAsText(file);
         }} />
-        <button type="button" onClick={() => { void navigator.clipboard.writeText(exportDataJSON()); setStatusMessage('Backup JSON copied to the clipboard.'); }} className="w-full py-2 rounded-2xl bg-[#2E3036] text-xs font-semibold flex items-center justify-center gap-1.5"><Copy className="w-3.5 h-3.5" /> Copy JSON</button>
         {statusMessage && <div className="p-2.5 rounded-2xl bg-[#111318] border border-[#44474E]/30 text-[11px] text-[#D1E1FF] flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />{statusMessage}</div>}
       </section>
 

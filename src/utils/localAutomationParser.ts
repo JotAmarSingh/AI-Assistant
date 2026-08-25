@@ -575,10 +575,21 @@ export function parseActivityLogUtterance(
     return results;
   }
 
-  // Pattern 3: Direct activity statement e.g. "I was driving home." or "Working on emails"
-  if (lower.startsWith('i was') || lower.startsWith("i've been") || lower.startsWith('just') || lower.startsWith('working on') || lower.startsWith('driving')) {
+  // Pattern 3: Direct activity statement e.g. "I was driving home." or
+  // "I'm working on app development". These phrases are activity check-ins,
+  // not chat, so Accountability mode must surface them in the real timeline.
+  if (
+    lower.startsWith('i was') ||
+    lower.startsWith("i've been") ||
+    lower.startsWith('i have been') ||
+    lower.startsWith("i'm working on") ||
+    lower.startsWith('i am working on') ||
+    lower.startsWith('just') ||
+    lower.startsWith('working on') ||
+    lower.startsWith('driving')
+  ) {
     let act = text
-      .replace(/^(i was|i've been|i have been|just)\s+/i, '')
+      .replace(/^(i was|i've been|i have been|i'm|i am|just)\s+/i, '')
       .replace(/[.!?]+$/, '')
       .trim();
     act = act.charAt(0).toUpperCase() + act.slice(1);

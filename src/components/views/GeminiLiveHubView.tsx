@@ -73,7 +73,22 @@ export const GeminiLiveHubView: React.FC = () => {
   const sourceQueryByCardRef = useRef(new Map<string, string>());
   const pendingModeActionByCardRef = useRef(new Map<string, string>());
   const pendingOnlineQueryRef = useRef<string | null>(null);
-  const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
+  const stats = calculateGamificationStats(state.gamification?.points || 0, state.gamification?.currentStreakDays || 0);
+  const learnedPromptFrequency = (state.conversationHistory || [])
+    .filter((entry) => entry.sender === 'user' && entry.text.trim().length > 3)
+    .reduce<Record<string, { text: string; count: number }>>((accumulator, entry) => {
+      const normalized = entry.text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+      if (!normalized) return accumulator;
+      const existing = accumulator[normalized];
+      accumulator[normalized] = existing
+        ? { text: entry.text.trim(), count: existing.count + 1 }
+        : { text: entry.text.trim(), count: 1 };
+      return accumulator;
+    }, {});
+  const learnedPromptChips = (Object.values(learnedPromptFrequency) as Array<{ text: string; count: number }>)
+    .filter((entry) => entry.count >= 2)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 4);
 
   // Network & lifecycle listeners
   useEffect(() => {
@@ -619,7 +634,7 @@ export const GeminiLiveHubView: React.FC = () => {
         engineMode: 'OFFLINE_LOCAL',
         createdAt: Date.now(),
         data: {
-          safetyWarning: `🔒 DayTrace is local-first and private:\n\n• No account or login is required for tasks, reminders, history, saved places, or meetings.\n• Online AI is optional and uses the Gemini key you add on this device.\n• Export or restore a complete local JSON backup from the download button in the top app bar.`
+          safetyWarning: `🔒 DayTrace is local-first and private:\n\n• No account or login is required for tasks, reminders, history, saved places, or meetings.\n• Online AI is optional and uses the Gemini key you add on this device.\n• Export or restore your complete local JSON backup from Settings.`
         }
       };
 
@@ -1570,26 +1585,21 @@ export const GeminiLiveHubView: React.FC = () => {
           ))}
         </AnimatePresence>
 
-        {/* Quick Suggestion Chips */}
-        <div className="flex items-center space-x-2 overflow-x-auto pb-1 no-scrollbar">
-          {[
-            '📍 Where am I?',
-            '⏰ Remind me at 7:30 PM to call the client',
-            '📋 What are my pending tasks?',
-            '🔐 Which permissions can you access?'
-          ].map((chip, idx) => (
+        {/* Learned suggestions appear only after the user repeats a real prompt. */}
+        {learnedPromptChips.length > 0 && <div className="flex items-center space-x-2 overflow-x-auto pb-1 no-scrollbar">
+          {learnedPromptChips.map((chip) => (
             <button
-              key={idx}
+              key={chip.text}
               type="button"
               onClick={() => {
-                setInputText(chip);
+                setInputText(chip.text);
               }}
               className="py-1.5 px-3 rounded-full bg-[#0D1527] hover:bg-[#00F0FF]/20 border border-[#00F0FF]/30 text-[11px] font-mono text-[#00F0FF] shrink-0 transition"
             >
-              {chip}
+              {chip.text.length > 54 ? `${chip.text.slice(0, 51)}…` : chip.text}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Bottom Fixed Command Bar (Pinned above Bottom Navigation Bar & Soft Keyboard) */}

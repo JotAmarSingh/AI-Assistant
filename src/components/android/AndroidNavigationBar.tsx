@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, CalendarClock, CheckSquare, Clock, BellRing, Mic2 } from 'lucide-react';
+import { Zap, CalendarClock, CheckSquare, Clock, Anchor, Mic2 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 
 export type AndroidTab = 'hub' | 'timetable' | 'board' | 'timeline' | 'meetings' | 'reminders' | 'settings';
@@ -22,13 +22,13 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
     { id: 'board', label: 'Tasks', icon: CheckSquare, badge: nextTasksCount },
     { id: 'timeline', label: 'Timeline', icon: Clock },
     { id: 'meetings', label: 'Meetings', icon: Mic2 },
-    { id: 'reminders', label: 'Anchors', icon: BellRing, badge: pendingRemindersCount > 0 ? pendingRemindersCount : undefined },
+    { id: 'reminders', label: 'Anchors', icon: Anchor, badge: pendingRemindersCount > 0 ? pendingRemindersCount : undefined },
   ];
 
   return (
     <nav
       id="android-bottom-navigation-bar"
-      className="w-full bg-[#111318] border-t border-[#44474E]/30 px-1 py-1 flex items-center justify-around z-50 relative select-none pb-safe"
+      className="w-full bg-[#050918]/95 backdrop-blur-xl border-t border-cyan-300/20 px-1 py-1.5 flex items-center justify-around z-50 relative select-none pb-safe shadow-[0_-10px_30px_rgba(0,0,0,.35)]"
     >
       {tabs.map((tab) => {
         const Icon = tab.icon;
@@ -45,7 +45,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
             <div
               className={`w-11 h-7 rounded-full flex items-center justify-center transition-all duration-200 relative ${
                 isActive
-                  ? 'bg-[#334867] text-[#00F0FF] shadow-sm scale-100'
+                  ? 'bg-cyan-300/15 text-[#22D3EE] shadow-[0_0_16px_rgba(34,211,238,.35)] scale-100 border border-cyan-300/30'
                   : 'text-[#C4C6D0] group-hover:bg-[#2E3036]/60 group-hover:text-[#E2E2E6]'
               }`}
             >
@@ -65,7 +65,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({ acti
             <span
               className={`text-[10px] font-medium mt-0.5 tracking-tight transition-colors ${
                 isActive
-                  ? 'text-[#D1E1FF] font-bold'
+                  ? 'text-cyan-300 font-bold'
                   : 'text-[#C4C6D0]/80 group-hover:text-[#E2E2E6]'
               }`}
             >

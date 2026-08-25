@@ -136,15 +136,16 @@ export const DEFAULT_REWARDS: RewardItem[] = [
 ];
 
 export const INITIAL_GAMIFICATION_STATE: UserGamification = {
-  points: 120, // Initial starter points so user can test micro-rewards right away!
-  currentStreakDays: 1,
-  longestStreakDays: 1,
-  totalFocusMinutes: 25,
-  totalTasksCompleted: 3,
+  points: 0,
+  currentStreakDays: 0,
+  longestStreakDays: 0,
+  totalFocusMinutes: 0,
+  totalTasksCompleted: 0,
   totalReviewsCompleted: 0,
-  lastActiveDate: new Date().toISOString().split('T')[0],
+  lastActiveDate: '',
   claimedRewards: [],
   customRewards: [],
+  milestoneClaims: [],
 };
 
 /**
@@ -154,6 +155,15 @@ export function updateStreak(gamification: UserGamification): UserGamification {
   const todayStr = new Date().toISOString().split('T')[0];
   if (gamification.lastActiveDate === todayStr) {
     return gamification;
+  }
+
+  if (!gamification.lastActiveDate) {
+    return {
+      ...gamification,
+      currentStreakDays: 1,
+      longestStreakDays: Math.max(1, gamification.longestStreakDays || 0),
+      lastActiveDate: todayStr,
+    };
   }
 
   const lastDate = new Date(gamification.lastActiveDate);

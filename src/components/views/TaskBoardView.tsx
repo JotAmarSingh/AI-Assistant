@@ -1,522 +1,158 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  CheckCircle2, 
-  Trash2, 
-  Star, 
-  Sparkles, 
-  Building2, 
-  Trees, 
-  BookOpen, 
-  Home, 
-  CheckSquare, 
-  Clock, 
-  Play, 
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Lock,
-  Award,
-  Gift
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, Edit3, Gift,
+  Image as ImageIcon, Inbox, Lock, Map, Play, Plus, Settings2, Trash2, X,
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
-import { TaskStatus, TaskCategory, TaskItem } from '../../types';
-import { resolveContextualIcon, resolveCategoryIslandIcon } from '../../services/geminiService';
+import { TaskCategoryDefinition, TaskItem } from '../../types';
+import { resolveCategoryIslandIcon, resolveContextualIcon } from '../../services/geminiService';
+import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
 import { ManageCategoriesModal } from '../tasks/ManageCategoriesModal';
+import { UNCATEGORISED_CATEGORY_ID } from '../../utils/initialState';
 
-export const TaskBoardView: React.FC = () => {
-  const { 
-    state, 
-    updateTaskStatus, 
-    addTask, 
-    editTask,
-    deleteTask, 
-    taskCategories 
-  } = useDay();
+interface IslandData {
+  category: TaskCategoryDefinition;
+  tasks: TaskItem[];
+  done: number;
+  progress: number;
+}
 
-  // Active Selected Island for Adventure Map Detail View (null = Overview Map)
-  const [activeIslandId, setActiveIslandId] = useState<string | null>(null);
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState('');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
+const potentialXp = (task: TaskItem) => task.priority >= 8 ? 120 : task.priority <= 3 ? 30 : 60;
 
-  // Quick New Task Form State
-  const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState<string>('OFFICE');
-  const [newPriority, setNewPriority] = useState<'HIGH' | 'NORMAL' | 'LOW'>('HIGH');
-
-  const allTasks = state.tasks || [];
-  const completedTasks = allTasks.filter((t) => t.status === 'DONE');
-  const totalCount = allTasks.length;
-  const doneCount = completedTasks.length;
-  const progressRatio = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-
-  // Dynamic Category Island Data
-  const islandCategories = taskCategories.map((cat) => {
-    const tasks = allTasks.filter((t) => t.category === cat.id);
-    const done = tasks.filter((t) => t.status === 'DONE').length;
-    const total = tasks.length;
-    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-
-    return {
-      id: cat.id,
-      label: cat.label.includes('Island') ? cat.label : `${cat.label} Island`,
-      icon: resolveCategoryIslandIcon(cat.label),
-      tasks,
-      doneCount: done,
-      totalCount: total,
-      percent,
-      color: cat.color || '#00F0FF',
-      border: 'border-[#00F0FF]/40',
-      bg: 'bg-[#00F0FF]/10'
-    };
-  });
-
-  const activeIsland = islandCategories.find((i) => i.id === activeIslandId);
-
-  const getTaskXpBadge = (priority?: any) => {
-    if (priority === 'HIGH' || priority >= 8) {
-      return { label: '+150 XP ★', xpNum: 150, badgeClass: 'bg-[#FBBF24]/20 text-[#FBBF24] border-[#FBBF24]/50' };
-    }
-    if (priority === 'LOW' || priority <= 3) {
-      return { label: '+30 XP', xpNum: 30, badgeClass: 'bg-[#10B981]/20 text-[#10B981] border-[#10B981]/40' };
-    }
-    return { label: '+80 XP', xpNum: 80, badgeClass: 'bg-[#00F0FF]/20 text-[#00F0FF] border-[#00F0FF]/40' };
-  };
-
-  const handleCreateTaskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-
-    addTask({
-      title: newTitle.trim(),
-      category: newCategory,
-      owner: 'ME',
-      status: 'NEXT',
-      priority: newPriority === 'HIGH' ? 9 : newPriority === 'LOW' ? 2 : 5,
-    });
-
-    setNewTitle('');
-    setIsAddModalOpen(false);
-  };
-
+const IslandArtwork: React.FC<{ island: IslandData; large?: boolean }> = ({ island, large }) => {
+  const { imageUrl, isGenerating } = useGeneratedVisual('CATEGORY_ISLAND', island.category.label, island.tasks.map((task) => task.title));
   return (
-    <div id="task-board-view" className="flex-1 flex flex-col h-full bg-[#070A10] text-[#E2E2E6] overflow-hidden relative">
-      {/* Top Header Bar */}
-      <div className="shrink-0 px-4 py-3 bg-[#0D1527]/95 backdrop-blur-md border-b border-[#00F0FF]/30 flex items-center justify-between z-20 shadow-md">
-        {activeIsland ? (
-          <button
-            onClick={() => setActiveIslandId(null)}
-            className="flex items-center space-x-1.5 text-sm font-bold font-mono text-[#00F0FF] hover:underline"
-          >
-            <ChevronLeft className="w-5 h-5 text-[#00F0FF]" />
-            <span>{activeIsland.label}</span>
-          </button>
-        ) : (
-          <div className="flex items-center space-x-2">
-            <CheckSquare className="w-4 h-4 text-[#00F0FF]" />
-            <h2 className="font-mono font-bold text-sm text-[#E2E2E6]">Task Boards • Category Islands</h2>
-          </div>
-        )}
-
-        <button
-          onClick={() => setIsManageCategoriesOpen(true)}
-          className="px-2.5 py-1 rounded-full bg-[#111827] border border-[#00F0FF]/30 text-[#00F0FF] text-[10px] font-mono font-bold hover:bg-[#00F0FF]/20 transition"
-        >
-          Manage Islands
-        </button>
-      </div>
-
-      {/* Main Scrollable Canvas */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* VIEW 1: ISLAND ADVENTURE MAP DETAIL VIEW (When an Island is Clicked) */}
-        {activeIsland ? (
-          <div className="space-y-4">
-            {/* Top Island Header & Banner Card */}
-            <div className="p-4 rounded-[28px] bg-gradient-to-r from-[#0D1527] via-[#111827] to-[#0D1527] border border-[#00F0FF]/40 shadow-[0_0_30px_rgba(0,240,255,0.15)] space-y-3 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <span className="text-3xl p-2 rounded-2xl bg-[#070A10] border border-[#00F0FF]/30 shadow-md">
-                    {activeIsland.icon}
-                  </span>
-                  <div>
-                    <h3 className="font-mono font-extrabold text-base text-[#E2E2E6]">{activeIsland.label}</h3>
-                    <span className="text-[10px] font-mono text-[#C4C6D0]/70">
-                      {activeIsland.doneCount} / {activeIsland.totalCount} Tasks Completed
-                    </span>
-                  </div>
-                </div>
-
-                {/* Island Progress Gauge */}
-                <div className="relative w-12 h-12 flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      className="text-[#111827]"
-                      strokeWidth="3.5"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                    <path
-                      className="text-[#00F0FF]"
-                      strokeDasharray={`${activeIsland.percent}, 100`}
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                  </svg>
-                  <div className="absolute text-center">
-                    <span className="text-[10px] font-mono font-bold text-[#00F0FF]">{activeIsland.percent}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-xs text-[#C4C6D0] leading-relaxed">
-                Complete all tasks on this island to earn <strong className="text-[#FBBF24]">+200 XP Bonus Reward</strong>!
-              </p>
-            </div>
-
-            {/* Vertical Adventure Path with Checkpoints */}
-            <div className="relative pl-6 space-y-3.5 pt-1">
-              {/* Vertical Glowing Checkpoint Line */}
-              <div className="absolute left-3.5 top-3 bottom-3 w-0.5 bg-gradient-to-b from-[#10B981] via-[#C084FC] to-[#FBBF24] shadow-[0_0_10px_#00F0FF]" />
-
-              {activeIsland.tasks.map((task, idx) => {
-                const isDone = task.status === 'DONE';
-                const isActive = task.status === 'ACTIVE';
-                const isBlocked = task.status === 'BLOCKED';
-                const xpInfo = getTaskXpBadge(task.priority);
-                const icon = resolveContextualIcon(task.title, task.notes || task.category);
-                const isExpanded = expandedTaskId === task.id;
-
-                return (
-                  <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.08 }}
-                    className="relative flex items-start space-x-3"
-                  >
-                    {/* Glowing Checkpoint Node Icon */}
-                    <div className={`absolute -left-6 top-3 w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs shadow-lg z-10 ${
-                      isDone ? 'bg-[#10B981] border-[#10B981] text-[#070A10] shadow-[0_0_12px_#10B981]' :
-                      isActive ? 'bg-[#C084FC] border-[#C084FC] text-[#070A10] shadow-[0_0_15px_#C084FC] animate-pulse' :
-                      isBlocked ? 'bg-[#111827] border-[#F87171] text-[#F87171]' :
-                      'bg-[#0D1527] border-[#FBBF24] text-[#FBBF24]'
-                    }`}>
-                      {isDone ? <CheckCircle2 className="w-4 h-4 stroke-[3]" /> :
-                       isActive ? <Play className="w-3.5 h-3.5 fill-current" /> :
-                       isBlocked ? <Lock className="w-3.5 h-3.5" /> :
-                       <span>▶</span>}
-                    </div>
-
-                    {/* Task Card Surface */}
-                    <div className={`flex-1 p-3.5 rounded-[24px] border backdrop-blur-md transition shadow-md ${
-                      isActive ? 'bg-[#1D122A]/90 border-[#C084FC] shadow-[0_0_20px_rgba(192,132,252,0.3)] ring-1 ring-[#C084FC]' :
-                      isDone ? 'bg-[#061A14]/70 border-[#10B981]/40 opacity-80' :
-                      isBlocked ? 'bg-[#181014]/80 border-[#F87171]/40' :
-                      'bg-[#0D1527]/90 border-[#00F0FF]/30'
-                    }`}>
-                      <div 
-                        onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
-                        className="flex items-center justify-between cursor-pointer"
-                      >
-                        <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                          <span className="text-base p-1.5 rounded-xl bg-[#070A10] border border-[#00F0FF]/30 shrink-0">
-                            {icon}
-                          </span>
-                          <div>
-                            <h4 className={`text-xs font-bold ${isDone ? 'line-through text-[#C4C6D0]/60' : 'text-[#E2E2E6]'}`}>
-                              {task.title}
-                            </h4>
-                            <span className="text-[10px] text-[#C4C6D0]/60 font-mono block mt-0.5">
-                              {task.status} {task.estimatedMinutes ? `• ~${task.estimatedMinutes}m` : ''}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center space-x-2 shrink-0">
-                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${xpInfo.badgeClass}`}>
-                            {xpInfo.label}
-                          </span>
-                          {isExpanded ? <ChevronUp className="w-4 h-4 text-[#00F0FF]" /> : <ChevronDown className="w-4 h-4 text-[#C4C6D0]/50" />}
-                        </div>
-                      </div>
-
-                      {/* Expanded Actions Toolbar (Edit, Mark Complete, Remove, Set Active) */}
-                      {isExpanded && (
-                        <div className="mt-3 pt-2.5 border-t border-[#00F0FF]/15 space-y-2 text-xs">
-                          {editingTaskId === task.id ? (
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="text"
-                                value={editingTitle}
-                                onChange={(e) => setEditingTitle(e.target.value)}
-                                className="flex-1 p-2 rounded-xl bg-[#111827] border border-[#00F0FF] text-xs font-mono text-[#E2E2E6]"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (editingTitle.trim()) {
-                                    editTask(task.id, { title: editingTitle.trim() });
-                                  }
-                                  setEditingTaskId(null);
-                                }}
-                                className="px-3 py-2 rounded-xl bg-[#10B981] text-[#070A10] font-mono font-bold text-xs"
-                              >
-                                Save
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => updateTaskStatus(task.id, isActive ? 'NEXT' : 'ACTIVE')}
-                                className={`flex-1 py-2 px-3 rounded-xl font-mono font-bold text-[11px] flex items-center justify-center space-x-1 transition ${
-                                  isActive ? 'bg-[#FBBF24] text-[#070A10]' : 'bg-[#00F0FF] text-[#070A10] shadow-[0_0_10px_#00F0FF]'
-                                }`}
-                              >
-                                <Play className="w-3.5 h-3.5 fill-current" />
-                                <span>{isActive ? 'Pause' : 'Set Active'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingTaskId(task.id);
-                                  setEditingTitle(task.title);
-                                }}
-                                className="py-2 px-3 rounded-xl bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] font-mono font-bold text-[11px] flex items-center space-x-1"
-                              >
-                                <span>Edit</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => updateTaskStatus(task.id, isDone ? 'NEXT' : 'DONE')}
-                                className="py-2 px-3 rounded-xl bg-[#10B981]/20 border border-[#10B981]/40 text-[#10B981] font-mono font-bold text-[11px] flex items-center space-x-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>{isDone ? 'Undo' : 'Done'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => deleteTask(task.id)}
-                                className="p-2 rounded-xl bg-[#F87171]/15 border border-[#F87171]/40 text-[#F87171]"
-                                title="Remove task"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-
-            {/* Bottom Island Reward Chest Card */}
-            <div className="p-4 rounded-[28px] bg-gradient-to-r from-[#1C160C] via-[#0D1527] to-[#1C160C] border border-[#FBBF24]/50 shadow-[0_0_25px_rgba(251,191,36,0.2)] flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-[#FBBF24] font-mono block flex items-center gap-1">
-                  <Gift className="w-4 h-4 text-[#FBBF24]" />
-                  Island Reward Chest
-                </span>
-                <p className="text-xs text-[#C4C6D0]">
-                  Complete all tasks on this island to unlock <strong className="text-[#FBBF24]">+200 XP Bonus</strong>!
-                </p>
-                {/* Progress Bar */}
-                <div className="w-44 h-1.5 bg-[#111827] rounded-full overflow-hidden border border-[#FBBF24]/40 mt-1.5">
-                  <div className="h-full bg-[#FBBF24]" style={{ width: `${activeIsland.percent}%` }} />
-                </div>
-              </div>
-
-              <div className="text-right font-mono font-extrabold text-sm text-[#FBBF24] px-3 py-1.5 rounded-2xl bg-[#FBBF24]/20 border border-[#FBBF24]/40 shrink-0">
-                +200 XP
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* VIEW 2: OVERVIEW CATEGORY ISLANDS MAP */
-          <div className="space-y-4">
-            {/* Overall Progress Summary */}
-            <div className="p-4 rounded-[28px] bg-[#0D1527] border border-[#00F0FF]/30 shadow-xl flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-[#C4C6D0]/60 font-mono block uppercase">Total Completion</span>
-                <span className="text-xl font-mono font-extrabold text-[#E2E2E6]">
-                  {doneCount} / {totalCount} <span className="text-xs text-[#00F0FF]">Tasks</span>
-                </span>
-              </div>
-
-              <div className="flex flex-col items-center">
-                <div className="relative w-14 h-14 flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      className="text-[#111827]"
-                      strokeWidth="3.5"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                    <path
-                      className="text-[#10B981]"
-                      strokeDasharray={`${progressRatio}, 100`}
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                  </svg>
-                  <div className="absolute text-center">
-                    <span className="text-xs font-mono font-extrabold text-[#10B981]">{progressRatio}%</span>
-                  </div>
-                </div>
-                <span className="text-[9px] text-[#C4C6D0]/70 font-mono mt-0.5 font-bold">Overall Progress</span>
-              </div>
-
-              <div className="text-right">
-                <span className="text-[10px] text-[#C4C6D0]/60 font-mono block uppercase">Priority Reward</span>
-                <span className="text-xs font-mono font-bold text-[#FBBF24] block mt-1">
-                  High: +150 XP ★
-                </span>
-              </div>
-            </div>
-
-            {/* 2x2 Grid RPG Category Islands Exploration Map (Matching Reference Image) */}
-            <div className="space-y-2">
-              <span className="text-xs font-mono font-bold text-[#00F0FF] uppercase block">
-                CATEGORY ISLANDS MAP EXPLORATION ({islandCategories.length})
-              </span>
-
-              <div className="grid grid-cols-2 gap-3">
-                {islandCategories.map((island) => (
-                  <button
-                    key={island.id}
-                    type="button"
-                    onClick={() => setActiveIslandId(island.id)}
-                    className="p-3.5 rounded-[24px] bg-[#0D1527] border border-[#00F0FF]/35 hover:border-[#00F0FF] text-center flex flex-col items-center justify-between transition relative overflow-hidden shadow-lg group hover:scale-[1.02]"
-                  >
-                    {/* Floating 3D Island Graphic Icon */}
-                    <div className="w-14 h-14 rounded-2xl bg-[#070A10] border border-[#00F0FF]/40 flex items-center justify-center text-3xl shadow-[0_0_20px_rgba(0,240,255,0.2)] group-hover:scale-110 transition">
-                      {island.icon}
-                    </div>
-
-                    <div className="mt-2.5 w-full">
-                      <h4 className="font-mono font-bold text-xs text-[#E2E2E6] truncate">{island.label}</h4>
-                      <span className="text-[10px] text-[#C4C6D0]/70 font-mono block mt-0.5">
-                        {island.doneCount} / {island.totalCount} Tasks
-                      </span>
-
-                      {/* Island Mini Progress Bar */}
-                      <div className="w-full h-1.5 bg-[#111827] rounded-full overflow-hidden border border-[#00F0FF]/30 mt-2">
-                        <div className="h-full bg-[#00F0FF] transition-all duration-500" style={{ width: `${island.percent}%` }} />
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Floating Add Task Button */}
-      <button
-        onClick={() => setIsAddModalOpen(true)}
-        className="fixed right-5 bottom-20 p-3.5 rounded-full bg-[#00F0FF] text-[#070A10] shadow-[0_0_25px_#00F0FF] transition hover:scale-105 z-30"
-        title="Add New Task"
-      >
-        <Plus className="w-5 h-5 font-extrabold" />
-      </button>
-
-      {/* Quick Add Task Modal */}
-      <AnimatePresence>
-        {isAddModalOpen && (
-          <div className="fixed inset-0 bg-[#070A10]/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[28px] bg-[#0D1527] border border-[#00F0FF]/40 p-5 space-y-4 shadow-2xl"
-            >
-              <h3 className="text-sm font-bold font-mono text-[#00F0FF]">Add Task to Category Island</h3>
-              <form onSubmit={handleCreateTaskSubmit} className="space-y-3 text-xs">
-                <div>
-                  <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Task Title</label>
-                  <input
-                    type="text"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    placeholder="e.g. Breakfast (2 chapati with curd and dal)"
-                    className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Island Category</label>
-                    <select
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value)}
-                      className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                    >
-                      {taskCategories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.label.includes('Island') ? cat.label : `${cat.label} Island`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#C4C6D0] uppercase mb-1">Priority (XP)</label>
-                    <select
-                      value={newPriority}
-                      onChange={(e) => setNewPriority(e.target.value as any)}
-                      className="w-full p-2.5 rounded-xl bg-[#111827] border border-[#00F0FF]/30 text-[#E2E2E6]"
-                    >
-                      <option value="HIGH">High (+150 XP ★)</option>
-                      <option value="NORMAL">Normal (+80 XP)</option>
-                      <option value="LOW">Low (+30 XP)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex space-x-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddModalOpen(false)}
-                    className="flex-1 py-2.5 rounded-xl bg-[#111827] text-[#C4C6D0] font-bold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-[#00F0FF] text-[#070A10] font-bold font-mono shadow-[0_0_15px_#00F0FF]"
-                  >
-                    Create Task
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Manage Categories Modal */}
-      {isManageCategoriesOpen && (
-        <ManageCategoriesModal onClose={() => setIsManageCategoriesOpen(false)} />
+    <div className={`daytrace-island-art ${large ? 'h-36 w-48' : 'h-28 w-36'}`} style={{ '--island-color': island.category.color } as React.CSSProperties}>
+      <div className="daytrace-island-aura" />
+      {imageUrl ? <img src={imageUrl} alt="" className="relative z-10 h-full w-full object-contain drop-shadow-[0_18px_18px_rgba(0,0,0,.55)]" /> : (
+        <div className="relative z-10 flex h-full w-full flex-col items-center justify-center">
+          <span className={`text-5xl ${isGenerating ? 'animate-pulse' : ''}`}>{resolveCategoryIslandIcon(island.category.label)}</span>
+          <span className="mt-1 h-7 w-24 rounded-[50%] bg-gradient-to-b from-emerald-600 to-slate-950 shadow-[0_12px_16px_rgba(0,0,0,.65)]" />
+          {isGenerating && <ImageIcon className="absolute right-2 top-2 h-3.5 w-3.5 animate-pulse text-cyan-300" />}
+        </div>
       )}
     </div>
   );
+};
+
+const TaskSticker: React.FC<{ task: TaskItem; categoryLabel: string }> = ({ task, categoryLabel }) => {
+  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', task.title, [categoryLabel]);
+  return (
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-[#060b18]">
+      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={`text-xl ${isGenerating ? 'animate-pulse' : ''}`}>{resolveContextualIcon(task.title, categoryLabel)}</span>}
+    </div>
+  );
+};
+
+export const TaskBoardView: React.FC = () => {
+  const { state, updateTaskStatus, addTask, editTask, deleteTask, taskCategories, claimMilestone } = useDay();
+  const [activeIslandId, setActiveIslandId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isManageOpen, setIsManageOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newCategory, setNewCategory] = useState(UNCATEGORISED_CATEGORY_ID);
+  const [newPriority, setNewPriority] = useState(5);
+  const [newDueAt, setNewDueAt] = useState('');
+  const allTasks = state.tasks || [];
+
+  const categories = useMemo(() => {
+    const byId = new Map(taskCategories.map((category) => [category.id, category]));
+    allTasks.forEach((task) => {
+      if (byId.has(task.category)) return;
+      const now = new Date().toISOString();
+      byId.set(task.category, {
+        id: task.category,
+        label: task.category.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        color: '#22D3EE', icon: 'sparkles', createdAt: now, updatedAt: now,
+      });
+    });
+    return Array.from(byId.values());
+  }, [allTasks, taskCategories]);
+
+  const islands = useMemo<IslandData[]>(() => categories.map((category) => {
+    const tasks = allTasks.filter((task) => task.category === category.id);
+    const done = tasks.filter((task) => task.status === 'DONE').length;
+    return { category, tasks, done, progress: tasks.length ? Math.round((done / tasks.length) * 100) : 0 };
+  }).filter((island) => island.tasks.length > 0 || !island.category.isSystem), [allTasks, categories]);
+  const activeIsland = islands.find((island) => island.category.id === activeIslandId) || null;
+  const totalDone = allTasks.filter((task) => task.status === 'DONE').length;
+  const overallProgress = allTasks.length ? Math.round((totalDone / allTasks.length) * 100) : 0;
+
+  useEffect(() => { if (activeIslandId && !activeIsland) setActiveIslandId(null); }, [activeIsland, activeIslandId]);
+  useEffect(() => { if (!categories.some((item) => item.id === newCategory)) setNewCategory(categories[0]?.id || UNCATEGORISED_CATEGORY_ID); }, [categories, newCategory]);
+
+  const createTask = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newTitle.trim()) return;
+    addTask({
+      title: newTitle.trim(), category: newCategory, owner: 'ME', status: 'NEXT', priority: newPriority,
+      ...(newDueAt ? { dueAt: new Date(newDueAt).toISOString(), scheduledAt: new Date(newDueAt).toISOString() } : {}),
+    });
+    setNewTitle(''); setNewDueAt(''); setIsAddOpen(false);
+  };
+
+  const updateChecklist = (task: TaskItem, checklistId: string) => {
+    const checklist = (task.checklist || []).map((item) => item.id === checklistId ? { ...item, isDone: !item.isDone } : item);
+    editTask(task.id, { checklist });
+    if (checklist.length && checklist.every((item) => item.isDone) && task.status !== 'DONE') updateTaskStatus(task.id, 'DONE');
+  };
+
+  const sortedTasks = activeIsland ? [...activeIsland.tasks].sort((left, right) => {
+    if (left.status === 'DONE' && right.status !== 'DONE') return 1;
+    if (right.status === 'DONE' && left.status !== 'DONE') return -1;
+    return right.priority - left.priority;
+  }) : [];
+  const rewardId = activeIsland ? `island:${activeIsland.category.id}:${activeIsland.tasks.map((task) => task.id).sort().join('.')}` : '';
+  const rewardClaimed = !!rewardId && (state.gamification?.milestoneClaims || []).some((claim) => claim.id === rewardId);
+  const rewardReady = !!activeIsland && activeIsland.tasks.length > 0 && activeIsland.done === activeIsland.tasks.length && !rewardClaimed;
+
+  return (
+    <div id="task-board-view" className="daytrace-scene flex h-full flex-1 flex-col overflow-hidden text-slate-100">
+      <header className="z-20 flex shrink-0 items-center justify-between border-b border-cyan-300/20 bg-[#050918]/90 px-4 py-3 backdrop-blur-xl">
+        {activeIsland ? <button id="island-back-btn" type="button" onClick={() => setActiveIslandId(null)} className="flex min-w-0 items-center gap-2 text-left"><ArrowLeft className="h-5 w-5 text-cyan-300" /><div className="min-w-0"><h2 className="truncate text-sm font-black">{activeIsland.category.label}</h2><p className="text-[10px] text-slate-400">Category Island</p></div></button> : <div><h2 className="text-base font-black">Task Islands</h2><p className="text-[10px] text-slate-400">Your categories grow from real tasks</p></div>}
+        <div className="flex gap-2"><button id="manage-categories-btn" type="button" onClick={() => setIsManageOpen(true)} className="rounded-xl border border-cyan-300/25 bg-slate-900/70 p-2 text-cyan-200" aria-label="Manage categories"><Settings2 className="h-4 w-4" /></button><button id="add-task-btn" type="button" onClick={() => setIsAddOpen(true)} className="rounded-xl bg-cyan-300 p-2 text-slate-950 shadow-[0_0_18px_rgba(34,211,238,.45)]" aria-label="Add task"><Plus className="h-4 w-4" /></button></div>
+      </header>
+
+      <div className="relative flex-1 overflow-y-auto overscroll-contain px-4 pb-8 pt-4">
+        <div className="daytrace-water pointer-events-none absolute inset-0 opacity-60" />
+        {activeIsland ? (
+          <div className="relative z-10 mx-auto max-w-lg space-y-4">
+            <section className="rounded-[30px] border border-cyan-300/25 bg-slate-950/70 p-4 backdrop-blur-xl">
+              <div className="flex items-center gap-3"><IslandArtwork island={activeIsland} large /><div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-300">Island progress</p><h3 className="mt-1 truncate text-lg font-black">{activeIsland.category.label}</h3><p className="mt-1 text-xs text-slate-300">{activeIsland.done}/{activeIsland.tasks.length} tasks done</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400" style={{ width: `${activeIsland.progress}%` }} /></div><p className="mt-1 text-right font-mono text-xs font-black text-cyan-300">{activeIsland.progress}%</p></div></div>
+            </section>
+            {sortedTasks.length === 0 ? <section className="rounded-[28px] border border-dashed border-cyan-300/25 bg-slate-950/60 p-8 text-center"><Inbox className="mx-auto h-9 w-9 text-cyan-300/60" /><h3 className="mt-3 text-sm font-bold">This island has no tasks</h3><button type="button" onClick={() => { setNewCategory(activeIsland.category.id); setIsAddOpen(true); }} className="mt-4 rounded-2xl bg-cyan-300 px-4 py-2.5 text-xs font-black text-slate-950">Add a task</button></section> : (
+              <section className="relative space-y-3 pl-7"><div className="absolute bottom-4 left-3 top-4 w-px bg-gradient-to-b from-emerald-400 via-violet-400 to-amber-300 shadow-[0_0_10px_#22d3ee]" />
+                {sortedTasks.map((task) => {
+                  const expanded = expandedTaskId === task.id; const done = task.status === 'DONE'; const active = task.status === 'ACTIVE'; const blocked = task.status === 'BLOCKED';
+                  return <article key={task.id} className={`relative rounded-[24px] border p-3.5 backdrop-blur-xl ${active ? 'border-violet-400 bg-violet-950/50' : done ? 'border-emerald-400/35 bg-emerald-950/35' : 'border-cyan-300/20 bg-slate-950/75'}`}>
+                    <div className={`absolute -left-8 top-5 flex h-7 w-7 items-center justify-center rounded-full border-2 ${done ? 'border-emerald-300 bg-emerald-400 text-slate-950' : active ? 'animate-pulse border-violet-300 bg-violet-500' : blocked ? 'border-rose-300 bg-slate-950 text-rose-300' : 'border-amber-300 bg-slate-950 text-amber-300'}`}>{done ? <Check className="h-4 w-4" /> : blocked ? <Lock className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 fill-current" />}</div>
+                    <button id={`task-card-${task.id}`} type="button" onClick={() => setExpandedTaskId(expanded ? null : task.id)} className="flex w-full items-center gap-3 text-left" aria-expanded={expanded}><TaskSticker task={task} categoryLabel={activeIsland.category.label} /><div className="min-w-0 flex-1"><h4 className={`text-sm font-bold ${done ? 'text-slate-400 line-through' : 'text-white'}`}>{task.title}</h4><p className="mt-0.5 text-[10px] uppercase text-slate-400">{task.status}{task.dueAt ? ` • ${new Date(task.dueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</p></div><div className="shrink-0 text-right"><span className="block text-[10px] font-black text-amber-300">{task.xpAwardedAt ? `${task.xpAwarded || potentialXp(task)} XP` : `+${potentialXp(task)} XP`}</span>{expanded ? <ChevronUp className="ml-auto mt-1 h-4 w-4 text-cyan-300" /> : <ChevronDown className="ml-auto mt-1 h-4 w-4 text-slate-500" />}</div></button>
+                    {expanded && <div className="mt-3 space-y-3 border-t border-cyan-300/15 pt-3">{(task.checklist || []).length > 0 && <div className="space-y-2 rounded-2xl bg-slate-950/60 p-3">{task.checklist!.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-2 text-xs text-slate-300"><input type="checkbox" checked={item.isDone} onChange={() => updateChecklist(task, item.id)} className="mt-0.5 accent-cyan-300" /><span className={item.isDone ? 'line-through opacity-60' : ''}>{item.text}</span></label>)}</div>}{task.notes && <p className="rounded-xl bg-slate-900/70 p-2.5 text-xs text-slate-300">{task.notes}</p>}<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><button type="button" onClick={() => updateTaskStatus(task.id, active ? 'NEXT' : 'ACTIVE')} className="task-action text-violet-200"><Play className="h-3.5 w-3.5" />{active ? 'Pause' : 'Start'}</button><button type="button" onClick={() => updateTaskStatus(task.id, done ? 'NEXT' : 'DONE')} className="task-action text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" />{done ? 'Reopen' : 'Complete'}</button><button type="button" onClick={() => setEditingTask(task)} className="task-action text-cyan-200"><Edit3 className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={() => deleteTask(task.id)} className="task-action text-rose-200"><Trash2 className="h-3.5 w-3.5" />Delete</button></div></div>}
+                  </article>;
+                })}
+              </section>
+            )}
+            <section className={`rounded-[28px] border p-4 backdrop-blur-xl ${rewardReady ? 'border-amber-300/55 bg-amber-950/35' : 'border-slate-700 bg-slate-950/70'}`}><div className="flex items-center gap-3"><div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${rewardReady ? 'bg-amber-300/15 text-amber-300' : 'bg-slate-900 text-slate-500'}`}>{rewardClaimed ? <CheckCircle2 className="h-7 w-7" /> : rewardReady ? <Gift className="h-8 w-8 animate-pulse" /> : <Lock className="h-6 w-6" />}</div><div className="min-w-0 flex-1"><h3 className="text-sm font-black">Island Reward</h3><p className="text-[11px] text-slate-400">{rewardClaimed ? 'Reward claimed for this task set.' : rewardReady ? 'All current island tasks are complete.' : 'Complete every task on this island to unlock it.'}</p></div><button type="button" disabled={!rewardReady} onClick={() => claimMilestone(rewardId, `${activeIsland.category.label} Island complete`, 200)} className="rounded-2xl bg-amber-300 px-3 py-2 text-xs font-black text-slate-950 disabled:bg-slate-800 disabled:text-slate-500">{rewardClaimed ? 'Claimed' : '+200 XP'}</button></div></section>
+          </div>
+        ) : (
+          <div className="relative z-10 mx-auto max-w-lg space-y-5">
+            <section className="flex items-center justify-between rounded-[28px] border border-cyan-300/20 bg-slate-950/70 p-4"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Overall progress</p><p className="mt-1 text-2xl font-black">{totalDone}<span className="text-sm text-slate-400">/{allTasks.length}</span></p></div><div className="flex h-16 w-16 items-center justify-center rounded-full border-[5px] border-cyan-300/60 bg-slate-950"><span className="text-sm font-black text-cyan-300">{overallProgress}%</span></div><div className="text-right"><p className="text-[10px] text-slate-400">XP earned</p><p className="text-lg font-black text-amber-300">{state.gamification?.points || 0}</p></div></section>
+            {islands.length === 0 ? <section className="flex min-h-[420px] flex-col items-center justify-center rounded-[34px] border border-dashed border-cyan-300/25 bg-slate-950/45 p-7 text-center"><Map className="h-14 w-14 text-cyan-300" /><h3 className="mt-5 text-base font-black">Your task world is empty</h3><p className="mt-2 max-w-xs text-xs leading-relaxed text-slate-400">Add your first real task. DayTrace will create its category island without blocking the task.</p><button type="button" onClick={() => setIsAddOpen(true)} className="mt-5 flex items-center gap-2 rounded-2xl bg-cyan-300 px-5 py-3 text-xs font-black text-slate-950"><Plus className="h-4 w-4" />Add first task</button></section> : <section className="grid grid-cols-2 gap-x-3 gap-y-6 pb-8">{islands.map((island, index) => <button id={`category-island-${island.category.id}`} key={island.category.id} type="button" onClick={() => setActiveIslandId(island.category.id)} className={`daytrace-island-card flex min-h-52 flex-col items-center justify-end rounded-[30px] border border-cyan-300/15 bg-slate-950/45 p-3 text-center ${index % 2 ? 'translate-y-8' : ''}`}><IslandArtwork island={island} /><div className="relative z-10 -mt-1 w-full rounded-2xl border border-white/10 bg-slate-950/85 px-3 py-2"><h3 className="truncate text-sm font-black">{island.category.label}</h3><p className="text-[10px] text-slate-400">{island.tasks.length} task{island.tasks.length === 1 ? '' : 's'} • {island.progress}%</p></div></button>)}</section>}
+          </div>
+        )}
+      </div>
+
+      {isAddOpen && <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 p-3 sm:items-center" onClick={() => setIsAddOpen(false)}><form onSubmit={createTask} onClick={(event) => event.stopPropagation()} className="w-full max-w-md space-y-4 rounded-[30px] border border-cyan-300/25 bg-[#090e1d] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Add task</h3><p className="text-[10px] text-slate-400">Artwork generates in the background when online.</p></div><button type="button" onClick={() => setIsAddOpen(false)}><X className="h-5 w-5" /></button></div><label className="form-label">Task name<input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Task name" className="form-control" /></label><label className="form-label">Category<select value={newCategory} onChange={(event) => setNewCategory(event.target.value)} className="form-control">{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="grid grid-cols-2 gap-3"><label className="form-label">Priority<select value={newPriority} onChange={(event) => setNewPriority(Number(event.target.value))} className="form-control"><option value={3}>Low</option><option value={5}>Normal</option><option value={9}>High</option></select></label><label className="form-label">Due and reminder<input type="datetime-local" value={newDueAt} onChange={(event) => setNewDueAt(event.target.value)} className="form-control text-xs" /></label></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setIsAddOpen(false)} className="rounded-2xl bg-slate-800 py-3 text-xs font-bold">Cancel</button><button type="submit" disabled={!newTitle.trim()} className="rounded-2xl bg-cyan-300 py-3 text-xs font-black text-slate-950 disabled:opacity-40">Create task</button></div></form></div>}
+      {editingTask && <TaskEditSheet task={editingTask} categories={categories} onClose={() => setEditingTask(null)} onSave={(updates) => { editTask(editingTask.id, updates); setEditingTask(null); }} />}
+      <ManageCategoriesModal isOpen={isManageOpen} onClose={() => setIsManageOpen(false)} />
+    </div>
+  );
+};
+
+const TaskEditSheet: React.FC<{ task: TaskItem; categories: TaskCategoryDefinition[]; onClose: () => void; onSave: (updates: Partial<TaskItem>) => void }> = ({ task, categories, onClose, onSave }) => {
+  const [title, setTitle] = useState(task.title); const [category, setCategory] = useState(task.category); const [priority, setPriority] = useState(task.priority); const [notes, setNotes] = useState(task.notes || ''); const [checklist, setChecklist] = useState(task.checklist || []); const [newItem, setNewItem] = useState('');
+  const [dueAt, setDueAt] = useState(task.dueAt && Number.isFinite(Date.parse(task.dueAt)) ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
+  return <div className="fixed inset-0 z-[105] flex items-end justify-center bg-black/85 p-3 sm:items-center" onClick={onClose}><form onSubmit={(event) => { event.preventDefault(); if (title.trim()) onSave({ title: title.trim(), category, priority, notes: notes.trim() || undefined, checklist, ...(dueAt ? { dueAt: new Date(dueAt).toISOString(), scheduledAt: new Date(dueAt).toISOString() } : { dueAt: undefined, scheduledAt: undefined }) }); }} onClick={(event) => event.stopPropagation()} className="max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded-[30px] border border-cyan-300/25 bg-[#090e1d] p-5"><div className="flex justify-between"><h3 className="font-black">Edit task</h3><button type="button" onClick={onClose}><X className="h-5 w-5" /></button></div><label className="form-label">Title<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} className="form-control" /></label><div className="grid grid-cols-2 gap-2"><label className="form-label">Category<select value={category} onChange={(event) => setCategory(event.target.value)} className="form-control">{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="form-label">Priority<input type="range" min="1" max="10" value={priority} onChange={(event) => setPriority(Number(event.target.value))} className="mt-4 w-full accent-cyan-300" /><span className="block text-center text-xs text-cyan-300">{priority}/10</span></label></div><label className="form-label">Due and reminder<input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="form-control" /></label><label className="form-label">Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} className="form-control" /></label><div className="rounded-2xl border border-cyan-300/15 bg-slate-950/60 p-3"><p className="form-label">Checklist</p><div className="mt-2 space-y-2">{checklist.map((item) => <div key={item.id} className="flex items-center gap-2"><button type="button" onClick={() => setChecklist((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, isDone: !candidate.isDone } : candidate))} className={`flex h-6 w-6 items-center justify-center rounded-lg border ${item.isDone ? 'border-emerald-300 bg-emerald-300 text-slate-950' : 'border-slate-600'}`}>{item.isDone && <Check className="h-3.5 w-3.5" />}</button><span className={`min-w-0 flex-1 text-xs ${item.isDone ? 'line-through opacity-60' : ''}`}>{item.text}</span><button type="button" onClick={() => setChecklist((current) => current.filter((candidate) => candidate.id !== item.id))} className="text-rose-300"><Trash2 className="h-3.5 w-3.5" /></button></div>)}</div><div className="mt-2 flex gap-2"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} placeholder="Checklist item" className="form-control min-w-0 flex-1" /><button type="button" onClick={() => { if (!newItem.trim()) return; setChecklist((current) => [...current, { id: `check-${Date.now()}`, text: newItem.trim(), isDone: false }]); setNewItem(''); }} className="rounded-xl bg-cyan-300 px-3 text-slate-950"><Plus className="h-4 w-4" /></button></div></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={onClose} className="rounded-2xl bg-slate-800 py-3 text-xs font-bold">Cancel</button><button type="submit" disabled={!title.trim()} className="rounded-2xl bg-cyan-300 py-3 text-xs font-black text-slate-950">Save changes</button></div></form></div>;
 };

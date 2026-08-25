@@ -1,4 +1,4 @@
-# DayTrace 1.3.3 delivery notes
+# DayTrace 1.4.0 delivery notes
 
 ## Fixed
 
@@ -37,7 +37,11 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.3.3 (2026082504), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.0 (2026082505), preserving package \`com.amarsingh.daytrace\`.
+- Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
+- Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
+- Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.
+- Reward confetti now stops and clears after the claim animation or whenever the rewards view closes.
 - Replaced the top-left app face with Settings, removed the top meeting microphone, and removed the AI Agent bottom tab.
 - Kept the full-screen Home energy orb and keyboard-attached composer; moved daily review intelligence into Anchors.
 - Moved permissions, saved times, check-in frequency, Gaming Mode, alarm audio, JSON backup/restore, and fresh start into Settings.

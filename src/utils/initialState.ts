@@ -1,7 +1,7 @@
 import { DailyState, GeofenceLocation, TaskCategoryDefinition } from '../types';
 import { INITIAL_GAMIFICATION_STATE } from '../services/rewardsCatalog';
 
-export const CURRENT_STATE_SCHEMA_VERSION = 8;
+export const CURRENT_STATE_SCHEMA_VERSION = 9;
 export const UNCATEGORISED_CATEGORY_ID = 'UNCATEGORISED';
 
 const category = (
@@ -23,16 +23,6 @@ const category = (
 /** Neutral category definitions are configuration, not pre-filled user data. */
 export const DEFAULT_TASK_CATEGORIES: TaskCategoryDefinition[] = [
   category(UNCATEGORISED_CATEGORY_ID, 'Uncategorised', '#6B7280', 'inbox', true),
-  category('OFFICE', 'Office', '#60A5FA', 'briefcase'),
-  category('CAREER', 'Career', '#A78BFA', 'graduation-cap'),
-  category('CLIENT', 'Client', '#22D3EE', 'users'),
-  category('CONTENT', 'Content', '#F472B6', 'file-text'),
-  category('KHABARZAAR', 'Khabarzaar', '#F59E0B', 'newspaper'),
-  category('HOME', 'Home', '#34D399', 'home'),
-  category('FAMILY', 'Family', '#FB7185', 'heart'),
-  category('HEALTH', 'Health', '#4ADE80', 'activity'),
-  category('PERSONAL', 'Personal', '#FBBF24', 'user'),
-  category('IDEAS', 'Ideas', '#C084FC', 'lightbulb'),
 ];
 
 /** Retained only as a compatibility export. No fake locations are created. */
@@ -100,6 +90,7 @@ export const createFreshDailyState = (date?: string): DailyState => ({
     ...INITIAL_GAMIFICATION_STATE,
     claimedRewards: [],
     customRewards: [],
+    milestoneClaims: [],
   },
   nextBestAction: null,
   conversationHistory: [],

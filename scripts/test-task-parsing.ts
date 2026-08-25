@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createFreshDailyState } from '../src/utils/initialState';
 import { parseOfflineUserInput, parseTaskListItems } from '../src/utils/offlineParser';
+import { classifyUserIntent } from '../src/utils/intentClassifier';
+import { parseVoiceAutomations } from '../src/utils/localAutomationParser';
 
 // Test 1: Numbered list with "these are the tasks that i need to do"
 const input1 = "these are the tasks that i need to do 1. Task A 2. Task B";
@@ -76,5 +78,12 @@ milkState.tasks.push({
 const boughtMilk = parseOfflineUserInput('I bought the milk', milkState, '18:20');
 assert.deepEqual(boughtMilk.extractedStateUpdate.completedTaskTitles, ['Buy milk']);
 assert.match(boughtMilk.aiResponseText, /Marked "Buy milk" as DONE/);
+
+// Natural first-person work statements must never disappear into generic chat.
+const workingInput = "I'm working on app development";
+assert.equal(classifyUserIntent(workingInput, state1).type, 'LOG_ACTIVITY');
+const workingLog = parseVoiceAutomations(workingInput, state1, '18:25');
+assert.equal(workingLog.timelineLogs.length, 1);
+assert.equal(workingLog.timelineLogs[0].description, 'Working on app development');
 
 console.log('Task parsing tests passed successfully!');

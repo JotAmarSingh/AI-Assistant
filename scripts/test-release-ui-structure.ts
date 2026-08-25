@@ -9,6 +9,12 @@ const app = read('src/App.tsx');
 const settings = read('src/components/views/SettingsView.tsx');
 const anchors = read('src/components/views/RemindersAnchorsView.tsx');
 const hub = read('src/components/views/GeminiLiveHubView.tsx');
+const timetable = read('src/components/views/TimetableView.tsx');
+const taskBoard = read('src/components/views/TaskBoardView.tsx');
+const timeline = read('src/components/views/TimelineView.tsx');
+const meetings = read('src/components/views/MeetingsView.tsx');
+const rewards = read('src/components/rewards/RewardsVaultModal.tsx');
+const initialState = read('src/utils/initialState.ts');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const nativePlugin = read('android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java');
 
@@ -27,6 +33,7 @@ assert(app.includes("case 'settings'") && app.includes('<SettingsView'), 'Settin
 assert(!app.includes("case 'review'"), 'standalone AI Agent route must be removed');
 assert(hub.includes('sticky bottom-0'), 'Home composer must remain attached to the bottom of the resized viewport');
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'), 'Android keyboard must resize the app around the composer');
+assert(app.includes("const swipeTabs: AndroidTab[] = ['hub', 'timetable', 'board', 'timeline', 'meetings', 'reminders']"), 'all six production tabs must support ordered horizontal swipe navigation');
 
 for (const label of ['Permission Settings', 'Saved Times', 'Check-In Prompt Frequency', 'Gaming Mode', 'Alarm Audio Ringtone', 'Data Backup & Restore']) {
   assert(settings.includes(label), `Settings is missing ${label}`);
@@ -47,5 +54,18 @@ for (const permission of ['POST_NOTIFICATIONS', 'SCHEDULE_EXACT_ALARM', 'RECEIVE
 }
 assert(nativePlugin.includes('public void requestMicrophonePermission'), 'native microphone permission request is required');
 assert(nativePlugin.includes('MediaStore.Downloads.DISPLAY_NAME + " = ? AND "'), 'native export must replace the existing backup file');
+
+for (const legacyExample of ['Video Editing', 'Growth Strategy', 'Client Feedback', 'Coffee Break']) {
+  assert(!timetable.includes(legacyExample), `Timetable must not render legacy example ${legacyExample}`);
+  assert(!timeline.includes(legacyExample), `Timeline must not render legacy example ${legacyExample}`);
+  assert(!taskBoard.includes(legacyExample), `Tasks must not render legacy example ${legacyExample}`);
+}
+assert(taskBoard.includes('category-island-') && taskBoard.includes('task-card-'), 'category islands and task cards must be tappable');
+for (const action of ['Start', 'Complete', 'Edit', 'Delete']) assert(taskBoard.includes(action), `task details must expose ${action}`);
+assert(taskBoard.includes("useGeneratedVisual('CATEGORY_ISLAND'") && taskBoard.includes("useGeneratedVisual('TASK_STICKER'"), 'task and category artwork must use generated, cached visual assets');
+assert(timetable.includes('No plans for this day') && timeline.includes('Nothing logged yet'), 'new timetable and timeline must have honest empty states');
+assert(meetings.includes('record-meeting-island') && meetings.includes('Quest Progress'), 'Meetings must expose real recording and quest controls');
+assert(rewards.includes('confetti.reset()'), 'reward confetti must be explicitly cleared');
+assert(initialState.includes("category(UNCATEGORISED_CATEGORY_ID, 'Uncategorised'"), 'fresh state must retain only a neutral fallback category');
 
 console.log('Release UI, permissions, navigation, keyboard and backup structure passed.');

@@ -37,7 +37,9 @@ export const GeminiLiveHubView: React.FC = () => {
     saveMemory,
     updateMemory,
     deleteMemory,
-    processUserInput
+    processUserInput,
+    mode,
+    setMode,
   } = useDay();
 
   const [inputText, setInputText] = useState('');
@@ -69,6 +71,7 @@ export const GeminiLiveHubView: React.FC = () => {
   const pendingMemoryByCardRef = useRef(new Map<string, string>());
   const managedMemoryByCardRef = useRef(new Map<string, string>());
   const sourceQueryByCardRef = useRef(new Map<string, string>());
+  const pendingModeActionByCardRef = useRef(new Map<string, string>());
   const pendingOnlineQueryRef = useRef<string | null>(null);
   const stats = calculateGamificationStats(state.gamification?.points || 120, state.gamification?.currentStreakDays || 3);
 
@@ -353,7 +356,7 @@ export const GeminiLiveHubView: React.FC = () => {
   };
 
   // Primary Query & Task Execution Handler
-  const submitQuery = async (queryText: string, options: { forceOnlineFollowUp?: boolean } = {}) => {
+  const submitQuery = async (queryText: string, options: { forceOnlineFollowUp?: boolean; bypassModeGuard?: boolean } = {}) => {
     const query = queryText.trim();
     if (!query || isProcessing) return;
 
@@ -365,6 +368,80 @@ export const GeminiLiveHubView: React.FC = () => {
     setStatusText('Processing with DayTrace AI...');
 
     const lower = query.toLowerCase();
+
+    if (mode !== 'ACCOUNTABILITY' && !options.bypassModeGuard) {
+      const modeLabel = mode === 'NORMAL_CHAT' ? 'Normal Chat' : mode === 'RESEARCH' ? 'Research' : 'Creative';
+      const explicitMutation = /^(?:add|remind|schedule|create|log|start|stop|mark|save|set|move|reschedule|plan|complete|finish|cancel|delete|remove|pause|resume|skip|remember|turn this into)\b/i.test(query)
+        || /\b(?:remind me|add (?:this|it) (?:as|to)|save (?:this|it)|log (?:this|it)|create (?:a )?(?:task|reminder))\b/i.test(query);
+
+      if (explicitMutation) {
+        const cardId = `card-${Date.now()}`;
+        const followUps = ['Switch to Accountability and continue', `Keep ${modeLabel} read-only`];
+        pendingModeActionByCardRef.current.set(cardId, query);
+        setSmartCards((prev) => [{
+          id: cardId,
+          type: 'EXPERT_ADVICE',
+          title: `${modeLabel} is read-only`,
+          subtitle: 'No task, reminder, memory or timeline data changed',
+          engineMode: 'OFFLINE_LOCAL',
+          followUpQuestions: followUps,
+          createdAt: Date.now(),
+          data: {
+            safetyWarning: `“${query}” is an action. Switch to Accountability mode before I apply it?`,
+            followUpQuestions: followUps,
+          },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('talking');
+        setStatusText('Confirmation needed');
+        setTimeout(() => setAvatarMode('idle'), 3000);
+        return;
+      }
+
+      try {
+        if (!cloudReady) {
+          throw new Error(!hasCustomKey
+            ? 'Online AI needs a verified Gemini API key. Tap OFFLINE to add it once.'
+            : 'The device is offline. This read-only mode will answer when Online AI is available.');
+        }
+        const forceLiveSearch = mode === 'RESEARCH' || requiresLiveGrounding(query);
+        const aiResponse = await queryGeminiAPI(query, undefined, {
+          conversationTurns: hasRecentOnlineContext() ? onlineConversationRef.current : [],
+          forceLiveSearch,
+          assistantMode: mode,
+        });
+        rememberOnlineExchange(query, aiResponse.answer, forceLiveSearch);
+        const card: SmartAICard = {
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: `${modeLabel} response`,
+          subtitle: `${forceLiveSearch ? 'Live verified' : 'Online'} • read-only`,
+          engineMode: 'ONLINE_CLOUD',
+          followUpQuestions: aiResponse.followUps,
+          createdAt: Date.now(),
+          data: { safetyWarning: aiResponse.answer, followUpQuestions: aiResponse.followUps },
+        };
+        setSmartCards((prev) => [card, ...prev]);
+        setStatusText(`${modeLabel} answer ready`);
+        setAvatarMode('talking');
+        setTimeout(() => setAvatarMode('idle'), 3500);
+      } catch (error) {
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: `${modeLabel} unavailable`,
+          subtitle: 'Read-only mode • no local data changed',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: error instanceof Error ? error.message : 'Online AI could not be reached.' },
+        }, ...prev]);
+        setStatusText('Online AI unavailable');
+        setAvatarMode('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
 
     if (pendingOfficeExitTaskRef.current) {
       if (/^no\b/i.test(query) && !extractExplicitTime(query)) {
@@ -1232,6 +1309,31 @@ export const GeminiLiveHubView: React.FC = () => {
   };
 
   const handleCardFollowUp = async (card: SmartAICard, choice: string) => {
+    const pendingModeAction = pendingModeActionByCardRef.current.get(card.id);
+    if (pendingModeAction) {
+      if (/^switch to accountability/i.test(choice)) {
+        pendingModeActionByCardRef.current.delete(card.id);
+        setMode('ACCOUNTABILITY');
+        setSmartCards((prev) => prev.filter((item) => item.id !== card.id));
+        setStatusText('Accountability mode enabled');
+        void submitQuery(pendingModeAction, { bypassModeGuard: true });
+      } else {
+        pendingModeActionByCardRef.current.delete(card.id);
+        setSmartCards((prev) => prev.map((item) => item.id === card.id ? {
+          ...item,
+          subtitle: 'Kept read-only • no data changed',
+          followUpQuestions: [],
+          data: {
+            ...item.data,
+            safetyWarning: 'Nothing was logged, scheduled, saved or changed.',
+            followUpQuestions: [],
+          },
+        } : item));
+        setStatusText('Read-only mode kept');
+      }
+      return;
+    }
+
     const managedMemoryId = managedMemoryByCardRef.current.get(card.id);
     if (managedMemoryId) {
       const action = /^pause/i.test(choice) ? 'PAUSED' : /^disable/i.test(choice) ? 'DISABLED' : /forget/i.test(choice) ? 'FORGOTTEN' : null;

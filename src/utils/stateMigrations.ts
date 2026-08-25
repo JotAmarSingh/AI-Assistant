@@ -181,6 +181,14 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     taskCategories: normalizeCategories({ ...raw, tasks }),
     meetings: raw.meetings || [],
     memories: raw.memories || [],
+    accountability: {
+      corrections: raw.accountability?.corrections || [],
+      carryForwardHistory: raw.accountability?.carryForwardHistory || [],
+      habitSignals: raw.accountability?.habitSignals || [],
+      plannedVsActual: raw.accountability?.plannedVsActual || [],
+      weeklyInsights: raw.accountability?.weeklyInsights,
+      lastRecalculatedAt: raw.accountability?.lastRecalculatedAt,
+    },
     migrationMetadata: {
       ...(raw.migrationMetadata || {}),
       ...(removedSeedRecords > 0

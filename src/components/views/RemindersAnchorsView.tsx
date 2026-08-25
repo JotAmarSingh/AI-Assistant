@@ -21,6 +21,7 @@ import {
 import { useDay } from '../../context/DayContext';
 import { ReminderType } from '../../types';
 import { NativeNotificationPermissionStatus, checkNativeNotificationPermission, exportNativeJsonBackup, getDeviceCapabilityContext, isNativeAndroid, openNativeExactAlarmSettings, openNativeNotificationSettings, requestNativeNotificationPermission } from '../../services/nativeBridge';
+import { contextTriggerLabel } from '../../utils/localAutomationParser';
 
 export const RemindersAnchorsView: React.FC = () => {
   const { 
@@ -569,6 +570,8 @@ export const RemindersAnchorsView: React.FC = () => {
                     ? `Exit ${auto.locationName || 'Location'}`
                     : auto.triggerType === 'GEOFENCE_ENTER'
                     ? `Arrive at ${auto.locationName || 'Location'}`
+                    : auto.triggerType === 'CONTEXT_EVENT'
+                    ? contextTriggerLabel(auto.contextEvent)
                     : `Time ${auto.scheduledTime || ''}`;
 
                 return (

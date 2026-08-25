@@ -36,6 +36,7 @@ export interface CloudConversationTurn {
 export interface GeminiQueryOptions {
   conversationTurns?: CloudConversationTurn[];
   forceLiveSearch?: boolean;
+  assistantMode?: 'NORMAL_CHAT' | 'RESEARCH' | 'CREATIVE';
   now?: Date;
 }
 
@@ -128,6 +129,13 @@ export const buildSmartTokenContext = (
   const followUpInstruction = '\n(At the end of your reply, suggest 2-3 short, relevant follow-up questions on one line formatted as: [FOLLOW_UPS: question 1 | question 2 | question 3])';
   const temporalContext = buildDeviceTimeContext(options.now);
   const conversationContext = buildConversationContext(options.conversationTurns);
+  const modeInstruction = options.assistantMode === 'RESEARCH'
+    ? '\nMode instruction: Research only. Analyze evidence carefully, distinguish verified facts from inference, and do not create or modify DayTrace data.'
+    : options.assistantMode === 'CREATIVE'
+      ? '\nMode instruction: Creative only. Help brainstorm, draft, and explore ideas; do not create or modify DayTrace data.'
+      : options.assistantMode === 'NORMAL_CHAT'
+        ? '\nMode instruction: Normal chat only. Answer conversationally without accountability coaching and do not create or modify DayTrace data.'
+        : '';
   const liveInstruction = options.forceLiveSearch || requiresLiveGrounding(prompt)
     ? '\nInstruction: This is time-sensitive. Verify the answer with live Google Search, use the current year above, state the relevant exact date/time when available, correct false premises, and never answer from stale model memory.'
     : '';
@@ -136,7 +144,7 @@ export const buildSmartTokenContext = (
     : '';
 
   if (!appContext) {
-    return `${temporalContext}\n${conversationContext}User Question: ${prompt}${liveInstruction}${medicalInstruction}${followUpInstruction}`;
+    return `${temporalContext}\n${conversationContext}User Question: ${prompt}${liveInstruction}${medicalInstruction}${modeInstruction}${followUpInstruction}`;
   }
 
   const needsCapabilities = text.includes('permission') || text.includes('what can you do') || text.includes('feature') || text.includes('access do you have') || text.includes('can you access');
@@ -205,7 +213,7 @@ export const buildSmartTokenContext = (
   }
 
   // General questions receive no personal, location, task, or permission data.
-  return `${temporalContext}\n${conversationContext}User Question: ${prompt}${liveInstruction}${medicalInstruction}${followUpInstruction}`;
+  return `${temporalContext}\n${conversationContext}User Question: ${prompt}${liveInstruction}${medicalInstruction}${modeInstruction}${followUpInstruction}`;
 };
 
 /** Extracts [FOLLOW_UPS: ...] tag and provides intelligent contextual fallback questions */

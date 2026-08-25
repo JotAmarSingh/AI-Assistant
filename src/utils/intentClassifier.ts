@@ -1,6 +1,7 @@
 import { DailyState, Automation, TaskItem, ReminderItem, TimelineEvent, TimetableSlot, GeofenceLocation } from '../types';
-import { resolveLocationName } from './localAutomationParser';
+import { contextTriggerLabel, resolveLocationName } from './localAutomationParser';
 import { extractExplicitTime } from './offlineParser';
+import { selectNextBestAction } from './accountabilityEngine';
 
 export type UserIntentType =
   | 'QUERY'
@@ -341,55 +342,19 @@ export function executeDayTraceQuery(
 
   // 3. "What's next?" Query
   if (details.category === 'NEXT_UP') {
-    // Priority order:
-    // a. Active focus task
-    if (state.current.focusTaskId) {
-      const focusTask = (state.tasks || []).find(t => t.id === state.current.focusTaskId);
-      if (focusTask) {
-        return {
-          answerText: `Current Focus:\n• ${focusTask.title} (${focusTask.category})`,
-          spokenText: `Your current focus is ${focusTask.title}.`,
-          matchedCount: 1,
-        };
-      }
-    }
-
     const requestedMinutes = Number(rawInput.match(/\b(\d{1,3})\s*(?:minutes?|mins?)\b/i)?.[1] || 0);
-    if (requestedMinutes > 0) {
-      const currentLocation = state.current.location.toLowerCase();
-      const candidates = (state.tasks || [])
-        .filter((task) => task.status === 'ACTIVE' || task.status === 'NEXT')
-        .filter((task) => !task.estimatedMinutes || task.estimatedMinutes <= requestedMinutes)
-        .map((task) => ({
-          task,
-          score: (task.priority || 5) * 10
-            + (task.location && task.location.toLowerCase() === currentLocation ? 8 : 0)
-            + (task.estimatedMinutes ? Math.max(0, 6 - Math.abs(requestedMinutes - task.estimatedMinutes) / 5) : 0),
-        }))
-        .sort((left, right) => right.score - left.score);
-      if (candidates[0]) {
-        const selected = candidates[0].task;
-        return {
-          answerText: `Best use of ${requestedMinutes} minutes:\n• ${selected.title} (Priority ${selected.priority}${selected.estimatedMinutes ? ` • about ${selected.estimatedMinutes} min` : ''})\n\nThis fits the available time and your current ${state.current.location} context.`,
-          spokenText: `Best use of ${requestedMinutes} minutes is ${selected.title}.`,
-          matchedCount: 1,
-        };
-      }
+    const nextAction = selectNextBestAction(state, { availableMinutes: requestedMinutes || undefined });
+    if (nextAction) {
+      const existingTask = (state.tasks || []).find((task) => task.id === nextAction.taskId);
+      const heading = requestedMinutes ? `Best use of ${requestedMinutes} minutes` : 'Next up';
+      return {
+        answerText: `${heading}:\n• ${nextAction.title}${existingTask?.priority ? ` (Priority ${existingTask.priority})` : ''}${nextAction.estimatedMinutes ? ` • about ${nextAction.estimatedMinutes} min` : ''}\n\nWhy: ${nextAction.rationale || 'best available commitment for the current context'}.`,
+        spokenText: `${heading} is ${nextAction.title}.`,
+        matchedCount: 1,
+      };
     }
 
-    // b. nextBestAction from state
-    if (state.nextBestAction) {
-      const existingTask = (state.tasks || []).find(t => t.id === state.nextBestAction?.taskId);
-      if (!existingTask || existingTask.status !== 'DONE') {
-        return {
-          answerText: `Next up:\n• ${state.nextBestAction.title}${existingTask?.priority ? ` (Priority ${existingTask.priority})` : ''}`,
-          spokenText: `Next up is ${state.nextBestAction.title}.`,
-          matchedCount: 1,
-        };
-      }
-    }
-
-    // c. Upcoming scheduled time reminders or timetable slots
+    // No actionable task: fall back to the next pending reminder.
     const pendingReminders = (state.reminders || []).filter(r => !r.isDone && r.type === 'TIME_BASED');
     if (pendingReminders.length > 0) {
       const nextRem = pendingReminders[0];
@@ -400,21 +365,7 @@ export function executeDayTraceQuery(
       };
     }
 
-    // d. Highest priority active/next task
-    const activeTasks = (state.tasks || [])
-      .filter(t => t.status === 'ACTIVE' || t.status === 'NEXT')
-      .sort((a, b) => (b.priority || 5) - (a.priority || 5));
-
-    if (activeTasks.length > 0) {
-      const nextTask = activeTasks[0];
-      return {
-        answerText: `Next task:\n• ${nextTask.title} (Priority ${nextTask.priority})`,
-        spokenText: `Next task is ${nextTask.title}.`,
-        matchedCount: 1,
-      };
-    }
-
-    // e. Active automation
+    // Otherwise surface an active automation.
     const pendingAutos = (state.automations || []).filter(a => a.status === 'PENDING' || a.status === 'TRIGGERED');
     if (pendingAutos.length > 0) {
       const nextAuto = pendingAutos[0];
@@ -422,6 +373,8 @@ export function executeDayTraceQuery(
         ? `when leaving ${nextAuto.locationName || 'location'}`
         : nextAuto.triggerType === 'GEOFENCE_ENTER'
         ? `when arriving ${nextAuto.locationName || 'location'}`
+        : nextAuto.triggerType === 'CONTEXT_EVENT'
+        ? contextTriggerLabel(nextAuto.contextEvent).toLowerCase()
         : `at ${nextAuto.scheduledTime}`;
       return {
         answerText: `Next automation:\n• ${nextAuto.title} (${trigLabel})`,
@@ -450,6 +403,8 @@ export function executeDayTraceQuery(
         ? `when leaving ${a.locationName || 'Location'}`
         : a.triggerType === 'GEOFENCE_ENTER'
         ? `when arriving ${a.locationName || 'Location'}`
+        : a.triggerType === 'CONTEXT_EVENT'
+        ? contextTriggerLabel(a.contextEvent)
         : `${a.scheduledTime || 'Scheduled Time'}`;
       items.push(`• ${a.title} — ${trigDesc}`);
     });

@@ -84,6 +84,7 @@ jobs:
           npm run test:task-parsing
           npm run test:ai-context
           npm run test:ai-routing
+          npm run test:accountability
 
       - name: Build Web Application
         run: npm run build

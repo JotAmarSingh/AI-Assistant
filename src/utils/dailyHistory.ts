@@ -1,5 +1,6 @@
 import { DailyState, TaskItem } from '../types';
 import { createFreshDailyState, DEFAULT_USER_SETTINGS } from './initialState';
+import { analyzeAccountabilityHabits, recalculateAccountabilityState } from './accountabilityEngine';
 
 export const DAILY_HISTORY_STORAGE_KEY = 'daytrace_daily_history_v1';
 
@@ -114,6 +115,9 @@ export const createNextDailyState = (previousInput: DailyState, nextDate: string
       ...task,
       status: task.status === 'ACTIVE' ? ('NEXT' as const) : task.status,
       date: taskCreatedDate(task, previous.date),
+      persistent: task.persistent !== false,
+      carryForwardCount: (task.carryForwardCount || 0) + 1,
+      lastCarriedForwardAt: nextDate,
     }));
   const recurringTasks = previous.tasks
     .filter((task) => task.recurring && task.status === 'DONE')
@@ -127,7 +131,19 @@ export const createNextDailyState = (previousInput: DailyState, nextDate: string
       actualMinutes: undefined,
     }));
 
-  return {
+  const carryForwardHistory = unfinishedTasks.map((task) => ({
+    taskId: task.id,
+    title: task.title,
+    fromDate: previous.date,
+    toDate: nextDate,
+    count: task.carryForwardCount || 1,
+  }));
+  const recentHistory = Object.values(readDailyHistory())
+    .filter((state) => state.date !== previous.date)
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(-6);
+
+  const nextState: DailyState = {
     ...fresh,
     userSettings: { ...DEFAULT_USER_SETTINGS, ...previous.userSettings },
     tasks: [...unfinishedTasks, ...recurringTasks],
@@ -146,5 +162,17 @@ export const createNextDailyState = (previousInput: DailyState, nextDate: string
     migrationMetadata: previous.migrationMetadata,
     gamification: previous.gamification,
     nativeAccountability: previous.nativeAccountability,
+    accountability: {
+      corrections: (previous.accountability?.corrections || []).slice(-250),
+      carryForwardHistory: [
+        ...(previous.accountability?.carryForwardHistory || []),
+        ...carryForwardHistory,
+      ].slice(-250),
+      habitSignals: (previous.accountability?.habitSignals || []).slice(-250),
+      plannedVsActual: [],
+      weeklyInsights: analyzeAccountabilityHabits([...recentHistory, previous]),
+      lastRecalculatedAt: new Date().toISOString(),
+    },
   };
+  return recalculateAccountabilityState(nextState, { at: new Date().toISOString() });
 };

@@ -46,6 +46,9 @@ assert.equal(next.tasks.find((task) => task.id === 'daily-2026-08-22')?.date, '2
 const carried = next.tasks.find((task) => task.id === 'old-active')!;
 assert.equal(taskIsForTodayHub(carried, '2026-08-22', next.date), false, 'Today must not show yesterday carryover');
 assert.equal(taskIsVisibleOnBoard(carried, '2026-08-22', next.date), true, 'Task Board keeps unfinished carryover visible');
+assert.equal(carried.persistent, true, 'Unfinished commitments remain persistent across days');
+assert.equal(carried.carryForwardCount, 1, 'Carry-forward count must increment');
+assert.equal(next.accountability?.carryForwardHistory[0]?.taskId, carried.id, 'Carry-forward must be recorded in the local accountability ledger');
 
 saveLearningProfile({
   totalLearnedInteractions: 4,

@@ -45,6 +45,15 @@ export type InterruptionClassification =
   | 'AVOIDABLE'
   | 'UNAVOIDABLE';
 
+export type ContextTrigger =
+  | 'LEAVING_DESK'
+  | 'RENDERING_STARTED'
+  | 'RENDERING_FINISHED'
+  | 'WORK_FINISHED'
+  | 'LUNCH_WINDOW'
+  | 'CLIENT_DUE_TONIGHT'
+  | 'CUSTOM';
+
 export type ReminderType = 
   | 'TIME_BASED'
   | 'LOCATION_BASED'
@@ -109,6 +118,15 @@ export interface TaskItem {
   recurrenceRule?: 'DAILY' | 'WEEKDAYS' | 'WEEKLY' | 'CUSTOM';
   notes?: string;
   source?: string;
+  /** Accountability commitments remain alive until a terminal state is explicit. */
+  persistent?: boolean;
+  commitmentLevel?: 'STANDARD' | 'IMPORTANT' | 'CRITICAL';
+  requiredResources?: string[];
+  postponedUntil?: string;
+  postponementReason?: string;
+  postponementChallengeCount?: number;
+  carryForwardCount?: number;
+  lastCarriedForwardAt?: string;
 }
 
 export type EventSource = 
@@ -126,7 +144,7 @@ export interface Automation {
   id: string;
   title: string;
   originalVoiceText: string;
-  triggerType: 'TIME' | 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT';
+  triggerType: 'TIME' | 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT' | 'CONTEXT_EVENT';
   locationId?: string;
   locationName?: string;
   scheduledTime?: string; // e.g. "18:00"
@@ -139,6 +157,45 @@ export interface Automation {
   completedAt?: string;
   snoozedUntil?: string;
   relatedContext?: string;
+  contextEvent?: ContextTrigger;
+}
+
+export interface AccountabilityState {
+  corrections: Array<{
+    id: string;
+    at: string;
+    correctedText: string;
+    replacedText?: string;
+    target: 'ACTIVITY' | 'TASK' | 'TIMELINE' | 'GENERAL';
+  }>;
+  carryForwardHistory: Array<{
+    taskId: string;
+    title: string;
+    fromDate: string;
+    toDate: string;
+    count: number;
+  }>;
+  habitSignals: Array<{
+    id: string;
+    at: string;
+    type: 'ENERGY' | 'INTERRUPTION' | 'COMPLETION' | 'POSTPONEMENT' | 'FOCUS_SWITCH' | 'HEALTH_OVERRIDE' | 'RESOURCE_CONSTRAINT';
+    value: string;
+    taskId?: string;
+    classification?: InterruptionClassification;
+  }>;
+  plannedVsActual: Array<{
+    id: string;
+    date: string;
+    title: string;
+    plannedStart: string;
+    plannedEnd?: string;
+    actualStart?: string;
+    actualEnd?: string;
+    varianceMinutes?: number;
+    status: 'COMPLETED' | 'IN_PROGRESS' | 'MISSED' | 'PENDING';
+  }>;
+  weeklyInsights?: string[];
+  lastRecalculatedAt?: string;
 }
 
 export interface TimelineEvent {
@@ -335,6 +392,7 @@ export interface DailyState {
   taskCategories?: TaskCategoryDefinition[];
   meetings?: MeetingRecord[];
   memories?: UserMemoryItem[];
+  accountability?: AccountabilityState;
   migrationMetadata?: {
     seededExamplesPurgedAt?: string;
     appliedVersions?: number[];

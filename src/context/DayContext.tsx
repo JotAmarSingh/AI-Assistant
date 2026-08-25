@@ -27,7 +27,13 @@ import {
 import { createFreshDailyState, DEFAULT_USER_SETTINGS, DEFAULT_GEOFENCE_LOCATIONS } from '../utils/initialState';
 import { recordTaskInteraction, recordRoutineInteraction, getLearningProfile, resetLearningProfile, saveLearningProfile, AutoLearningProfile } from '../utils/autoLearning';
 import { parseOfflineUserInput, generateOfflineEndOfDayReview } from '../utils/offlineParser';
-import { parseVoiceAutomations } from '../utils/localAutomationParser';
+import { contextTriggerLabel, parseVoiceAutomations } from '../utils/localAutomationParser';
+import {
+  classifyInterruption,
+  detectContextEvent,
+  inferTaskResources,
+  recalculateAccountabilityState,
+} from '../utils/accountabilityEngine';
 import { classifyUserIntent, executeDayTraceQuery, extractSaveCurrentLocationIntent, speakQueryResponse } from '../utils/intentClassifier';
 import { scheduleNativeReminder, cancelNativeReminder, promptOnDeviceAi, DayTraceNative, isNativeAndroid, triggerPixelHaptic, persistNativeAutomations, fetchNativePendingState, acknowledgeNativeEvents, syncNativePeriodicPromptConfig, triggerNativeTestPrompt, getCurrentCoordinates, checkNativeNotificationPermission, requestNativeNotificationPermission, deleteNativeMeetingAudio } from '../services/nativeBridge';
 import { locationService } from '../services/locationService';
@@ -261,6 +267,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastPromptTimeRef = useRef<number>(Date.now());
   const triggeredAlarmsRef = useRef<Set<string>>(new Set());
   const lastQueryContextRef = useRef<{ targetLocation?: { name: string; id?: string }; triggerType?: 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT' | 'ANY' } | undefined>(undefined);
+  const contextualAutomationEvaluatorRef = useRef<(input: string) => void>(() => undefined);
 
   const dismissToast = useCallback(() => setNotificationToast(null), []);
 
@@ -971,6 +978,14 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    if (mode !== 'ACCOUNTABILITY') {
+      const modeLabel = mode === 'NORMAL_CHAT' ? 'Normal Chat' : mode === 'RESEARCH' ? 'Research' : 'Creative';
+      setNotificationToast(`${modeLabel} mode is read-only. Use the Home AI screen, or switch to Accountability to log this.`);
+      return;
+    }
+
+    contextualAutomationEvaluatorRef.current(rawTranscript);
+
     // 1. High priority: Fast local automation & multi-activity parser
     const autoParse = parseVoiceAutomations(rawTranscript, state, nowStr);
     if (autoParse.isAutomation && autoParse.automations.length > 0) {
@@ -988,11 +1003,14 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             title: a.title,
             originalVoiceText: a.originalVoiceText || rawTranscript,
             triggerType: a.triggerType,
+            contextEvent: a.contextEvent,
+            locationId: a.locationId,
             locationName: a.locationName,
             scheduledTime: a.scheduledTime,
             reminderText: a.reminderText,
             status: 'PENDING' as const,
             createdAt: nowStr,
+            relatedContext: a.relatedContext,
           };
         });
 
@@ -1024,15 +1042,41 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
 
         const lastEv = autoParse.timelineLogs[autoParse.timelineLogs.length - 1];
-        return {
+        const activeWorkTitle = rawTranscript.match(/^(?:i(?:'m| am)?\s+)?working on\s+(.+?)[.!]?$/i)?.[1]?.trim();
+        const matchingTask = activeWorkTitle
+          ? prev.tasks.find((task) => task.title.toLowerCase() === activeWorkTitle.toLowerCase())
+          : undefined;
+        const activeTaskId = matchingTask?.id || (activeWorkTitle ? `task-voice-work-${Date.now()}` : undefined);
+        const tasks = !activeWorkTitle ? prev.tasks : [
+          ...(matchingTask ? [] : [{
+            id: activeTaskId!,
+            date: prev.date,
+            title: activeWorkTitle,
+            category: 'OFFICE' as TaskCategory,
+            owner: 'ME' as const,
+            status: 'ACTIVE' as const,
+            priority: 7,
+            createdAt: new Date().toISOString(),
+            persistent: true,
+            commitmentLevel: 'IMPORTANT' as const,
+          }]),
+          ...prev.tasks.map((task) => task.id === activeTaskId
+            ? { ...task, status: 'ACTIVE' as TaskStatus }
+            : task.status === 'ACTIVE'
+              ? { ...task, status: 'NEXT' as TaskStatus }
+              : task),
+        ];
+        return recalculateAccountabilityState({
           ...prev,
           current: {
             ...prev.current,
             activity: lastEv ? lastEv.description : prev.current.activity,
+            focusTaskId: activeTaskId || prev.current.focusTaskId,
             updatedAt: nowStr,
           },
+          tasks,
           timeline: [...prev.timeline, ...newEvents],
-        };
+        }, { input: rawTranscript, at: new Date().toISOString() });
       });
 
       awardPoints(15, 'Voice activities logged to timeline');
@@ -1112,9 +1156,20 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         title: parsed.titleOrText,
         category: 'OFFICE',
         owner: 'ME',
-        status: 'NEXT',
-        priority: 1,
+        status: state.current.focusTaskId ? 'CAPTURED' : 'NEXT',
+        priority: 7,
         createdAt: new Date().toISOString(),
+        persistent: true,
+        commitmentLevel: 'IMPORTANT',
+        requiredResources: inferTaskResources({
+          id: 'voice-preview',
+          title: parsed.titleOrText,
+          category: 'OFFICE',
+          owner: 'ME',
+          status: 'NEXT',
+          priority: 7,
+          createdAt: new Date().toISOString(),
+        }),
       };
 
       setState((prev) => ({
@@ -1155,7 +1210,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       awardPoints(10, 'Voice memo logged to Timeline');
     }
-  }, [awardPoints]);
+  }, [awardPoints, mode, state]);
 
   // Geofence Enter & Automation
   const simulateGeofenceEnter = useCallback((locationName: string) => {
@@ -1234,6 +1289,107 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
+  const evaluateContextualAutomations = useCallback((triggerPhrase: string) => {
+    const contextEvent = detectContextEvent(triggerPhrase);
+    if (!contextEvent || /\b(remind me|create|set (?:a )?reminder)\b/i.test(triggerPhrase)) return;
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    let firstTriggered: Automation | undefined;
+    setState((prev) => {
+      const matched: Automation[] = [];
+      const automations = (prev.automations || []).map((automation) => {
+        if (automation.status === 'PENDING'
+          && automation.triggerType === 'CONTEXT_EVENT'
+          && automation.contextEvent === contextEvent) {
+          matched.push(automation);
+          return { ...automation, status: 'TRIGGERED' as const, triggeredAt: now };
+        }
+        return automation;
+      });
+      if (!matched.length) return prev;
+      firstTriggered = matched[0];
+      const triggerEvents: TimelineEvent[] = matched.map((automation, index) => ({
+        id: `context-trigger-${Date.now()}-${index}`,
+        date: prev.date,
+        time: now,
+        type: 'REMINDER',
+        description: `Triggered: ${automation.reminderText}`,
+        relatedAutomationId: automation.id,
+        source: 'AUTOMATION',
+        syncStatus: 'PENDING',
+      }));
+      return recalculateAccountabilityState({
+        ...prev,
+        automations,
+        timeline: [...prev.timeline, ...triggerEvents],
+      }, { input: triggerPhrase, at: new Date().toISOString() });
+    });
+    window.setTimeout(() => {
+      if (!firstTriggered) return;
+      setActiveTriggeredAlert({
+        id: firstTriggered.id,
+        title: firstTriggered.title,
+        subtitle: `${contextTriggerLabel(contextEvent)} • ${firstTriggered.reminderText}`,
+        automationId: firstTriggered.id,
+      });
+      setNotificationToast(`⚡ ${firstTriggered.reminderText}`);
+      soundEffects.playPromptChime();
+    }, 0);
+  }, []);
+  contextualAutomationEvaluatorRef.current = evaluateContextualAutomations;
+
+  const applyLatestExplicitCorrection = useCallback((input: string, timestamp: string): string | null => {
+    if (!/^(?:no[, ]|actually[, ]|correction\s*[:,-]|i mean\b)/i.test(input.trim())) return null;
+    if (/\b(finished|completed|done|cancel|postpone|remind|schedule|make it|move it|change it)\b/i.test(input)) return null;
+    const correctedText = input
+      .replace(/^(?:no[, ]+|actually[, ]+|correction\s*[:,-]\s*|i mean\s+)/i, '')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+    if (!correctedText) return null;
+    const snapshot = stateRef.current;
+    const latest = [...snapshot.timeline]
+      .map((event, index) => ({ event, index }))
+      .reverse()
+      .find(({ event }) => event.source !== 'SYSTEM');
+    const replacedText = latest?.event.description || '';
+    const correctionEventId = latest?.event.id;
+    setState((prev) => {
+      const timeline = [...prev.timeline];
+      const correctionIndex = correctionEventId
+        ? timeline.findIndex((event) => event.id === correctionEventId)
+        : -1;
+      if (correctionIndex >= 0) {
+        timeline[correctionIndex] = {
+          ...timeline[correctionIndex],
+          description: correctedText,
+          updatedAt: new Date().toISOString(),
+          notes: `${timeline[correctionIndex].notes ? `${timeline[correctionIndex].notes}\n` : ''}Corrected from: ${replacedText}`,
+        };
+      }
+      const accountability = prev.accountability || { corrections: [], carryForwardHistory: [], habitSignals: [], plannedVsActual: [] };
+      return recalculateAccountabilityState({
+        ...prev,
+        current: { ...prev.current, activity: correctedText, updatedAt: timestamp },
+        timeline,
+        accountability: {
+          ...accountability,
+          corrections: [
+            ...accountability.corrections,
+            {
+              id: `correction-${Date.now()}`,
+              at: new Date().toISOString(),
+              correctedText,
+              replacedText: replacedText || undefined,
+              target: correctionIndex < 0 ? 'ACTIVITY' as const : 'TIMELINE' as const,
+            },
+          ].slice(-250),
+        },
+      }, { at: new Date().toISOString() });
+    });
+    return replacedText
+      ? `✓ Corrected the latest activity from “${replacedText}” to “${correctedText}”.`
+      : `✓ Current activity corrected to “${correctedText}”.`;
+  }, []);
+
   // Process natural language input (with on-device AI + deterministic offline parser fallback)
   const processUserInput = useCallback(async (userInput: string): Promise<string> => {
     if (!userInput.trim()) return '';
@@ -1310,6 +1466,37 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return queryResult.answerText;
       }
 
+      if (mode !== 'ACCOUNTABILITY') {
+        const modeLabel = mode === 'NORMAL_CHAT' ? 'Normal Chat' : mode === 'RESEARCH' ? 'Research' : 'Creative';
+        const answerText = `${modeLabel} mode is read-only. Nothing was logged or changed. Switch to Accountability mode to perform this action.`;
+        setState((prev) => ({
+          ...prev,
+          conversationHistory: [...prev.conversationHistory, {
+            id: `msg-${Date.now()}-mode-guard`,
+            sender: 'assistant',
+            text: answerText,
+            timestamp: userTimestamp,
+          }],
+        }));
+        setNotificationToast(answerText);
+        return answerText;
+      }
+
+      const correctionConfirmation = applyLatestExplicitCorrection(userInput, userTimestamp);
+      if (correctionConfirmation) {
+        setState((prev) => ({
+          ...prev,
+          conversationHistory: [...prev.conversationHistory, {
+            id: `msg-${Date.now()}-correction`,
+            sender: 'assistant',
+            text: correctionConfirmation,
+            timestamp: userTimestamp,
+          }],
+        }));
+        setNotificationToast(correctionConfirmation);
+        return correctionConfirmation;
+      }
+
       // 1. Instant deterministic local automation & activity parser (0ms, 100% offline, privacy first)
       const autoParse = parseVoiceAutomations(userInput, state, userTimestamp);
       if (autoParse.isAutomation && autoParse.automations.length > 0) {
@@ -1326,17 +1513,22 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             title: a.title,
             originalVoiceText: a.originalVoiceText || userInput,
             triggerType: a.triggerType,
+            contextEvent: a.contextEvent,
+            locationId: a.locationId,
             locationName: a.locationName,
             scheduledTime: a.scheduledTime,
             reminderText: a.reminderText,
             status: 'PENDING' as const,
             createdAt: userTimestamp,
+            relatedContext: a.relatedContext,
           };
         });
 
         const lines = autoParse.automations.map((a) => {
           const triggerLabel =
-            a.triggerType === 'GEOFENCE_EXIT'
+            a.triggerType === 'CONTEXT_EVENT'
+              ? contextTriggerLabel(a.contextEvent)
+              : a.triggerType === 'GEOFENCE_EXIT'
               ? `Leaving ${a.locationName || 'location'}`
               : a.triggerType === 'GEOFENCE_ENTER'
               ? `Arriving ${a.locationName || 'location'}`
@@ -1386,27 +1578,56 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const lines = autoParse.timelineLogs.map((e) => `${e.time ? e.time + ' ' : ''}${e.description}`);
         const confirmation = `✓ Added to timeline:\n${lines.join('\n')}`;
 
-        setState((prev) => ({
-          ...prev,
-          current: {
-            ...prev.current,
-            activity: lastEv ? lastEv.description : prev.current.activity,
-            updatedAt: userTimestamp,
-          },
-          timeline: [...prev.timeline, ...newEvents],
-          conversationHistory: [
-            ...prev.conversationHistory,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'assistant',
-              text: confirmation,
-              timestamp: userTimestamp,
+        setState((prev) => {
+          const activeWorkTitle = userInput.match(/^(?:i(?:'m| am)?\s+)?working on\s+(.+?)[.!]?$/i)?.[1]?.trim();
+          const matchingTask = activeWorkTitle
+            ? prev.tasks.find((task) => task.title.toLowerCase() === activeWorkTitle.toLowerCase())
+            : undefined;
+          const activeTaskId = matchingTask?.id || (activeWorkTitle ? `task-work-${Date.now()}` : undefined);
+          const tasks = !activeWorkTitle ? prev.tasks : [
+            ...(matchingTask ? [] : [{
+              id: activeTaskId!,
+              date: prev.date,
+              title: activeWorkTitle,
+              category: 'OFFICE' as TaskCategory,
+              owner: 'ME' as const,
+              status: 'ACTIVE' as const,
+              priority: 7,
+              createdAt: new Date().toISOString(),
+              persistent: true,
+              commitmentLevel: 'IMPORTANT' as const,
+            }]),
+            ...prev.tasks.map((task) => task.id === activeTaskId
+              ? { ...task, status: 'ACTIVE' as TaskStatus }
+              : task.status === 'ACTIVE'
+                ? { ...task, status: 'NEXT' as TaskStatus }
+                : task),
+          ];
+          return recalculateAccountabilityState({
+            ...prev,
+            current: {
+              ...prev.current,
+              activity: lastEv ? lastEv.description : prev.current.activity,
+              focusTaskId: activeTaskId || prev.current.focusTaskId,
+              updatedAt: userTimestamp,
             },
-          ],
-        }));
+            tasks,
+            timeline: [...prev.timeline, ...newEvents],
+            conversationHistory: [
+              ...prev.conversationHistory,
+              {
+                id: `msg-${Date.now()}`,
+                sender: 'assistant',
+                text: activeWorkTitle ? `${confirmation}\n• Active task: ${activeWorkTitle}` : confirmation,
+                timestamp: userTimestamp,
+              },
+            ],
+          }, { input: userInput, at: new Date().toISOString() });
+        });
 
         awardPoints(15, 'Activities logged to timeline');
         setNotificationToast('✓ Logged activities to timeline');
+        evaluateContextualAutomations(userInput);
         return confirmation;
       }
 
@@ -1490,6 +1711,9 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 date: prev.date,
                 createdAt: new Date().toISOString(),
                 priority: nt.priority || 6,
+                persistent: nt.persistent !== false,
+                commitmentLevel: nt.commitmentLevel || ((nt.priority || 6) >= 9 ? 'CRITICAL' : (nt.priority || 6) >= 7 ? 'IMPORTANT' : 'STANDARD'),
+                requiredResources: nt.requiredResources || inferTaskResources(nt as TaskItem),
                 ...nt,
               });
             }
@@ -1570,7 +1794,25 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           : prev.nextBestAction;
 
-        return {
+        const interruption = classifyInterruption(userInput);
+        const normalizedTimeline = updatedTimeline.map((event) => event.type === 'INTERRUPTION' && !event.classification
+          ? { ...event, classification: interruption || 'UNEXPECTED' as const }
+          : event);
+        if (interruption && !normalizedTimeline.some((event) => event.type === 'INTERRUPTION' && event.notes === userInput)) {
+          normalizedTimeline.push({
+            id: `interrupt-${Date.now()}`,
+            date: prev.date,
+            time: userTimestamp,
+            type: 'INTERRUPTION',
+            description: userInput,
+            classification: interruption,
+            source: 'CHECK_IN',
+            notes: userInput,
+            syncStatus: 'PENDING',
+          });
+        }
+
+        return recalculateAccountabilityState({
           ...prev,
           current: {
             ...prev.current,
@@ -1580,7 +1822,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             updatedAt: userTimestamp,
           },
           tasks: updatedTasks,
-          timeline: updatedTimeline,
+          timeline: normalizedTimeline,
           fixedEvents: updatedFixed,
           reminders: updatedReminders,
           nextBestAction: nextAction,
@@ -1594,11 +1836,12 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               changesSummary: extractedStateUpdate?.changesSummary,
             },
           ],
-        };
+        }, { input: userInput, at: new Date().toISOString(), interruption });
       });
 
       // Check for event-triggered reminders based on user message
       evaluateEventTriggeredReminders(userInput);
+      evaluateContextualAutomations(userInput);
 
       return aiResponseText;
     } catch (err) {
@@ -1607,7 +1850,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setIsProcessing(false);
     }
-  }, [state, mode, currentTimeString, evaluateEventTriggeredReminders]);
+  }, [state, mode, currentTimeString, applyLatestExplicitCorrection, evaluateContextualAutomations, evaluateEventTriggeredReminders]);
 
   const updateTaskStatus = useCallback((taskId: string, newStatus: TaskStatus) => {
     setState((prev) => {
@@ -1671,7 +1914,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      return {
+      return recalculateAccountabilityState({
         ...prev,
         current: {
           ...prev.current,
@@ -1681,7 +1924,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         tasks: updatedTasks,
         timeline: updatedTimeline,
-      };
+      }, { at: new Date().toISOString() });
     });
 
     // Check if completing this task triggers any event reminders
@@ -1694,28 +1937,34 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const taskId = `task-${now}`;
     const trigger = taskData.scheduledAt || taskData.dueAt;
     const reminderId = `rem-task-${now}`;
-    setState((prev) => ({
-      ...prev,
-      tasks: [{
+    setState((prev) => {
+      const newTask: TaskItem = {
         id: taskId,
         date: prev.date,
         createdAt: new Date(now).toISOString(),
         ...taskData,
-      }, ...prev.tasks],
-      reminders: trigger ? [
-        ...prev.reminders,
-        {
-          id: reminderId,
-          date: taskData.date || prev.date,
-          type: 'TIME_BASED',
-          triggerCondition: trigger,
-          message: taskData.title,
-          relatedTaskId: taskId,
-          isDone: false,
-          createdAt: new Date(now).toISOString(),
-        },
-      ] : prev.reminders,
-    }));
+        persistent: taskData.persistent ?? true,
+        commitmentLevel: taskData.commitmentLevel || (taskData.priority >= 9 ? 'CRITICAL' : 'IMPORTANT'),
+      };
+      newTask.requiredResources = taskData.requiredResources || inferTaskResources(newTask);
+      return recalculateAccountabilityState({
+        ...prev,
+        tasks: [newTask, ...prev.tasks],
+        reminders: trigger ? [
+          ...prev.reminders,
+          {
+            id: reminderId,
+            date: taskData.date || prev.date,
+            type: 'TIME_BASED',
+            triggerCondition: trigger,
+            message: taskData.title,
+            relatedTaskId: taskId,
+            isDone: false,
+            createdAt: new Date(now).toISOString(),
+          },
+        ] : prev.reminders,
+      }, { at: new Date(now).toISOString() });
+    });
     if (trigger) scheduleNativeReminder(reminderId, trigger, taskData.title);
     return taskId;
   }, []);
@@ -1753,6 +2002,8 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         priority: 7,
         createdAt: now.toISOString(),
         source: 'ACCOUNTABILITY_PROMPT',
+        persistent: true,
+        commitmentLevel: 'IMPORTANT',
       };
       const activity = `Working on: ${selectedTask.title}`;
       const hasTask = prev.tasks.some((task) => task.id === taskId);
@@ -1762,7 +2013,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return task;
       });
 
-      return {
+      return recalculateAccountabilityState({
         ...prev,
         tasks,
         current: {
@@ -1790,7 +2041,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           processedEventIds: prev.nativeAccountability?.processedEventIds || [],
           lastCompletedAtMillis: now.getTime(),
         },
-      };
+      }, { input: activity, at: now.toISOString() });
     });
 
     recordTaskInteraction(cleanTitle, taskId, 'START', category);

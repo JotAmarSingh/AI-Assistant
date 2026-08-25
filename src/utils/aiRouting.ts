@@ -13,7 +13,7 @@ export interface AIAgentRouteContext {
 }
 
 const LOCAL_ACTION_PREFIX = /^(add|remind|schedule|create|log|start|stop|mark|save|set|move|reschedule|plan|buy|call|email|complete|finish|cancel|delete|remove|pause|resume|skip|remember)\b/i;
-const PERSONAL_ACTIVITY = /^(i\s+(?:am|was|have|had|reached|arrived|left|went|came|started|stopped|finished|completed|bought|ate|drank|worked|did|made|sent|submitted|feel|felt|need|want)|we\s+(?:are|were|have|had|reached|arrived|left|went|came|started|finished|bought|ate|did))\b/i;
+const PERSONAL_ACTIVITY = /^(?:(?:i\s+(?:am|was|have|had|reached|arrived|left|went|came|started|stopped|finished|completed|bought|ate|drank|worked|did|made|sent|submitted|feel|felt|need|want)|we\s+(?:are|were|have|had|reached|arrived|left|went|came|started|finished|bought|ate|did))|(?:working on|starting|doing|editing|rendering|writing|reviewing|calling|travelling|traveling))\b/i;
 const QUESTION_OR_ADVICE = /^(what|why|how|which|who|where|when|should|can|could|would|is|are|do|does|did|tell me|explain|compare|recommend|find|check|look up|search|give me advice)\b/i;
 const CONVERSATION_CONTINUATION = /^(no\b|nope\b|yes\b|actually\b|i mean\b|that(?:'s| is) (?:wrong|incorrect)|you(?:'re| are) wrong\b|not that\b|but\b|however\b|instead\b|rather\b|what about\b|how about\b|and\b|also\b|make it\b|move it\b|change it\b|edit it\b)/i;
 const LOCAL_STATE_QUERY = /\b(my|today(?:'s)?|pending|completed|active|next)\s+(tasks?|reminders?|schedule|timetable|agenda)|\b(?:what|which|show|list|check)\b[^?]{0,40}\b(tasks?|reminders?|schedule|timetable|agenda)\b|\bwhat(?:'s| is) next\b|\bwhat should i (?:do|work on|focus on)\b|\bhow much time did i\b|\bwhat have i (?:done|completed)\b/i;

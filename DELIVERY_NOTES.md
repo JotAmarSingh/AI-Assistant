@@ -1,6 +1,18 @@
-# DayTrace 1.3.1 delivery notes
+# DayTrace 1.3.2 delivery notes
 
 ## Fixed
+
+- Accountability commitments now persist across days until completed, deliberately postponed, or cancelled; critical commitments receive one challenge before postponement.
+- “What should I do next?” now returns one resource-, deadline-, location-, duration-, energy-, and active-focus-aware action instead of an unranked task dump.
+- Context reminders can trigger when leaving the desk, rendering starts/finishes, work finishes, lunch begins, or a client deadline is due tonight.
+- Rendering, calls, and travel now mark related resources as busy so unavailable work is not recommended.
+- Interruptions are classified as expected, unexpected, avoidable, or unavoidable and feed the local habit ledger.
+- Reported health needs and urgent family needs override productivity recommendations.
+- New tasks are captured without replacing an active focus task; an explicit “working on …” statement creates/activates the task and records it on the timeline.
+- Planned-versus-actual timing, daily carry-forward counts, and rolling seven-day habit insights are stored locally and included in end-of-day review.
+- Explicit “No/Actually/I mean” corrections update the latest relevant record instead of creating a contradictory timeline entry.
+- Accountability confirmations are concise and end with one next action when available.
+- Normal Chat, Research, and Creative modes are read-only. Explicit actions require a tappable switch back to Accountability before any local data changes.
 
 - Gemini API keys are no longer embedded in source. The user enters a key once; successful verification stores it on-device for future launches and in-place updates.
 - Online AI context is intent-selective: general questions receive no private app data; saved-place location answers receive only the place name; untagged location lookup receives only live coordinates; permission/capability status is sent only when asked.
@@ -25,7 +37,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded local state schema to version 7 and Android version to 1.3.1 (2026082502), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded local state schema to version 8 and Android version to 1.3.2 (2026082503), preserving package \`com.amarsingh.daytrace\`.
 
 ## Verification completed
 
@@ -36,6 +48,7 @@
 - Daily history, state migration, multi-trigger, meeting processing, and task parsing tests: passed.
 - AI context isolation and reminder-time tests: passed.
 - AI routing, grounded follow-up, and changing-fact classification tests: passed.
+- Accountability engine, contextual trigger, focus protection, persistence, correction, postponement, interruption, planned-versus-actual, and habit-analysis tests: passed.
 - Static checks cover scoped JSON export, saved geofence names, keyboard inset handling, and absence of legacy cloud-sync code.
 
 ## Delivery gate

@@ -1,4 +1,13 @@
 import { DailyState, TaskItem, TaskStatus, TimelineEvent, FixedEvent, ReminderItem, ParseResult, EndOfDayReview, TaskCategory } from '../types';
+import {
+  analyzeAccountabilityHabits,
+  buildPlannedVsActual,
+  classifyInterruption,
+  conciseAccountabilityReply,
+  detectImmediateOverride,
+  inferTaskResources,
+  selectNextBestAction,
+} from './accountabilityEngine';
 
 /**
  * Deterministic Offline Parser for DayTrace
@@ -40,12 +49,44 @@ export function parseOfflineUserInput(
   const completedTaskTitles: string[] = [];
   const updatedTasks: Partial<TaskItem>[] = [];
   const newTasks: Omit<TaskItem, 'id'>[] = [];
+  const existingTasks = currentState.tasks || [];
   const newFixedEvents: Omit<FixedEvent, 'id'>[] = [];
   const newReminders: Omit<ReminderItem, 'id'>[] = [];
   let currentLocation = currentState.current.location;
   let currentActivity = currentState.current.activity;
   let currentEnergy = currentState.current.energy;
   let responseNotes: string[] = [];
+  const interruptionClassification = classifyInterruption(rawInput);
+  const immediateOverride = detectImmediateOverride(rawInput);
+
+  if (immediateOverride) {
+    if (immediateOverride.kind === 'HEALTH') currentEnergy = 'LOW_ENERGY';
+    newTimelineEvents.push({
+      time: now,
+      type: 'UPDATE',
+      description: immediateOverride.title,
+      location: currentLocation,
+      source: 'CHECK_IN',
+      notes: rawInput,
+    });
+    responseNotes.push(immediateOverride.rationale);
+  }
+
+  if (/\b(?:render|export|encoding)\s+(?:has\s+)?(?:started|begun|is running|initiated)\b|\bstarted\s+(?:the\s+)?render/i.test(lower)) {
+    currentActivity = 'Rendering in progress';
+    newTimelineEvents.push({
+      time: now,
+      type: 'UPDATE',
+      description: 'Rendering started; video editor resource is busy',
+      location: currentLocation,
+      source: 'CHECK_IN',
+      notes: rawInput,
+    });
+    responseNotes.push('Rendering logged; tasks requiring the video editor will not be recommended until it finishes');
+  } else if (/\b(?:render|export|encoding)\s+(?:has\s+)?(?:finished|completed|done)\b/i.test(lower)) {
+    currentActivity = 'Render completed';
+    responseNotes.push('Rendering marked finished; video-editing tasks are available again');
+  }
 
   if (/\b(exhausted|very tired|too tired|drained|don'?t feel like working|do not feel like working)\b/i.test(lower)) {
     currentEnergy = 'TIRED';
@@ -84,6 +125,7 @@ export function parseOfflineUserInput(
         time: now,
         type: 'INTERRUPTION',
         description: 'Gym trip interrupted by rain',
+        classification: 'UNAVOIDABLE',
         location: 'Transit',
         source: 'CHECK_IN',
         notes: rawInput,
@@ -101,6 +143,19 @@ export function parseOfflineUserInput(
       updatedTasks.push({ id: gymTask.id, status: 'NEXT', notes: `${gymTask.notes ? `${gymTask.notes}\n` : ''}Interrupted by rain at ${now}` });
     }
     responseNotes.push('Logged Gym trip, rain interruption and return Home; Gym remains pending');
+  }
+
+  if (interruptionClassification && !compoundGymInterruption) {
+    newTimelineEvents.push({
+      time: now,
+      type: 'INTERRUPTION',
+      description: rawInput,
+      classification: interruptionClassification,
+      location: currentLocation,
+      source: 'CHECK_IN',
+      notes: rawInput,
+    });
+    responseNotes.push(`Interruption classified as ${interruptionClassification.toLowerCase()}`);
   }
 
   // 2. Location arrivals & departures
@@ -165,8 +220,76 @@ export function parseOfflineUserInput(
     }
   }
 
-  // 5. Compound tasks & Negation handling (Section 16)
-  const existingTasks = currentState.tasks || [];
+  // 5. Persistent commitment changes. A task stays actionable until it is
+  // completed, explicitly postponed, or explicitly cancelled.
+  const postponementMatch = rawInput.match(/^(?:please\s+)?(?:postpone|defer|move)\s+(.+?)(?:\s+(?:until|to)\s+(.+))$/i);
+  if (postponementMatch) {
+    const taskHint = postponementMatch[1].replace(/\s+anyway$/i, '').trim();
+    const targetHint = postponementMatch[2].trim();
+    const task = /^(?:it|this|that|the task)$/i.test(taskHint)
+      ? existingTasks.find((item) => item.id === currentState.current.focusTaskId)
+      : findBestMatchingTask(existingTasks, taskHint);
+    if (!task) {
+      responseNotes.push(`I could not identify which task to postpone from “${taskHint}”`);
+    } else {
+      const postponedUntil = parsePostponedUntil(targetHint);
+      const reason = rawInput.match(/\bbecause\s+(.+)$/i)?.[1]?.trim();
+      const needsChallenge = task.commitmentLevel === 'CRITICAL'
+        && (task.postponementChallengeCount || 0) < 1
+        && !/\banyway\b/i.test(rawInput);
+      if (needsChallenge) {
+        updatedTasks.push({
+          id: task.id,
+          postponementChallengeCount: (task.postponementChallengeCount || 0) + 1,
+        });
+        responseNotes.push(`“${task.title}” is critical. I have not postponed it yet; say “postpone it anyway until …” if this is deliberate`);
+      } else if (!postponedUntil) {
+        responseNotes.push(`Tell me a valid date or time for postponing “${task.title}”`);
+      } else {
+        updatedTasks.push({
+          id: task.id,
+          status: 'NEXT',
+          postponedUntil,
+          postponementReason: reason,
+          postponementChallengeCount: task.postponementChallengeCount || 0,
+        });
+        newTimelineEvents.push({
+          time: now,
+          type: 'UPDATE',
+          description: `Postponed: ${task.title}`,
+          relatedTaskId: task.id,
+          notes: `${targetHint}${reason ? ` • ${reason}` : ''}`,
+          source: 'CHECK_IN',
+        });
+        responseNotes.push(`Postponed “${task.title}” until ${new Date(postponedUntil).toLocaleString()}`);
+      }
+    }
+  }
+
+  const cancellationMatch = !postponementMatch
+    ? rawInput.match(/^(?:please\s+)?cancel\s+(?:the\s+task\s+)?(.+)$/i)
+    : null;
+  if (cancellationMatch) {
+    const taskHint = cancellationMatch[1].replace(/[.!?]+$/g, '').trim();
+    const task = /^(?:it|this|that)$/i.test(taskHint)
+      ? existingTasks.find((item) => item.id === currentState.current.focusTaskId)
+      : findBestMatchingTask(existingTasks, taskHint);
+    if (!task) {
+      responseNotes.push(`I could not identify which task to cancel from “${taskHint}”`);
+    } else {
+      updatedTasks.push({ id: task.id, status: 'CANCELLED', postponedUntil: undefined });
+      newTimelineEvents.push({
+        time: now,
+        type: 'UPDATE',
+        description: `Cancelled: ${task.title}`,
+        relatedTaskId: task.id,
+        source: 'CHECK_IN',
+      });
+      responseNotes.push(`Cancelled “${task.title}” deliberately`);
+    }
+  }
+
+  // 6. Compound tasks & Negation handling (Section 16)
   const clauses = splitIntoClauses(rawInput);
 
   for (const task of existingTasks) {
@@ -243,7 +366,7 @@ export function parseOfflineUserInput(
     }
   }
 
-  // 6. Workflow submission -> IT waiting & CRM blocked cascade
+  // 7. Workflow submission -> IT waiting & CRM blocked cascade
   if (lower.includes('workflow') && (lower.includes('submitted') || lower.includes('finished') || lower.includes('handed over'))) {
     if (!completedTaskTitles.some(t => t.toLowerCase().includes('workflow'))) {
       completedTaskTitles.push('Prepare and submit final workflow');
@@ -275,7 +398,7 @@ export function parseOfflineUserInput(
     }
   }
 
-  // 7. Idea capture
+  // 8. Idea capture
   if (/^idea:|\breel idea:|\bnew idea\b/i.test(lower)) {
     const ideaTitle = rawInput.replace(/^idea:|\breel idea:|\bnew idea:?/i, '').trim();
     if (ideaTitle) {
@@ -292,7 +415,7 @@ export function parseOfflineUserInput(
     }
   }
 
-  // 8. General task creation (Supports multi-task lists, numbered items, bullet points, and single tasks)
+  // 9. General task creation (Supports multi-task lists, numbered items, bullet points, and single tasks)
   const isTaskCreationIntent = /\b(these are the tasks|tasks (that|to)|my tasks|task list|todos?|add tasks?|need to|have to|must|should|plan to)\b/i.test(lower);
 
   if (isTaskCreationIntent && !newTasks.length && !completedTaskTitles.length) {
@@ -307,32 +430,44 @@ export function parseOfflineUserInput(
           title: capitalizedTitle,
           category: cat,
           owner: 'ME',
-          status: 'NEXT',
+          status: currentState.current.focusTaskId && !immediateOverride ? 'CAPTURED' : 'NEXT',
           priority: 7,
           createdAt: now,
+          persistent: true,
+          commitmentLevel: 'IMPORTANT',
+          requiredResources: inferTaskResources({ title: capitalizedTitle, category: cat, owner: 'ME', status: 'NEXT', priority: 7, createdAt: now, id: 'preview' }),
         });
         responseNotes.push(`Added new task: "${capitalizedTitle}"`);
+        if (currentState.current.focusTaskId && !immediateOverride) {
+          responseNotes.push('Captured without interrupting the active focus task');
+        }
       }
     }
   }
 
-  // 9. Compute Next Best Action
-  let nextActionTitle = 'Review priorities & next tasks';
-  let nextActionRationale = 'Stay focused on your highest leverage open item.';
-  let nextCategory: TaskCategory = 'OFFICE';
-
-  const nextCandidate = existingTasks.find(t => t.status === 'NEXT' && !completedTaskTitles.includes(t.title)) ||
-    newTasks.find(t => t.status === 'NEXT');
-
-  if (nextCandidate) {
-    nextActionTitle = nextCandidate.title;
-    nextActionRationale = `High leverage item in ${nextCandidate.category}.`;
-    nextCategory = nextCandidate.category;
-  }
-
-  const finalAiText = responseNotes.length > 0
-    ? responseNotes.join('. ') + `. Next focus: ${nextActionTitle}.`
-    : `Recorded update for ${now}. Next best action: Focus on ${nextActionTitle}.`;
+  // 10. Compute one resource-, deadline-, context- and energy-aware action.
+  const previewTasks: TaskItem[] = [
+    ...existingTasks.map((task) => {
+      const taskUpdate = updatedTasks.find((update) => update.id === task.id);
+      return {
+        ...task,
+        ...(taskUpdate || {}),
+        ...(completedTaskTitles.includes(task.title) ? { status: 'DONE' as const } : {}),
+      };
+    }),
+    ...newTasks.map((task, index) => ({ ...task, id: `preview-${index}` })),
+  ];
+  const previewState: DailyState = {
+    ...currentState,
+    current: { ...currentState.current, location: currentLocation, activity: currentActivity, energy: currentEnergy },
+    tasks: previewTasks,
+    timeline: [...currentState.timeline, ...newTimelineEvents.map((event, index) => ({ ...event, id: `preview-event-${index}` }))],
+  };
+  const nextAction = selectNextBestAction(previewState, { input: rawInput });
+  const finalAiText = conciseAccountabilityReply(
+    responseNotes.length ? responseNotes : [`Recorded update for ${now}`],
+    nextAction,
+  );
 
   return {
     aiResponseText: finalAiText,
@@ -346,18 +481,21 @@ export function parseOfflineUserInput(
       newTasks,
       newFixedEvents,
       newReminders,
-      nextBestAction: {
-        title: nextActionTitle,
-        rationale: nextActionRationale,
-        category: nextCategory,
-      },
+      nextBestAction: nextAction ? {
+        taskId: nextAction.taskId,
+        title: nextAction.title,
+        rationale: nextAction.rationale,
+        category: nextAction.category,
+        estimatedMinutes: nextAction.estimatedMinutes,
+        secondaryRecommendations: nextAction.secondaryRecommendations,
+      } : undefined,
       changesSummary: {
         tasksDone: completedTaskTitles,
         tasksWaiting: newTasks.filter(t => t.status === 'WAITING').map(t => t.title),
         tasksBlocked: newTasks.filter(t => t.status === 'BLOCKED').map(t => t.title),
         tasksCreated: newTasks.map(t => t.title),
         timelineAdded: newTimelineEvents.map(e => e.description),
-        nextAction: nextActionTitle,
+        nextAction: nextAction?.title,
       },
     },
   };
@@ -368,6 +506,46 @@ function splitIntoClauses(text: string): string[] {
     .split(/[,;.!?]|\bbut\b|\bhowever\b|\balso\b|\band then\b/i)
     .map(s => s.trim())
     .filter(Boolean);
+}
+
+function findBestMatchingTask(tasks: TaskItem[], hint: string): TaskItem | undefined {
+  const words = normalizeTaskMatchText(hint).split(/\s+/).filter((word) => word.length > 2);
+  return tasks
+    .filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED')
+    .map((task) => {
+      const title = normalizeTaskMatchText(task.title);
+      const score = words.reduce((total, word) => total + (title.includes(word) ? 1 : 0), 0);
+      return { task, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.task;
+}
+
+function parsePostponedUntil(value: string, now = new Date()): string | null {
+  const text = value.toLowerCase();
+  const target = new Date(now);
+  const isoDate = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (isoDate) {
+    target.setFullYear(Number(isoDate[1]), Number(isoDate[2]) - 1, Number(isoDate[3]));
+  } else if (/\btomorrow\b/.test(text)) {
+    target.setDate(target.getDate() + 1);
+  } else {
+    const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const weekday = weekdays.findIndex((day) => new RegExp(`\\b(?:next\\s+)?${day}\\b`).test(text));
+    if (weekday >= 0) {
+      let daysAhead = (weekday - target.getDay() + 7) % 7;
+      if (daysAhead === 0 || text.includes(`next ${weekdays[weekday]}`)) daysAhead += 7;
+      target.setDate(target.getDate() + daysAhead);
+    } else if (!/\btoday\b/.test(text) && !extractExplicitTime(value)) {
+      return null;
+    }
+  }
+  const clock = extractExplicitTime(value);
+  if (clock) {
+    const [hours, minutes] = clock.split(':').map(Number);
+    target.setHours(hours, minutes, 0, 0);
+  }
+  return target.toISOString();
 }
 
 function isNegatedClause(clause: string): boolean {
@@ -555,19 +733,21 @@ export function generateOfflineEndOfDayReview(state: DailyState): EndOfDayReview
   const blocked = state.tasks.filter(t => t.status === 'BLOCKED');
   const interruptions = state.timeline.filter(e => e.type === 'INTERRUPTION');
 
-  const plannedVsActual = (state.timetable || []).map(slot => ({
-    event: slot.title,
-    planned: `${slot.startTime} - ${slot.endTime}`,
-    actual: slot.status === 'COMPLETED' ? 'Completed on time' : slot.status === 'ACTIVE' ? 'In progress' : 'Pending / Skipped',
-    variance: slot.status === 'COMPLETED' ? '0 min' : 'Pending',
-    notes: slot.notes,
+  const plannedVsActual = buildPlannedVsActual(state).map((row) => ({
+    event: row.title,
+    planned: `${row.plannedStart}${row.plannedEnd ? ` - ${row.plannedEnd}` : ''}`,
+    actual: row.actualStart ? `${row.actualStart}${row.actualEnd ? ` - ${row.actualEnd}` : ''}` : row.status,
+    variance: row.varianceMinutes === undefined ? 'Not enough actual-time data' : `${row.varianceMinutes >= 0 ? '+' : ''}${row.varianceMinutes} min`,
+    notes: row.status === 'MISSED' ? 'Planned item was skipped' : undefined,
   }));
 
   const patterns = [
     `Completed ${completed.length} task${completed.length === 1 ? '' : 's'} across the day.`,
     completed.length > 0 ? 'Consistent morning momentum maintained.' : 'Plan smaller initial morning micro-wins.',
     waiting.length > 0 ? `${waiting.length} external delegation${waiting.length === 1 ? '' : 's'} awaiting follow-up.` : 'No blocked external handoffs.',
-  ];
+    ...(state.accountability?.weeklyInsights || []),
+    ...analyzeAccountabilityHabits([state]),
+  ].filter((item, index, values) => values.indexOf(item) === index).slice(0, 8);
 
   return {
     date: state.date,

@@ -1,7 +1,7 @@
 import { DailyState, GeofenceLocation, TaskCategoryDefinition } from '../types';
 import { INITIAL_GAMIFICATION_STATE } from '../services/rewardsCatalog';
 
-export const CURRENT_STATE_SCHEMA_VERSION = 7;
+export const CURRENT_STATE_SCHEMA_VERSION = 8;
 export const UNCATEGORISED_CATEGORY_ID = 'UNCATEGORISED';
 
 const category = (
@@ -88,7 +88,13 @@ export const createFreshDailyState = (date?: string): DailyState => ({
   ignoredLocationClusters: [],
   taskCategories: DEFAULT_TASK_CATEGORIES.map((item) => ({ ...item })),
   meetings: [],
-  memories: [],
+    memories: [],
+    accountability: {
+      corrections: [],
+      carryForwardHistory: [],
+      habitSignals: [],
+      plannedVsActual: [],
+    },
   migrationMetadata: { appliedVersions: [CURRENT_STATE_SCHEMA_VERSION] },
   gamification: {
     ...INITIAL_GAMIFICATION_STATE,

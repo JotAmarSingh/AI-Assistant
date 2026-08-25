@@ -8,6 +8,7 @@ assert.equal(classifyAIAgentRoute('Which festival is upcoming in Punjab?'), 'ONL
 assert.equal(requiresLiveGrounding('Which festival is upcoming in Punjab?'), true);
 assert.equal(classifyAIAgentRoute('No, it is Rakhi or Bhai Dooj', { hasRecentOnlineTurn: true }), 'ONLINE_FOLLOW_UP');
 assert.equal(classifyAIAgentRoute('I reached Office', { hasRecentOnlineTurn: true }), 'LOCAL_ACTION');
+assert.equal(classifyAIAgentRoute('Working on the app development'), 'LOCAL_ACTION');
 assert.equal(classifyAIAgentRoute('What tasks are pending?'), 'LOCAL_QUERY');
 assert.equal(classifyAIAgentRoute('I need to buy milk tomorrow'), 'LOCAL_ACTION');
 assert.equal(

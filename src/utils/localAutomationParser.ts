@@ -1,6 +1,7 @@
 import { Automation, DailyState, GeofenceLocation, TimelineEvent, EventSource } from '../types';
 import { extractExplicitTime } from './offlineParser';
 import { classifyUserIntent } from './intentClassifier';
+import { detectContextEvent } from './accountabilityEngine';
 
 export interface ParsedAutomationResult {
   isAutomation: boolean;
@@ -148,7 +149,9 @@ export function parseVoiceAutomations(
   // Link related automations
   const confirmationItems = detectedAutomations.map(auto => {
     let triggerDesc = '';
-    if (auto.triggerType === 'GEOFENCE_EXIT') {
+    if (auto.triggerType === 'CONTEXT_EVENT') {
+      triggerDesc = contextTriggerLabel(auto.contextEvent);
+    } else if (auto.triggerType === 'GEOFENCE_EXIT') {
       triggerDesc = `Leaving ${auto.locationName || 'Location'}`;
     } else if (auto.triggerType === 'GEOFENCE_ENTER') {
       triggerDesc = `Arriving ${auto.locationName || 'Location'}`;
@@ -177,6 +180,18 @@ export function parseVoiceAutomations(
     },
   };
 }
+
+export const contextTriggerLabel = (event?: Automation['contextEvent']): string => {
+  switch (event) {
+    case 'LEAVING_DESK': return 'When leaving the desk';
+    case 'RENDERING_STARTED': return 'When rendering starts';
+    case 'RENDERING_FINISHED': return 'When rendering finishes';
+    case 'WORK_FINISHED': return 'When work finishes';
+    case 'LUNCH_WINDOW': return 'During the lunch window';
+    case 'CLIENT_DUE_TONIGHT': return 'When a client deadline is due tonight';
+    default: return 'When the saved context occurs';
+  }
+};
 
 interface TimedAgendaMatch {
   index: number;
@@ -340,16 +355,19 @@ function parseSingleAutomationClause(
   // 3. Check TIME TRIGGER
   const timeMatch = extractExplicitTime(clause);
   const hasTimeTrigger = Boolean(timeMatch) || /\b(at \d{1,2}(?::\d{2})?\s*(?:am|pm)?|in the evening|in the morning|tonight)\b/i.test(lower);
+  const contextEvent = detectContextEvent(clause);
 
-  if (!isExit && !isEnter && !hasTimeTrigger && !/\bremind me\b/i.test(lower)) {
+  if (!isExit && !isEnter && !hasTimeTrigger && !contextEvent && !/\bremind me\b/i.test(lower)) {
     return null;
   }
 
-  let triggerType: 'TIME' | 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT' = 'TIME';
+  let triggerType: Automation['triggerType'] = 'TIME';
   let resolvedLocation: { name: string; id?: string } | null = null;
   let scheduledTime: string | undefined = undefined;
 
-  if (isExit) {
+  if (contextEvent) {
+    triggerType = 'CONTEXT_EVENT';
+  } else if (isExit) {
     triggerType = 'GEOFENCE_EXIT';
     const locMatch = clause.match(/\b(?:leave|leaving|exit|exiting|departing)\s+(?:the\s+)?([a-zA-Z]+)\b/i);
     if (locMatch && !['to', 'and', 'remind', 'my', 'it'].includes(locMatch[1].toLowerCase())) {
@@ -392,6 +410,7 @@ function parseSingleAutomationClause(
     reminderText,
     status: 'PENDING',
     createdAt: now || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+    contextEvent: contextEvent || undefined,
   };
 }
 
@@ -404,6 +423,7 @@ export function extractCleanReminderText(clause: string): string {
     .replace(/^.*?\b(?:remind me to|remind me that|remind me|set a reminder to|don't forget to|i have to|i need to|have to|need to|must)\s+/i, '')
     // Remove "when I leave [location] to" or "on reaching [location]"
     .replace(/^.*?\b(?:when I leave|after I leave|on reaching|when I reach|when I arrive at|arriving at|when I get to)\s+(?:the\s+)?[a-zA-Z]+\s+(?:to|i have to|i need to|remind me to)?\s*/i, '')
+    .replace(/^.*?\b(?:when|after|once)\s+(?:the\s+)?(?:render|rendering|export|work)\s+(?:starts?|finishes?|is done|completes?)\s+(?:to|remind me to)?\s*/i, '')
     // Remove trailing punctuation
     .replace(/[.!?]+$/, '')
     .trim();

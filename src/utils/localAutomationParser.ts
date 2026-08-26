@@ -610,9 +610,12 @@ export function parseActivityLogUtterance(
     return results;
   }
 
-  // Pattern 3: Direct activity statement e.g. "I was driving home." or
-  // "I'm working on app development". These phrases are activity check-ins,
-  // not chat, so Accountability mode must surface them in the real timeline.
+  // Pattern 3: Direct activity/status statement e.g. "I was driving home",
+  // "I'm working on app development", or "I am still on the bed". In
+  // Accountability mode these are check-ins, never future tasks. Resolving this
+  // deterministically also prevents an available on-device model from turning
+  // a passive status into a commitment the user never made.
+  const isPresentStatusCheckIn = /^(?:i(?:'m| am)\s+(?:still\s+)?(?:at|in|on|inside|outside|resting|sitting|lying|waiting|relaxing|sleeping|awake|working|doing|editing|writing|reviewing|building|developing|travelling|traveling|driving|eating|drinking|feeling)\b|i\s+(?:feel|felt)\b)/i.test(lower);
   if (
     lower.startsWith('i was') ||
     lower.startsWith("i've been") ||
@@ -621,7 +624,8 @@ export function parseActivityLogUtterance(
     lower.startsWith('i am working on') ||
     lower.startsWith('just') ||
     lower.startsWith('working on') ||
-    lower.startsWith('driving')
+    lower.startsWith('driving') ||
+    isPresentStatusCheckIn
   ) {
     let act = text
       .replace(/^(i was|i've been|i have been|i'm|i am|just)\s+/i, '')

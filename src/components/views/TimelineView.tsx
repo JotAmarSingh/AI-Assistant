@@ -4,6 +4,7 @@ import { useDay } from '../../context/DayContext';
 import { TimelineEvent } from '../../types';
 import { resolveContextualIcon } from '../../services/geminiService';
 import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
+import { timelineEventIsForDate } from '../../utils/dailyHistory';
 
 const timeToMinutes = (value?: string): number | null => {
   if (!value) return null;
@@ -37,7 +38,9 @@ export const TimelineView: React.FC = () => {
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
 
-  const events = useMemo(() => [...(state.timeline || [])].sort((left, right) => (left.startTime || left.time).localeCompare(right.startTime || right.time)), [state.timeline]);
+  const events = useMemo(() => (state.timeline || [])
+    .filter((event) => timelineEventIsForDate(event, selectedDate, state.date))
+    .sort((left, right) => (left.startTime || left.time).localeCompare(right.startTime || right.time)), [selectedDate, state.date, state.timeline]);
   const totalMinutes = events.reduce((sum, event) => sum + eventDuration(event), 0);
   const productiveMinutes = events.filter((event) => event.type !== 'INTERRUPTION').reduce((sum, event) => sum + eventDuration(event), 0);
   const productivePercent = totalMinutes ? Math.round((productiveMinutes / totalMinutes) * 100) : 0;

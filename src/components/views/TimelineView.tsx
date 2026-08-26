@@ -2,9 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { CalendarDays, Clock3, MapPin, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TimelineEvent } from '../../types';
-import { resolveContextualIcon } from '../../services/geminiService';
 import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
 import { timelineEventIsForDate } from '../../utils/dailyHistory';
+import { TaskVisualFallback } from '../common/TaskVisualFallback';
 
 const timeToMinutes = (value?: string): number | null => {
   if (!value) return null;
@@ -26,8 +26,9 @@ const formatMinutes = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes
 
 const TimelineSticker: React.FC<{ event: TimelineEvent; taskTitle?: string; category?: string }> = ({ event, taskTitle, category }) => {
   const subject = taskTitle || event.description;
-  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', subject, [category || event.category || event.type]);
-  return <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-slate-950">{imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={`text-lg ${isGenerating ? 'animate-pulse' : ''}`}>{resolveContextualIcon(subject, category || event.type)}</span>}</div>;
+  const context = category || event.category || event.type;
+  const { imageUrl, isGenerating, visualStatus } = useGeneratedVisual('TASK_STICKER', subject, [context]);
+  return <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-slate-950">{imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <TaskVisualFallback subject={subject} context={context} generationState={isGenerating ? 'GENERATING' : visualStatus.state} />}</div>;
 };
 
 export const TimelineView: React.FC = () => {

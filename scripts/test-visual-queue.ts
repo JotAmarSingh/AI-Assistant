@@ -13,11 +13,27 @@ Object.defineProperty(globalThis, 'localStorage', {
   },
 });
 
-const { IMAGE_MODELS, queueGeneratedVisuals } = await import('../src/services/visualAssetService');
+const { classifyVisualGenerationError, IMAGE_MODELS, queueGeneratedVisuals } = await import('../src/services/visualAssetService');
+const { resolveLocalVisualConcept } = await import('../src/utils/visualFallback');
 
-assert.equal(IMAGE_MODELS[0], 'gemini-3.1-flash-image', 'Nano Banana 2 must be the primary image model');
-assert(IMAGE_MODELS.includes('gemini-3.1-flash-lite-image'), 'Nano Banana 2 Lite fallback is required');
-assert(IMAGE_MODELS.includes('gemini-2.5-flash-image'), 'legacy image fallback must remain for API compatibility');
+assert.equal(IMAGE_MODELS[0], 'gemini-2.5-flash-image', 'AI Studio free-tier compatible image generation must be attempted first');
+assert(IMAGE_MODELS.includes('gemini-3.1-flash-image'), 'newer image fallback must remain for compatible keys');
+assert(!IMAGE_MODELS.some((model) => model.includes('flash-lite-image')), 'non-existent image model identifiers must never consume a request');
+
+const rateLimit = classifyVisualGenerationError(Object.assign(new Error('RESOURCE_EXHAUSTED: daily request limit'), { status: 429 }), 1_000);
+assert.equal(rateLimit.code, 'RATE_LIMITED');
+assert(rateLimit.retryAfter > 1_000, 'rate-limited artwork must receive a future retry time');
+
+const imageAccess = classifyVisualGenerationError(Object.assign(new Error('Permission denied for image generation'), { status: 403 }), 1_000);
+assert.equal(imageAccess.code, 'IMAGE_ACCESS_REQUIRED');
+
+const medicine = resolveLocalVisualConcept("Get my son's medicine from the chemist", 'Family');
+assert.equal(medicine.primary, 'medicine', 'medicine tasks must never fall back to a generic person/star icon');
+assert.equal(medicine.secondary, 'family', 'the local fallback must preserve the family context');
+
+const workout = resolveLocalVisualConcept('3 sets of push-ups, 2 pull-ups and yoga', 'Gym');
+assert.equal(workout.primary, 'fitness');
+assert.equal(workout.quantityBadge, '3•2', 'task quantities should remain visible in the local artwork');
 
 queueGeneratedVisuals([
   {

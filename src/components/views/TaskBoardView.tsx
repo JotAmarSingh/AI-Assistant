@@ -5,10 +5,11 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TaskCategoryDefinition, TaskItem } from '../../types';
-import { resolveCategoryIslandIcon, resolveContextualIcon } from '../../services/geminiService';
+import { resolveCategoryIslandIcon } from '../../services/geminiService';
 import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
 import { ManageCategoriesModal } from '../tasks/ManageCategoriesModal';
 import { UNCATEGORISED_CATEGORY_ID } from '../../utils/initialState';
+import { TaskVisualFallback } from '../common/TaskVisualFallback';
 
 interface IslandData {
   category: TaskCategoryDefinition;
@@ -36,10 +37,12 @@ const IslandArtwork: React.FC<{ island: IslandData; large?: boolean }> = ({ isla
 };
 
 const TaskSticker: React.FC<{ task: TaskItem; categoryLabel: string }> = ({ task, categoryLabel }) => {
-  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', task.title, [categoryLabel]);
+  const { imageUrl, isGenerating, visualStatus } = useGeneratedVisual('TASK_STICKER', task.title, [categoryLabel]);
   return (
     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-[#060b18]">
-      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={`text-xl ${isGenerating ? 'animate-pulse' : ''}`}>{resolveContextualIcon(task.title, categoryLabel)}</span>}
+      {imageUrl
+        ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" />
+        : <TaskVisualFallback subject={task.title} context={categoryLabel} generationState={isGenerating ? 'GENERATING' : visualStatus.state} />}
     </div>
   );
 };

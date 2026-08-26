@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Settings,
   ShieldCheck,
+  Sparkles,
   Smartphone,
   Upload,
   Volume2,
@@ -35,6 +36,12 @@ import {
   requestNativeNotificationPermission,
 } from '../../services/nativeBridge';
 import { clearGeminiApiKey, getStoredGeminiApiKey, verifyGeminiApiKey } from '../../services/geminiService';
+import {
+  getVisualGenerationStatus,
+  retryPendingVisualGeneration,
+  VisualGenerationStatus,
+  VISUAL_STATUS_EVENT,
+} from '../../services/visualAssetService';
 
 interface SettingsViewProps {
   onClose: () => void;
@@ -68,6 +75,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
   const [isVerifyingKey, setIsVerifyingKey] = useState(false);
   const [apiStatus, setApiStatus] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [visualStatus, setVisualStatus] = useState<VisualGenerationStatus>(() => getVisualGenerationStatus());
+  const [isRetryingVisuals, setIsRetryingVisuals] = useState(false);
 
   const refreshPermissions = useCallback(async () => {
     const [nextCapabilities, nextNotifications] = await Promise.all([
@@ -99,6 +108,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
     return () => {
       window.removeEventListener('online', online);
       window.removeEventListener('offline', offline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateVisualStatus = (event?: Event) => {
+      const detail = event ? (event as CustomEvent<VisualGenerationStatus>).detail : undefined;
+      setVisualStatus(detail?.state ? detail : getVisualGenerationStatus());
+    };
+    window.addEventListener(VISUAL_STATUS_EVENT, updateVisualStatus);
+    window.addEventListener('online', updateVisualStatus);
+    window.addEventListener('offline', updateVisualStatus);
+    window.addEventListener('daytrace-online-ai-ready', updateVisualStatus);
+    return () => {
+      window.removeEventListener(VISUAL_STATUS_EVENT, updateVisualStatus);
+      window.removeEventListener('online', updateVisualStatus);
+      window.removeEventListener('offline', updateVisualStatus);
+      window.removeEventListener('daytrace-online-ai-ready', updateVisualStatus);
     };
   }, []);
 
@@ -159,11 +185,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose }) => {
       <section id="ai-connection-settings" className="rounded-[30px] border border-cyan-300/25 bg-[#071126]/85 p-4 shadow-[0_0_24px_rgba(34,211,238,.1)] space-y-3">
         <div><h3 className="text-sm font-black">AI & Connection</h3><p className="mt-0.5 text-[10px] text-slate-400">The verified key is stored once on this device and reused automatically.</p></div>
         <div className="grid grid-cols-2 gap-2">
-          <div className={`rounded-2xl border p-3 ${getStoredGeminiApiKey() && isOnline ? 'border-cyan-300/45 bg-cyan-300/10' : 'border-slate-700 bg-slate-950/60'}`}><Cloud className="h-5 w-5 text-cyan-300" /><p className="mt-2 text-xs font-black">Online AI</p><p className={`text-[10px] ${getStoredGeminiApiKey() && isOnline ? 'text-emerald-300' : 'text-slate-500'}`}>{getStoredGeminiApiKey() ? isOnline ? 'Connected' : 'Waiting for internet' : 'API key required'}</p></div>
+          <div className={`rounded-2xl border p-3 ${getStoredGeminiApiKey() && isOnline ? 'border-cyan-300/45 bg-cyan-300/10' : 'border-slate-700 bg-slate-950/60'}`}><Cloud className="h-5 w-5 text-cyan-300" /><p className="mt-2 text-xs font-black">Text AI</p><p className={`text-[10px] ${getStoredGeminiApiKey() && isOnline ? 'text-emerald-300' : 'text-slate-500'}`}>{getStoredGeminiApiKey() ? isOnline ? 'Connected' : 'Waiting for internet' : 'API key required'}</p></div>
           <div className="rounded-2xl border border-violet-300/25 bg-violet-300/10 p-3"><Cpu className="h-5 w-5 text-violet-300" /><p className="mt-2 text-xs font-black">Offline</p><p className="text-[10px] text-violet-200">Local mode available</p></div>
         </div>
+        <div className={`rounded-2xl border p-3 ${visualStatus.state === 'READY' ? 'border-emerald-300/40 bg-emerald-300/10' : visualStatus.state === 'GENERATING' ? 'border-cyan-300/45 bg-cyan-300/10' : ['RATE_LIMITED', 'IMAGE_ACCESS_REQUIRED', 'REQUEST_FAILED'].includes(visualStatus.state) ? 'border-amber-300/35 bg-amber-300/10' : 'border-slate-700 bg-slate-950/60'}`}>
+          <div className="flex items-start gap-3">
+            <Sparkles className={`mt-0.5 h-5 w-5 shrink-0 ${visualStatus.state === 'GENERATING' ? 'animate-pulse text-cyan-300' : visualStatus.state === 'READY' ? 'text-emerald-300' : 'text-amber-200'}`} />
+            <div className="min-w-0 flex-1"><p className="text-xs font-black">Custom task artwork</p><p className="mt-1 text-[10px] leading-relaxed text-slate-300">{visualStatus.message}</p>{visualStatus.pendingCount > 0 && <p className="mt-1 font-mono text-[9px] text-cyan-200">{visualStatus.pendingCount} visual{visualStatus.pendingCount === 1 ? '' : 's'} queued</p>}</div>
+            <button type="button" disabled={isRetryingVisuals || !getStoredGeminiApiKey() || !isOnline} onClick={async () => { setIsRetryingVisuals(true); const next = await retryPendingVisualGeneration(); setVisualStatus(next); setIsRetryingVisuals(false); }} className="shrink-0 rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-2 text-[9px] font-black text-cyan-100 disabled:opacity-40">{isRetryingVisuals ? 'Trying…' : 'Retry icons'}</button>
+          </div>
+        </div>
         <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">API Key<div className="relative mt-1.5"><KeyRound className="absolute left-3 top-3.5 h-4 w-4 text-cyan-300" /><input type="password" value={apiKeyInput} onChange={(event) => setApiKeyInput(event.target.value)} placeholder="Add or change API key" autoComplete="off" className="w-full rounded-2xl border border-cyan-300/20 bg-slate-950 py-3 pl-10 pr-3 text-xs outline-none focus:border-cyan-300" /></div></label>
-        <div className="grid grid-cols-2 gap-2"><button type="button" disabled={!apiKeyInput.trim() || isVerifyingKey} onClick={async () => { setIsVerifyingKey(true); setApiStatus('Verifying securely…'); const result = await verifyGeminiApiKey(apiKeyInput); setApiStatus(result.message); setApiKeyInput(getStoredGeminiApiKey() || apiKeyInput); setIsVerifyingKey(false); }} className="rounded-2xl bg-cyan-300 py-2.5 text-xs font-black text-slate-950 disabled:opacity-40">{isVerifyingKey ? 'Verifying…' : 'Verify & Save'}</button><button type="button" disabled={!getStoredGeminiApiKey()} onClick={() => { clearGeminiApiKey(); setApiKeyInput(''); setApiStatus('Saved API key removed. Offline mode remains available.'); }} className="rounded-2xl bg-slate-800 py-2.5 text-xs font-bold disabled:opacity-40">Remove key</button></div>
+        <div className="grid grid-cols-2 gap-2"><button type="button" disabled={!apiKeyInput.trim() || isVerifyingKey} onClick={async () => { setIsVerifyingKey(true); setApiStatus('Verifying securely…'); const result = await verifyGeminiApiKey(apiKeyInput); setApiStatus(result.message); setApiKeyInput(getStoredGeminiApiKey() || apiKeyInput); setVisualStatus(getVisualGenerationStatus()); setIsVerifyingKey(false); }} className="rounded-2xl bg-cyan-300 py-2.5 text-xs font-black text-slate-950 disabled:opacity-40">{isVerifyingKey ? 'Verifying…' : 'Verify & Save'}</button><button type="button" disabled={!getStoredGeminiApiKey()} onClick={() => { clearGeminiApiKey(); setApiKeyInput(''); setApiStatus('Saved API key removed. Offline mode remains available.'); setVisualStatus(getVisualGenerationStatus()); }} className="rounded-2xl bg-slate-800 py-2.5 text-xs font-bold disabled:opacity-40">Remove key</button></div>
         {apiStatus && <p className="rounded-xl bg-slate-950/70 p-2.5 text-[10px] text-cyan-200">{apiStatus}</p>}
       </section>
 

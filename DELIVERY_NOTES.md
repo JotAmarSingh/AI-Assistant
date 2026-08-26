@@ -1,13 +1,17 @@
-# DayTrace 1.4.6 delivery notes
+# DayTrace 1.4.7 delivery notes
 
 ## Fixed
 
+- Custom task artwork now attempts the Google AI Studio free-tier-compatible \`gemini-2.5-flash-image\` model first; the invalid \`gemini-3.1-flash-lite-image\` request has been removed.
+- Text-AI connectivity and image-generation health are reported separately. Image rate limits, rejected image access, offline state, and pending work can no longer masquerade as a successfully generated generic icon.
+- Failed/offline visual requests remain durable and de-duplicated, respect a request circuit breaker, retry automatically, and can be retried explicitly from Settings without reopening each task.
+- While Gemini artwork is pending, DayTrace renders task-specific local vector artwork instead of the generic person/star emoji. Medicine/family, editing, social media, client work, fitness, meals, travel, calls, and other common contexts have distinct compositions; numeric workout quantities are retained.
 - Free-text replies to the periodic accountability prompt now use DayTrace intent parsing instead of always creating an active task; past/present updates such as “logged in after lunch”, “returned from break”, and “resumed work” are Timeline-only.
 - Tapping a real suggested task still starts that task directly, while reminder directives and future commitments retain their existing action behavior.
 - Replaced Android's oversized native date dialog with a compact DayTrace calendar and removed splash artwork from native dialog backgrounds.
 - Added visible category management in the Tasks header and a direct New-category action inside task creation.
 - Calendar history now recovers dated records from older JSON backups, and new backups include every archived day.
-- Pending task and category artwork retries immediately after reconnecting with Nano Banana 2, Nano Banana 2 Lite, and legacy image-model fallback.
+- Pending task and category artwork retries immediately after reconnecting with the AI Studio free-tier image model and a compatible newer image-model fallback.
 - Present-status check-ins such as “I am still on the bed” are now logged to Timeline without creating a task or reminder, including on Pixels with on-device AI available.
 - Timeline rows are strictly filtered by the selected calendar date: today starts clean, while archived entries remain visible only after selecting their date.
 - Offline-created tasks, timeline logs, timetable entries, and task categories now enter a durable, de-duplicated visual queue. Missing Gemini vector stickers/islands resume automatically when the saved API key and connectivity are available, without opening each tab again.
@@ -58,7 +62,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.6 (2026082603), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.7 (2026082604), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.

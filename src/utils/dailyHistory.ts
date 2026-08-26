@@ -1,4 +1,4 @@
-import { DailyState, TaskItem } from '../types';
+import { DailyState, TaskItem, TimelineEvent } from '../types';
 import { createFreshDailyState, DEFAULT_USER_SETTINGS } from './initialState';
 import { analyzeAccountabilityHabits, recalculateAccountabilityState } from './accountabilityEngine';
 
@@ -18,6 +18,15 @@ const extractDateKey = (value?: string): string | null => {
   const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
   return match ? match[1] : null;
 };
+
+export const timelineEventDate = (event: TimelineEvent, fallbackDate: string): string =>
+  event.date || extractDateKey(event.createdAt) || fallbackDate;
+
+export const timelineEventIsForDate = (
+  event: TimelineEvent,
+  date: string,
+  fallbackDate: string,
+): boolean => timelineEventDate(event, fallbackDate) === date;
 
 export const taskCreatedDate = (task: TaskItem, fallbackDate: string): string =>
   task.date || extractDateKey(task.createdAt) || fallbackDate;
@@ -47,7 +56,7 @@ export const normalizeDailyStateDates = (state: DailyState): DailyState => {
     })),
     timeline: (state.timeline || []).map((event) => ({
       ...event,
-      date: event.date || extractDateKey(event.createdAt) || fallbackDate,
+      date: timelineEventDate(event, fallbackDate),
     })),
     fixedEvents: (state.fixedEvents || []).map((event) => ({
       ...event,

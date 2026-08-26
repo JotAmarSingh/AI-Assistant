@@ -11,6 +11,8 @@ assert.equal(requiresLiveGrounding('Which public holiday is upcoming nationally?
 assert.equal(classifyAIAgentRoute('No, that holiday is later', { hasRecentOnlineTurn: true }), 'ONLINE_FOLLOW_UP');
 assert.equal(classifyAIAgentRoute('I reached Office', { hasRecentOnlineTurn: true }), 'LOCAL_ACTION');
 assert.equal(classifyAIAgentRoute('Working on the app development'), 'LOCAL_ACTION');
+assert.equal(classifyAIAgentRoute('I am still on the bed'), 'LOCAL_ACTION');
+assert.equal(shouldUseCloudActionPlanner('I am still on the bed'), false, 'A simple status must stay deterministic');
 assert.equal(classifyAIAgentRoute('What tasks are pending?'), 'LOCAL_QUERY');
 assert.equal(classifyAIAgentRoute('I need to buy milk tomorrow'), 'LOCAL_ACTION');
 assert.equal(

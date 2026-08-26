@@ -13,7 +13,11 @@ Object.defineProperty(globalThis, 'localStorage', {
   },
 });
 
-const { queueGeneratedVisuals } = await import('../src/services/visualAssetService');
+const { IMAGE_MODELS, queueGeneratedVisuals } = await import('../src/services/visualAssetService');
+
+assert.equal(IMAGE_MODELS[0], 'gemini-3.1-flash-image', 'Nano Banana 2 must be the primary image model');
+assert(IMAGE_MODELS.includes('gemini-3.1-flash-lite-image'), 'Nano Banana 2 Lite fallback is required');
+assert(IMAGE_MODELS.includes('gemini-2.5-flash-image'), 'legacy image fallback must remain for API compatibility');
 
 queueGeneratedVisuals([
   {
@@ -34,5 +38,7 @@ assert.equal(pending[0].kind, 'TASK_STICKER');
 assert.match(pending[0].subject, /Edit the client reel/);
 assert.doesNotMatch(pending[0].subject, /person@example\.com|private\.example/, 'Obvious contact/link data must not enter image prompts');
 assert.equal(pending[0].details[0], 'Client Work');
+assert.equal(pending[0].attempts, 0, 'a model revision must revive pending work');
+assert.equal(pending[0].nextAttemptAt, 0, 'revived pending work must retry immediately');
 
 console.log('Deferred visual queue tests passed.');

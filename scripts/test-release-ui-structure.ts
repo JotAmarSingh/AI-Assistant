@@ -5,6 +5,7 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 
 const navigation = read('src/components/android/AndroidNavigationBar.tsx');
 const topBar = read('src/components/android/AndroidTopAppBar.tsx');
+const compactDateBrowser = read('src/components/android/CompactDateBrowser.tsx');
 const app = read('src/App.tsx');
 const settings = read('src/components/views/SettingsView.tsx');
 const anchors = read('src/components/views/RemindersAnchorsView.tsx');
@@ -18,6 +19,7 @@ const initialState = read('src/utils/initialState.ts');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const nativePlugin = read('android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java');
 const dayContext = read('src/context/DayContext.tsx');
+const androidStyles = read('android/app/src/main/res/values/styles.xml');
 
 assert(!navigation.includes("label: 'AI Agent'"), 'AI Agent must not appear in bottom navigation');
 assert(!navigation.includes("id: 'review'"), 'review must not be a bottom tab');
@@ -28,6 +30,10 @@ assert(topBar.includes('id="settings-top-btn"'), 'top-left Settings entry is req
 assert(!topBar.includes('voice-capture-top-btn'), 'meeting microphone must not be in the top bar');
 assert(!topBar.includes('json-backup-btn'), 'backup must live in Settings, not the top bar');
 assert(!topBar.includes('MiniCyberneticFaceIcon'), 'top-left app face must be removed');
+assert(topBar.includes('<CompactDateBrowser'), 'the top bar must use the compact in-app date browser');
+assert(!topBar.includes('type="date"'), 'the top bar must not open the oversized native date dialog');
+assert(compactDateBrowser.includes('Yesterday') && compactDateBrowser.includes('Today'), 'date browser needs quick day controls');
+assert(!androidStyles.includes('<item name="android:background">@drawable/splash</item>'), 'the splash artwork must not leak into native dialogs');
 
 assert(app.includes("case 'hub'") && app.includes('<GeminiLiveHubView />'), 'Home must retain the full-screen AI hub');
 assert(app.includes("case 'settings'") && app.includes('<SettingsView'), 'Settings route is required');
@@ -63,8 +69,10 @@ for (const legacyExample of ['Video Editing', 'Growth Strategy', 'Client Feedbac
   assert(!taskBoard.includes(legacyExample), `Tasks must not render legacy example ${legacyExample}`);
 }
 assert(taskBoard.includes('category-island-') && taskBoard.includes('task-card-'), 'category islands and task cards must be tappable');
+assert(taskBoard.includes('>Categories</span>') && taskBoard.includes('>New</button>'), 'category creation must be visible from the Tasks screen and add-task form');
 assert(taskBoard.includes('Map as MapIcon'), 'the map icon must not shadow the built-in Map collection');
 assert(dayContext.includes('automations: displayedState.automations || []'), 'Anchors must receive persisted automations from context');
+assert(dayContext.includes('dailyHistory: readDailyHistory()') && dayContext.includes('mergeImportedDailyHistory(parsed.dailyHistory)'), 'JSON backup must preserve calendar history');
 for (const action of ['Start', 'Complete', 'Edit', 'Delete']) assert(taskBoard.includes(action), `task details must expose ${action}`);
 assert(taskBoard.includes("useGeneratedVisual('CATEGORY_ISLAND'") && taskBoard.includes("useGeneratedVisual('TASK_STICKER'"), 'task and category artwork must use generated, cached visual assets');
 assert(timetable.includes('No plans for this day') && timeline.includes('Nothing logged yet'), 'new timetable and timeline must have honest empty states');

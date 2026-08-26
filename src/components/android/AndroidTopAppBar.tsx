@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Sparkles, 
   MapPin, 
@@ -14,7 +14,7 @@ import { useDay } from '../../context/DayContext';
 import { AppMode, EnergyLevel } from '../../types';
 import { TutorialModal } from './TutorialModal';
 import { AndroidTab } from './AndroidNavigationBar';
-import { toLocalDateKey } from '../../utils/dailyHistory';
+import { CompactDateBrowser } from './CompactDateBrowser';
 
 interface AndroidTopAppBarProps {
   onNavigateTab?: (tab: AndroidTab) => void;
@@ -41,13 +41,8 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
   const [showModeMenu, setShowModeMenu] = useState(false);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [dateInput, setDateInput] = useState(selectedDate);
 
   const gamification = state.gamification || { points: 0, currentStreakDays: 0 };
-
-  useEffect(() => {
-    setDateInput(selectedDate);
-  }, [selectedDate]);
 
   const energyOptions: { level: EnergyLevel; label: string; icon: string }[] = [
     { level: 'HIGH_FOCUS', label: 'High Focus', icon: '⚡' },
@@ -179,61 +174,7 @@ export const AndroidTopAppBar: React.FC<AndroidTopAppBarProps> = ({ onNavigateTa
         </div>
       </header>
 
-      {showDatePicker && (
-        <div
-          className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowDatePicker(false)}
-        >
-          <div
-            className="bg-[#1D2026] border border-[#44474E]/50 rounded-[30px] p-5 w-full max-w-sm shadow-2xl space-y-4"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-[#44474E]/30 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-[#E2E2E6]">Browse DayTrace by date</h3>
-                <p className="text-[11px] text-[#C4C6D0] mt-0.5">Past dates open as read-only history.</p>
-              </div>
-              <button onClick={() => setShowDatePicker(false)} className="p-1 text-[#C4C6D0]">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <input
-              type="date"
-              value={dateInput}
-              max={toLocalDateKey()}
-              onChange={(event) => setDateInput(event.target.value)}
-              className="w-full py-3 px-3.5 rounded-2xl bg-[#111318] border border-[#44474E]/50 text-sm text-[#E2E2E6] focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"
-            />
-
-            {historicalDateMessage && (
-              <p className="text-[11px] text-[#C4C6D0] bg-[#2E3036] rounded-xl p-2.5">{historicalDateMessage}</p>
-            )}
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  await selectViewDate(toLocalDateKey());
-                  setShowDatePicker(false);
-                }}
-                className="flex-1 py-2.5 rounded-2xl bg-[#2E3036] text-[#E2E2E6] text-xs font-semibold"
-              >
-                Today
-              </button>
-              <button
-                disabled={!dateInput || isLoadingHistoricalDate}
-                onClick={async () => {
-                  await selectViewDate(dateInput);
-                  setShowDatePicker(false);
-                }}
-                className="flex-1 py-2.5 rounded-2xl bg-[#D1E1FF] text-[#003062] text-xs font-bold disabled:opacity-40"
-              >
-                {isLoadingHistoricalDate ? 'Loading...' : 'View Date'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showDatePicker && <CompactDateBrowser selectedDate={selectedDate} isLoading={isLoadingHistoricalDate} message={historicalDateMessage} onClose={() => setShowDatePicker(false)} onViewDate={selectViewDate} />}
 
       {/* Energy Level Selection Menu */}
       {showEnergyMenu && (

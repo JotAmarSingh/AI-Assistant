@@ -3,7 +3,9 @@ import { createFreshDailyState } from '../src/utils/initialState';
 import {
   createNextDailyState,
   getDailySnapshot,
+  mergeImportedDailyHistory,
   saveDailySnapshot,
+  recoverHistoricalState,
   taskIsForTodayHub,
   taskIsVisibleOnBoard,
   timelineEventIsForDate,
@@ -42,6 +44,18 @@ const next = createNextDailyState(previous, '2026-08-22');
 assert.equal(next.timeline.length, 0, 'a new day must start with an empty timeline');
 assert.equal(timelineEventIsForDate(previous.timeline[0], '2026-08-22', previous.date), false, 'yesterday must not leak into today Timeline');
 assert.equal(timelineEventIsForDate(previous.timeline[0], '2026-08-21', previous.date), true, 'the archived calendar date must still show its Timeline');
+
+const restoredLiveState = createFreshDailyState('2026-08-22');
+restoredLiveState.timeline = [{ id: 'restored-yesterday', date: '2026-08-21', time: '22:15', type: 'UPDATE', description: 'Restored yesterday log' }];
+const recoveredYesterday = recoverHistoricalState('2026-08-21', restoredLiveState, null);
+assert.equal(recoveredYesterday.hasRecords, true, 'dated JSON-restored records must make the historical date available');
+assert.equal(recoveredYesterday.recoveredFromLiveState, true);
+assert.equal(recoveredYesterday.state.timeline[0]?.description, 'Restored yesterday log');
+
+const backupHistoryDay = createFreshDailyState('2026-08-20');
+backupHistoryDay.timeline = [{ id: 'backup-event', date: '2026-08-20', time: '19:00', type: 'UPDATE', description: 'Restored from backup history' }];
+assert.equal(mergeImportedDailyHistory({ '2026-08-20': backupHistoryDay }), 1, 'backup history must be imported');
+assert.equal(getDailySnapshot('2026-08-20')?.timeline[0]?.description, 'Restored from backup history');
 assert.equal(next.tasks.find((task) => task.id === 'old-active')?.status, 'NEXT', 'active work carries as pending');
 assert.equal(next.tasks.some((task) => task.id === 'old-done'), false, 'completed yesterday tasks stay archived');
 assert.equal(next.tasks.find((task) => task.id === 'daily-2026-08-22')?.date, '2026-08-22', 'recurring work gets a new dated task');

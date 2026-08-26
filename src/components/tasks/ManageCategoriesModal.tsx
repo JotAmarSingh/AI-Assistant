@@ -23,7 +23,7 @@ export const ManageCategoriesModal: React.FC<ManageCategoriesModalProps> = ({ on
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#070A10]/80 backdrop-blur-md p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#070A10]/80 backdrop-blur-md p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[28px] border border-[#00F0FF]/40 bg-[#0D1527] p-5 shadow-2xl space-y-4" onClick={(event) => event.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#00F0FF]/30 pb-3">

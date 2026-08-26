@@ -45,7 +45,10 @@ import {
   createEmptyHistoricalState,
   createNextDailyState,
   getDailySnapshot,
+  mergeImportedDailyHistory,
   normalizeDailyStateDates,
+  readDailyHistory,
+  recoverHistoricalState,
   saveDailySnapshot,
   toLocalDateKey,
 } from '../utils/dailyHistory';
@@ -163,7 +166,7 @@ interface DayContextType {
   recordCustomRoutine: (id: string, label: string, prompt: string) => void;
   resetLearnedShortcuts: () => void;
   taskCategories: TaskCategoryDefinition[];
-  createTaskCategory: (label: string, color: string, icon: string) => void;
+  createTaskCategory: (label: string, color: string, icon: string) => string | null;
   updateTaskCategory: (id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => void;
   deleteTaskCategory: (id: string, reassignToId: string) => void;
   saveCurrentLocation: (label: string, duplicateMode?: 'UPDATE' | 'CREATE') => Promise<string>;
@@ -353,13 +356,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedDate(normalizedDate);
     setHistoricalDateMessage(null);
     const localSnapshot = getDailySnapshot(normalizedDate);
-    if (localSnapshot) {
-      setHistoricalState(localSnapshot);
-      return;
-    }
-
-    setHistoricalState(createEmptyHistoricalState(normalizedDate, stateRef.current));
-    setHistoricalDateMessage((current) => current || 'No saved records found for this date');
+    const recovered = recoverHistoricalState(normalizedDate, stateRef.current, localSnapshot);
+    setHistoricalState(recovered.state);
+    if (recovered.recoveredFromLiveState) saveDailySnapshot(recovered.state);
+    setHistoricalDateMessage(recovered.hasRecords ? null : 'No saved records found for this date');
   }, []);
 
   const isViewingToday = selectedDate === state.date;
@@ -2996,13 +2996,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createTaskCategory = useCallback((label: string, color: string, icon: string) => {
     const cleanLabel = label.trim();
-    if (!cleanLabel) return;
+    if (!cleanLabel) return null;
     const exists = (stateRef.current.taskCategories || []).some(
       (item) => item.label.toLowerCase() === cleanLabel.toLowerCase(),
     );
     if (exists) {
       setNotificationToast(`A category named “${cleanLabel}” already exists.`);
-      return;
+      return null;
     }
     const now = new Date().toISOString();
     const item: TaskCategoryDefinition = {
@@ -3015,6 +3015,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setState((prev) => ({ ...prev, taskCategories: [...(prev.taskCategories || []), item] }));
     setNotificationToast(`Created category “${cleanLabel}”.`);
+    return item.id;
   }, []);
 
   const updateTaskCategory = useCallback((id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => {
@@ -3230,16 +3231,21 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const exportDataJSON = useCallback(() => {
-    return JSON.stringify(state, null, 2);
+    return JSON.stringify({
+      ...state,
+      dailyHistory: readDailyHistory(),
+    }, null, 2);
   }, [state]);
 
   const importDataJSON = useCallback((jsonStr: string): boolean => {
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed && Array.isArray(parsed.tasks)) {
+        mergeImportedDailyHistory(parsed.dailyHistory);
+        const { dailyHistory: _archivedDays, ...parsedState } = parsed;
         const imported = migrateDailyState({
           ...createFreshDailyState(),
-          ...parsed,
+          ...parsedState,
         }).state;
         setState((current) => migrateDailyState({
           ...imported,

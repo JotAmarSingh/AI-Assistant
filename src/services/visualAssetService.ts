@@ -25,7 +25,13 @@ interface PendingVisualAsset extends GeneratedVisualRequest {
 const DB_NAME = 'daytrace-visual-assets';
 const STORE_NAME = 'assets';
 const DB_VERSION = 1;
-const IMAGE_MODEL = 'gemini-2.5-flash-image';
+export const IMAGE_MODELS = [
+  'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image',
+  'gemini-2.5-flash-image',
+] as const;
+const VISUAL_MODEL_REVISION = 'nano-banana-2-2026-08';
+const VISUAL_MODEL_REVISION_KEY = 'daytrace_visual_model_revision_v1';
 const PENDING_QUEUE_KEY = 'daytrace_pending_visuals_v1';
 const COMPLETED_KEYS_KEY = 'daytrace_completed_visual_keys_v1';
 export const VISUAL_READY_EVENT = 'daytrace-visual-ready';
@@ -153,27 +159,35 @@ const generateVisual = async (
   details: string[],
 ): Promise<string | null> => {
   if (!getStoredGeminiApiKey() || (typeof navigator !== 'undefined' && !navigator.onLine)) return null;
-  try {
-    const ai = getGeminiClient();
-    const request = ai.models.generateContent({
-      model: IMAGE_MODEL,
-      contents: buildPrompt(kind, subject, details),
-      config: { responseModalities: ['TEXT', 'IMAGE'] },
-    } as any);
-    const response: any = await Promise.race([
-      request,
-      new Promise((_, reject) => window.setTimeout(() => reject(new Error('Visual generation timed out')), 60_000)),
-    ]);
-    const parts = response?.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find((part: any) => part?.inlineData?.data && part?.inlineData?.mimeType?.startsWith('image/'));
-    if (!imagePart) return null;
-    const dataUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-    await persistGeneratedVisual({ key, kind, dataUrl, createdAt: new Date().toISOString() });
-    return dataUrl;
-  } catch (error) {
-    console.warn(`DayTrace ${kind.toLowerCase()} generation unavailable; using local fallback.`, error);
-    return null;
+  const ai = getGeminiClient();
+  const prompt = buildPrompt(kind, subject, details);
+  let lastError: unknown = null;
+  for (const model of IMAGE_MODELS) {
+    try {
+      const request = ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
+      } as any);
+      const response: any = await Promise.race([
+        request,
+        new Promise((_, reject) => globalThis.setTimeout(() => reject(new Error(`${model} timed out`)), 60_000)),
+      ]);
+      const parts = response?.candidates?.[0]?.content?.parts || [];
+      const imagePart = parts.find((part: any) => part?.inlineData?.data && part?.inlineData?.mimeType?.startsWith('image/'));
+      if (!imagePart) {
+        lastError = new Error(`${model} returned no image`);
+        continue;
+      }
+      const dataUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+      await persistGeneratedVisual({ key, kind, dataUrl, createdAt: new Date().toISOString() });
+      return dataUrl;
+    } catch (error) {
+      lastError = error;
+    }
   }
+  console.warn(`DayTrace ${kind.toLowerCase()} generation unavailable; using local fallback.`, lastError);
+  return null;
 };
 
 const readPendingQueue = (): PendingVisualAsset[] => {
@@ -197,6 +211,14 @@ const readPendingQueue = (): PendingVisualAsset[] => {
 const writePendingQueue = (queue: PendingVisualAsset[]) => {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(queue.slice(0, 300)));
+};
+
+const revivePendingVisuals = () => {
+  writePendingQueue(readPendingQueue().map((request) => ({
+    ...request,
+    attempts: 0,
+    nextAttemptAt: 0,
+  })));
 };
 
 const toPendingRequest = (request: GeneratedVisualRequest): PendingVisualAsset => {
@@ -321,9 +343,12 @@ export const queueGeneratedVisuals = (requests: GeneratedVisualRequest[]): void 
 const ensureVisualLifecycleListeners = () => {
   if (lifecycleListenersInstalled || typeof window === 'undefined') return;
   lifecycleListenersInstalled = true;
-  const resume = () => void resumePendingVisualGeneration();
-  window.addEventListener('online', resume);
-  window.addEventListener('daytrace-online-ai-ready', resume);
+  const reviveAndResume = () => {
+    revivePendingVisuals();
+    void resumePendingVisualGeneration();
+  };
+  window.addEventListener('online', reviveAndResume);
+  window.addEventListener('daytrace-online-ai-ready', reviveAndResume);
 };
 
 /**
@@ -352,5 +377,9 @@ export const getOrCreateGeneratedVisual = async (
   return generated;
 };
 
+if (typeof localStorage !== 'undefined' && localStorage.getItem(VISUAL_MODEL_REVISION_KEY) !== VISUAL_MODEL_REVISION) {
+  revivePendingVisuals();
+  localStorage.setItem(VISUAL_MODEL_REVISION_KEY, VISUAL_MODEL_REVISION);
+}
 ensureVisualLifecycleListeners();
 if (typeof window !== 'undefined') window.setTimeout(() => void resumePendingVisualGeneration(), 0);

@@ -1,7 +1,11 @@
-# DayTrace 1.4.4 delivery notes
+# DayTrace 1.4.5 delivery notes
 
 ## Fixed
 
+- Replaced Android's oversized native date dialog with a compact DayTrace calendar and removed splash artwork from native dialog backgrounds.
+- Added visible category management in the Tasks header and a direct New-category action inside task creation.
+- Calendar history now recovers dated records from older JSON backups, and new backups include every archived day.
+- Pending task and category artwork retries immediately after reconnecting with Nano Banana 2, Nano Banana 2 Lite, and legacy image-model fallback.
 - Present-status check-ins such as “I am still on the bed” are now logged to Timeline without creating a task or reminder, including on Pixels with on-device AI available.
 - Timeline rows are strictly filtered by the selected calendar date: today starts clean, while archived entries remain visible only after selecting their date.
 - Offline-created tasks, timeline logs, timetable entries, and task categories now enter a durable, de-duplicated visual queue. Missing Gemini vector stickers/islands resume automatically when the saved API key and connectivity are available, without opening each tab again.
@@ -52,7 +56,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.4 (2026082601), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.5 (2026082602), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.

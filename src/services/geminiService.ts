@@ -555,10 +555,11 @@ Supported local actions:
 Rules:
 1. A single message may require multiple actions. Return all of them in spoken order.
 2. Do not turn a requested action into a generic acknowledgement or follow-up discussion.
-3. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
-4. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
-5. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.
-6. Treat context as read-only. Use only the minimum relevant items and never invent app capabilities or permissions.
+3. A present/past personal status such as “I am still on the bed”, “I am at my desk”, or “I am working” is LOG_ACTIVITY only. Never CREATE_TASK unless the user expresses a future commitment or explicitly asks for a task.
+4. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
+5. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
+6. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.
+7. Treat context as read-only. Use only the minimum relevant items and never invent app capabilities or permissions.
 
 JSON shape:
 {"intentSummary":"short summary","actions":[{"type":"ACTION_TYPE","label":"...","description":"...","title":"...","category":"...","priority":7,"scheduledAt":"...","reminderMessage":"...","triggerType":"GEOFENCE_EXIT","locationReference":"CURRENT","locationName":"...","taskReference":"...","fact":"...","memoryCategory":"GENERAL"}],"clarification":"optional required question","clarificationOptions":["optional concise choice"]}

@@ -1,7 +1,9 @@
-# DayTrace 1.4.3 delivery notes
+# DayTrace 1.4.4 delivery notes
 
 ## Fixed
 
+- Present-status check-ins such as “I am still on the bed” are now logged to Timeline without creating a task or reminder, including on Pixels with on-device AI available.
+- Timeline rows are strictly filtered by the selected calendar date: today starts clean, while archived entries remain visible only after selecting their date.
 - Offline-created tasks, timeline logs, timetable entries, and task categories now enter a durable, de-duplicated visual queue. Missing Gemini vector stickers/islands resume automatically when the saved API key and connectivity are available, without opening each tab again.
 - Location-triggered errand commands are executed by DayTrace before conversational AI. Words such as “medicine” in the reminder message no longer turn the command into medical advice.
 - “My current location” and “here” resolve to the live/saved place instead of silently defaulting to Office; DayTrace verifies background location access before activating a native enter/exit geofence.
@@ -50,7 +52,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.3 (2026082508), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.4 (2026082601), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.

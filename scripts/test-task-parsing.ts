@@ -86,6 +86,14 @@ const workingLog = parseVoiceAutomations(workingInput, state1, '18:25');
 assert.equal(workingLog.timelineLogs.length, 1);
 assert.equal(workingLog.timelineLogs[0].description, 'Working on app development');
 
+const bedStatusInput = 'I am still on the bed';
+assert.equal(classifyUserIntent(bedStatusInput, state1).type, 'OTHER');
+const bedStatusLog = parseVoiceAutomations(bedStatusInput, state1, '08:15');
+assert.equal(bedStatusLog.timelineLogs.length, 1, 'A passive personal status belongs in Timeline');
+assert.equal(bedStatusLog.timelineLogs[0].description, 'Still on the bed');
+const bedStatusOfflineResult = parseOfflineUserInput(bedStatusInput, state1, '08:15');
+assert.equal(bedStatusOfflineResult.extractedStateUpdate.newTasks?.length || 0, 0, 'A passive status must never create a task');
+
 const compoundDeskCheckIn = 'I am at my desk. Please mark this location as desk. And I am currently working on a product prototype and demo project.';
 assert.equal(classifyUserIntent(compoundDeskCheckIn, state1).type, 'SAVE_CURRENT_LOCATION');
 assert.equal(extractSaveCurrentLocationIntent(compoundDeskCheckIn)?.label, 'desk');

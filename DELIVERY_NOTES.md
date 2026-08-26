@@ -1,7 +1,9 @@
-# DayTrace 1.4.5 delivery notes
+# DayTrace 1.4.6 delivery notes
 
 ## Fixed
 
+- Free-text replies to the periodic accountability prompt now use DayTrace intent parsing instead of always creating an active task; past/present updates such as “logged in after lunch”, “returned from break”, and “resumed work” are Timeline-only.
+- Tapping a real suggested task still starts that task directly, while reminder directives and future commitments retain their existing action behavior.
 - Replaced Android's oversized native date dialog with a compact DayTrace calendar and removed splash artwork from native dialog backgrounds.
 - Added visible category management in the Tasks header and a direct New-category action inside task creation.
 - Calendar history now recovers dated records from older JSON backups, and new backups include every archived day.
@@ -56,7 +58,7 @@
 
 - Replaced the home-screen bot WebP with an asset-free animated energy orb with idle, listening, thinking, speaking, alert, and reduced-motion states.
 - Removed the legacy Sheets/cloud-sync implementation, OAuth dependencies, background worker, configuration, and UI. Local JSON export/restore is the only backup path.
-- Upgraded Android version to 1.4.5 (2026082602), preserving package \`com.amarsingh.daytrace\`.
+- Upgraded Android version to 1.4.6 (2026082603), preserving package \`com.amarsingh.daytrace\`.
 - Rebuilt Timetable, Task Islands, category task details, Timeline, Meetings, Anchors, and Settings around real user records; fresh installs now show honest empty states with no sample schedules, categories, timeline events, XP, streaks, or claimable rewards.
 - Added horizontal swipe navigation across the six production tabs, animated water/island scenes, cached Gemini-generated category islands and per-task vector stickers, and working task complete/reopen/start/edit/delete/checklist controls.
 - Fixed natural activity check-ins such as “I’m working on app development” so Accountability mode creates an active task and a visible timeline event.

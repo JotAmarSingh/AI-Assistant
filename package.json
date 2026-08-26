@@ -1,7 +1,7 @@
 {
   "name": "daytrace",
   "private": true,
-  "version": "1.4.5",
+  "version": "1.4.6",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -16,13 +16,14 @@
     "test:multi-triggers": "node --import tsx scripts/test-multi-trigger-parser.ts",
     "test:meetings": "node --import tsx scripts/test-meeting-processor.ts",
     "test:task-parsing": "node --import tsx scripts/test-task-parsing.ts",
+    "test:prompt-checkins": "node --import tsx scripts/test-prompt-checkins.ts",
     "test:ai-context": "node --import tsx scripts/test-ai-context.ts",
     "test:ai-routing": "node --import tsx scripts/test-ai-routing.ts",
     "test:accountability": "node --import tsx scripts/test-accountability-engine.ts",
     "test:release-ui": "node --import tsx scripts/test-release-ui-structure.ts",
     "test:view-runtime": "node --import tsx scripts/test-view-runtime.tsx",
     "test:visual-queue": "node --import tsx scripts/test-visual-queue.ts",
-    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing && npm run test:ai-context && npm run test:ai-routing && npm run test:visual-queue && npm run test:accountability && npm run test:release-ui && npm run test:view-runtime"
+    "test": "npm run lint && npm run test:native-accountability && npm run test:day-history && npm run test:state-migrations && npm run test:multi-triggers && npm run test:meetings && npm run test:task-parsing && npm run test:prompt-checkins && npm run test:ai-context && npm run test:ai-routing && npm run test:visual-queue && npm run test:accountability && npm run test:release-ui && npm run test:view-runtime"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

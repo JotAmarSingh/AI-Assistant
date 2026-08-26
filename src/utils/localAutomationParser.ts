@@ -27,6 +27,23 @@ export interface ActivitySegment {
   source: EventSource;
 }
 
+/** True only for unambiguous past/present check-ins, never future commitments. */
+export const isDirectActivityCheckInStatement = (text: string): boolean => {
+  const lower = text.toLowerCase().trim();
+  const isPresentStatus = /^(?:i(?:'m| am)\s+(?:still\s+)?(?:at|in|on|inside|outside|resting|sitting|lying|waiting|relaxing|sleeping|awake|working|doing|editing|writing|reviewing|building|developing|travelling|traveling|driving|eating|drinking|feeling)\b|i\s+(?:feel|felt)\b)/i.test(lower);
+  const isCompletedOrResumed = /^(?:(?:i\s+)?(?:just\s+)?(?:logged|signed|checked)\s+in\b|(?:i\s+)?(?:just\s+)?(?:came|got|arrived|returned)\s+(?:back\b|from\b|to\b|at\b)|(?:i\s+)?(?:just\s+)?(?:resumed|restarted|continued)\b|back\s+(?:from|after|at|in)\b|(?:lunch|break|meeting|call)\s+(?:done|finished|over)\b)/i.test(lower);
+  return lower.startsWith('i was')
+    || lower.startsWith("i've been")
+    || lower.startsWith('i have been')
+    || lower.startsWith("i'm working on")
+    || lower.startsWith('i am working on')
+    || lower.startsWith('just')
+    || lower.startsWith('working on')
+    || lower.startsWith('driving')
+    || isPresentStatus
+    || isCompletedOrResumed;
+};
+
 /**
  * Normalizes location names to standard or saved places
  */
@@ -88,6 +105,24 @@ export function parseVoiceAutomations(
       timelineLogs: [],
       summaryText: '',
     };
+  }
+
+  // A check-in can contain trigger-like words such as “after lunch” without
+  // requesting an automation. Resolve explicit past/present activity before
+  // interpreting contextual trigger phrases, unless the user actually asks
+  // to remind, notify, alert, schedule, or set an alarm.
+  const hasAutomationDirective = /\b(?:remind|notify|alert|schedule|set\s+(?:an?\s+)?alarm)\b/i.test(rawInput);
+  if (!hasAutomationDirective && isDirectActivityCheckInStatement(rawInput)) {
+    const directTimelineLogs = parseActivityLogUtterance(rawInput, now);
+    if (directTimelineLogs.length > 0) {
+      const summaryItems = directTimelineLogs.map((log) => `${log.time}: ${log.description}`).join('. ');
+      return {
+        isAutomation: false,
+        automations: [],
+        timelineLogs: directTimelineLogs,
+        summaryText: `Added to timeline: ${summaryItems}`,
+      };
+    }
   }
 
   // Split compound commands by connectors
@@ -615,18 +650,7 @@ export function parseActivityLogUtterance(
   // Accountability mode these are check-ins, never future tasks. Resolving this
   // deterministically also prevents an available on-device model from turning
   // a passive status into a commitment the user never made.
-  const isPresentStatusCheckIn = /^(?:i(?:'m| am)\s+(?:still\s+)?(?:at|in|on|inside|outside|resting|sitting|lying|waiting|relaxing|sleeping|awake|working|doing|editing|writing|reviewing|building|developing|travelling|traveling|driving|eating|drinking|feeling)\b|i\s+(?:feel|felt)\b)/i.test(lower);
-  if (
-    lower.startsWith('i was') ||
-    lower.startsWith("i've been") ||
-    lower.startsWith('i have been') ||
-    lower.startsWith("i'm working on") ||
-    lower.startsWith('i am working on') ||
-    lower.startsWith('just') ||
-    lower.startsWith('working on') ||
-    lower.startsWith('driving') ||
-    isPresentStatusCheckIn
-  ) {
+  if (isDirectActivityCheckInStatement(text)) {
     let act = text
       .replace(/^(i was|i've been|i have been|i'm|i am|just)\s+/i, '')
       .replace(/[.!?]+$/, '')

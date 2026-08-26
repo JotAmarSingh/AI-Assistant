@@ -7,6 +7,7 @@ const navigation = read('src/components/android/AndroidNavigationBar.tsx');
 const topBar = read('src/components/android/AndroidTopAppBar.tsx');
 const compactDateBrowser = read('src/components/android/CompactDateBrowser.tsx');
 const app = read('src/App.tsx');
+const periodicPrompt = read('src/components/android/PeriodicPromptModal.tsx');
 const settings = read('src/components/views/SettingsView.tsx');
 const anchors = read('src/components/views/RemindersAnchorsView.tsx');
 const hub = read('src/components/views/GeminiLiveHubView.tsx');
@@ -57,6 +58,8 @@ for (const label of ['Fixed-Time Planning Anchors', 'Voice Automations & Trigger
 }
 
 assert(app.includes('<FirstRunPermissionsModal />'), 'first-run permission setup must be mounted');
+assert(periodicPrompt.includes('await processUserInput(text)') && periodicPrompt.includes('recordPeriodicPromptCompletion()'), 'free-text accountability replies must use intent parsing and complete the prompt');
+assert(!periodicPrompt.includes('startAccountabilityTask({ title: logText.trim() })'), 'free-text accountability replies must never be forced into tasks');
 for (const permission of ['POST_NOTIFICATIONS', 'SCHEDULE_EXACT_ALARM', 'RECEIVE_BOOT_COMPLETED', 'ACCESS_BACKGROUND_LOCATION', 'RECORD_AUDIO']) {
   assert(manifest.includes(permission), `Android manifest is missing ${permission}`);
 }

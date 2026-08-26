@@ -555,7 +555,7 @@ Supported local actions:
 Rules:
 1. A single message may require multiple actions. Return all of them in spoken order.
 2. Do not turn a requested action into a generic acknowledgement or follow-up discussion.
-3. A present/past personal status such as “I am still on the bed”, “I am at my desk”, or “I am working” is LOG_ACTIVITY only. Never CREATE_TASK unless the user expresses a future commitment or explicitly asks for a task.
+3. A present/past personal status such as “I am still on the bed”, “I am at my desk”, “I am working”, “logged in after lunch”, “returned from break”, or “resumed work” is LOG_ACTIVITY only. Never CREATE_TASK unless the user expresses a future commitment or explicitly asks for a task.
 4. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
 5. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
 6. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.

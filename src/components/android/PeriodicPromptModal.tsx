@@ -60,7 +60,9 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
 
     setIsSubmitting(true);
     try {
-      startAccountabilityTask({ title: logText.trim() });
+      const text = logText.trim();
+      await processUserInput(text);
+      recordPeriodicPromptCompletion();
       setLogText('');
       onClose();
     } catch (err) {
@@ -129,7 +131,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
           {/* Prompt Message */}
           <div className="space-y-1.5">
             <p className="text-sm font-semibold text-[#E2E2E6] leading-snug">
-              What task are you working on right now?
+              What are you doing, or what just happened?
             </p>
             <p className="text-xs text-[#C4C6D0]/70 leading-relaxed">
               Log your current activity to maintain an accurate timeline. This prompt recurs every {state.userSettings?.periodicPromptIntervalMinutes || 30} minutes until sleep time.
@@ -196,7 +198,7 @@ export const PeriodicPromptModal: React.FC<PeriodicPromptModalProps> = ({ isOpen
                 type="text"
                 value={logText}
                 onChange={(e) => setLogText(e.target.value)}
-                placeholder="Add a new task and start it..."
+                placeholder="Log an update or describe your current work..."
                 autoFocus
                 disabled={isSubmitting || isProcessing}
                 className="w-full py-3 pl-3.5 pr-11 rounded-2xl bg-[#111318] border border-[#44474E]/50 text-xs text-[#E2E2E6] placeholder-[#C4C6D0]/40 focus:ring-2 focus:ring-[#D1E1FF] focus:outline-none"

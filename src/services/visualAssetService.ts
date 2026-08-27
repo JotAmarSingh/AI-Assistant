@@ -64,10 +64,11 @@ const DB_NAME = 'daytrace-visual-assets';
 const STORE_NAME = 'assets';
 const DB_VERSION = 1;
 export const IMAGE_MODELS = [
+  'gemini-3.1-flash-lite-image',
   'gemini-2.5-flash-image',
   'gemini-3.1-flash-image',
 ] as const;
-const VISUAL_MODEL_REVISION = 'ai-studio-free-tier-image-first-2026-08';
+const VISUAL_MODEL_REVISION = 'image-access-aware-model-set-2026-08';
 const VISUAL_MODEL_REVISION_KEY = 'daytrace_visual_model_revision_v1';
 const PENDING_QUEUE_KEY = 'daytrace_pending_visuals_v1';
 const COMPLETED_KEYS_KEY = 'daytrace_completed_visual_keys_v1';
@@ -242,21 +243,27 @@ export const classifyVisualGenerationError = (
   const rawMessage = error instanceof Error ? error.message : String(error || '');
   const message = rawMessage.toLowerCase();
 
+  const hasZeroImageQuota = (
+    /(free[_ -]?tier|image generation|generate_content)/.test(message)
+    && /(limit(?:ed)?(?:\s*(?:is|:|=))?\s*0|quota[^.]*0)/.test(message)
+  ) || /free tier.*not available|not available.*free tier/.test(message);
+
+  if (
+    status === 403
+    || hasZeroImageQuota
+    || /billing|paid tier|payment required|permission denied|does not have access|image generation is not enabled/.test(message)
+  ) {
+    return {
+      code: 'IMAGE_ACCESS_REQUIRED',
+      message: 'Text AI is connected, but this Gemini key/project has no image-generation API quota. Enable a supported billed Gemini project to generate custom artwork; DayTrace will keep task-specific local artwork and retain the generated-icon queue.',
+      retryAfter: now + 24 * 60 * 60_000,
+    };
+  }
   if (status === 429 || /rate.?limit|resource_exhausted|too many requests|daily request limit/.test(message)) {
     return {
       code: 'RATE_LIMITED',
       message: 'Gemini image quota is temporarily exhausted. The icons remain queued and will retry automatically.',
       retryAfter: now + 15 * 60_000,
-    };
-  }
-  if (
-    status === 403
-    || /billing|paid tier|payment required|permission denied|does not have access|image generation is not enabled/.test(message)
-  ) {
-    return {
-      code: 'IMAGE_ACCESS_REQUIRED',
-      message: 'Text AI is connected, but this Gemini project/key did not authorize image generation. DayTrace will keep task-specific local artwork and retain the generated-icon queue.',
-      retryAfter: now + 6 * 60 * 60_000,
     };
   }
   if (status === 401 || /api key not valid|invalid api key|unauthenticated/.test(message)) {

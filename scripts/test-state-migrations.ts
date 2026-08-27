@@ -65,4 +65,35 @@ const legacyStarterRewards = migrateDailyState({
 assert.equal(legacyStarterRewards.state.gamification?.points, 0, 'legacy starter XP must not survive migration');
 assert.equal(legacyStarterRewards.state.gamification?.currentStreakDays, 0, 'legacy starter streak must not survive migration');
 
+const misroutedPendingCheckIn = migrateDailyState({
+  ...fresh,
+  schemaVersion: 9,
+  date: '2026-08-27',
+  memories: [
+    {
+      id: 'memory-arrival',
+      category: 'GENERAL',
+      fact: 'Just reached office',
+      source: 'AI_AGENT_PENDING',
+      status: 'PENDING',
+      createdAt: new Date('2026-08-27T09:06:00+05:30').getTime(),
+    },
+    {
+      id: 'memory-unclassified-note',
+      category: 'GENERAL',
+      fact: 'The first example is more important than the second',
+      source: 'AI_AGENT_PENDING',
+      status: 'PENDING',
+      createdAt: new Date('2026-08-27T09:07:00+05:30').getTime(),
+    },
+  ],
+});
+assert.equal(misroutedPendingCheckIn.state.memories?.some((memory) => memory.id === 'memory-arrival'), false);
+assert.equal(misroutedPendingCheckIn.state.memories?.some((memory) => memory.id === 'memory-unclassified-note'), true);
+assert.equal(
+  misroutedPendingCheckIn.state.timeline.some((event) => event.description === 'Just reached office'),
+  true,
+  'A status previously misrouted to pending memory must be recovered into Timeline once',
+);
+
 console.log('state migrations: passed');

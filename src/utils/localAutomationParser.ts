@@ -2,6 +2,9 @@ import { Automation, DailyState, GeofenceLocation, TimelineEvent, EventSource } 
 import { extractExplicitTime } from './offlineParser';
 import { classifyUserIntent, extractCompoundCheckInIntent } from './intentClassifier';
 import { detectContextEvent } from './accountabilityEngine';
+import { isDirectActivityCheckInStatement } from './activityIntent';
+
+export { isDirectActivityCheckInStatement } from './activityIntent';
 
 export interface ParsedAutomationResult {
   isAutomation: boolean;
@@ -26,23 +29,6 @@ export interface ActivitySegment {
   category?: string;
   source: EventSource;
 }
-
-/** True only for unambiguous past/present check-ins, never future commitments. */
-export const isDirectActivityCheckInStatement = (text: string): boolean => {
-  const lower = text.toLowerCase().trim();
-  const isPresentStatus = /^(?:i(?:'m| am)\s+(?:still\s+)?(?:at|in|on|inside|outside|resting|sitting|lying|waiting|relaxing|sleeping|awake|working|doing|editing|writing|reviewing|building|developing|travelling|traveling|driving|eating|drinking|feeling)\b|i\s+(?:feel|felt)\b)/i.test(lower);
-  const isCompletedOrResumed = /^(?:(?:i\s+)?(?:just\s+)?(?:logged|signed|checked)\s+in\b|(?:i\s+)?(?:just\s+)?(?:came|got|arrived|returned)\s+(?:back\b|from\b|to\b|at\b)|(?:i\s+)?(?:just\s+)?(?:resumed|restarted|continued)\b|back\s+(?:from|after|at|in)\b|(?:lunch|break|meeting|call)\s+(?:done|finished|over)\b)/i.test(lower);
-  return lower.startsWith('i was')
-    || lower.startsWith("i've been")
-    || lower.startsWith('i have been')
-    || lower.startsWith("i'm working on")
-    || lower.startsWith('i am working on')
-    || lower.startsWith('just')
-    || lower.startsWith('working on')
-    || lower.startsWith('driving')
-    || isPresentStatus
-    || isCompletedOrResumed;
-};
 
 /**
  * Normalizes location names to standard or saved places

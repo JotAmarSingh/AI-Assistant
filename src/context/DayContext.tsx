@@ -2340,9 +2340,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const id = `memory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
     setState((prev) => {
-      const existing = (prev.memories || []).find(
-        (item) => item.fact.trim().toLowerCase() === normalized.toLowerCase(),
-      );
+      // Offline inbox entries are events, not durable facts. The same sentence
+      // may be valid on different days, so only normal memories are de-duplicated.
+      const existing = options.source === 'OFFLINE_AI_INBOX'
+        ? undefined
+        : (prev.memories || []).find(
+            (item) => item.fact.trim().toLowerCase() === normalized.toLowerCase(),
+          );
       if (existing) {
         return {
           ...prev,

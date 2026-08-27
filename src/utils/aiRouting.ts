@@ -1,3 +1,5 @@
+import { isDirectActivityCheckInStatement } from './activityIntent';
+
 export type AIAgentRoute =
   | 'LOCAL_ACTION'
   | 'LOCAL_QUERY'
@@ -74,7 +76,7 @@ export const shouldUseCloudActionPlanner = (input: string): boolean => {
   const hasExplicitCommand = LOCAL_ACTION_PREFIX.test(text)
     || MAKE_LOCAL_ACTION.test(text)
     || /\b(?:please|can you|could you|would you)\b/i.test(text);
-  const hasPersonalStatus = PERSONAL_ACTIVITY.test(text)
+  const hasPersonalStatus = isDirectActivityCheckInStatement(text)
     || /\b(?:i(?:'m| am| was)|we(?:'re| are| were))\b/i.test(text);
   if (clauses.length >= 2 && (hasExplicitCommand || hasPersonalStatus)) return true;
   return POLITE_LOCAL_ACTION.test(text)
@@ -98,7 +100,13 @@ export const classifyAIAgentRoute = (
 
   // Personal status/activity statements keep their explicit local meaning even
   // when an unrelated cloud conversation happened recently.
-  if (LOCAL_ACTION_PREFIX.test(lower) || POLITE_LOCAL_ACTION.test(lower) || MAKE_LOCAL_ACTION.test(lower) || PERSONAL_ACTIVITY.test(lower)) return 'LOCAL_ACTION';
+  if (
+    LOCAL_ACTION_PREFIX.test(lower)
+    || POLITE_LOCAL_ACTION.test(lower)
+    || MAKE_LOCAL_ACTION.test(lower)
+    || PERSONAL_ACTIVITY.test(lower)
+    || isDirectActivityCheckInStatement(text)
+  ) return 'LOCAL_ACTION';
 
   // Corrections take precedence over the default statement logger. This is the
   // exact boundary that prevents “No, it is Rakhi” becoming a timeline entry.

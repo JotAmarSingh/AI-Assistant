@@ -1,7 +1,7 @@
 import { DailyState, GeofenceLocation, TaskCategoryDefinition } from '../types';
 import { INITIAL_GAMIFICATION_STATE } from '../services/rewardsCatalog';
 
-export const CURRENT_STATE_SCHEMA_VERSION = 9;
+export const CURRENT_STATE_SCHEMA_VERSION = 10;
 export const UNCATEGORISED_CATEGORY_ID = 'UNCATEGORISED';
 
 const category = (

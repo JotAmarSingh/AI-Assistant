@@ -86,8 +86,17 @@ const workingLog = parseVoiceAutomations(workingInput, state1, '18:25');
 assert.equal(workingLog.timelineLogs.length, 1);
 assert.equal(workingLog.timelineLogs[0].description, 'Working on app development');
 
+const reachedOfficeLog = parseVoiceAutomations('Just reached office', state1, '09:06');
+assert.equal(reachedOfficeLog.timelineLogs.length, 1, 'A concise arrival belongs in Timeline');
+assert.equal(reachedOfficeLog.timelineLogs[0].description, 'Reached office');
+
+const temporalNarrative = 'Last night I slept over the desk now I am ready I am leaving for my house and then from there I will have some food and leave for my office';
+const temporalNarrativeLog = parseVoiceAutomations(temporalNarrative, state1, '09:06');
+assert.equal(temporalNarrativeLog.timelineLogs.length, 1, 'A time-prefixed personal update belongs in Timeline');
+assert.equal(temporalNarrativeLog.automations.length, 0, 'A check-in without an explicit reminder must not create an automation');
+
 const bedStatusInput = 'I am still on the bed';
-assert.equal(classifyUserIntent(bedStatusInput, state1).type, 'OTHER');
+assert.equal(classifyUserIntent(bedStatusInput, state1).type, 'LOG_ACTIVITY');
 const bedStatusLog = parseVoiceAutomations(bedStatusInput, state1, '08:15');
 assert.equal(bedStatusLog.timelineLogs.length, 1, 'A passive personal status belongs in Timeline');
 assert.equal(bedStatusLog.timelineLogs[0].description, 'Still on the bed');

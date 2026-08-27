@@ -16,9 +16,9 @@ Object.defineProperty(globalThis, 'localStorage', {
 const { classifyVisualGenerationError, IMAGE_MODELS, queueGeneratedVisuals } = await import('../src/services/visualAssetService');
 const { resolveLocalVisualConcept } = await import('../src/utils/visualFallback');
 
-assert.equal(IMAGE_MODELS[0], 'gemini-2.5-flash-image', 'AI Studio free-tier compatible image generation must be attempted first');
-assert(IMAGE_MODELS.includes('gemini-3.1-flash-image'), 'newer image fallback must remain for compatible keys');
-assert(!IMAGE_MODELS.some((model) => model.includes('flash-lite-image')), 'non-existent image model identifiers must never consume a request');
+assert.equal(IMAGE_MODELS[0], 'gemini-3.1-flash-lite-image', 'the current cost-efficient native image model must be attempted first');
+assert(IMAGE_MODELS.includes('gemini-2.5-flash-image'), 'Nano Banana must remain as a compatible image fallback');
+assert(IMAGE_MODELS.includes('gemini-3.1-flash-image'), 'Nano Banana 2 must remain as a compatible image fallback');
 
 const rateLimit = classifyVisualGenerationError(Object.assign(new Error('RESOURCE_EXHAUSTED: daily request limit'), { status: 429 }), 1_000);
 assert.equal(rateLimit.code, 'RATE_LIMITED');
@@ -26,6 +26,9 @@ assert(rateLimit.retryAfter > 1_000, 'rate-limited artwork must receive a future
 
 const imageAccess = classifyVisualGenerationError(Object.assign(new Error('Permission denied for image generation'), { status: 403 }), 1_000);
 assert.equal(imageAccess.code, 'IMAGE_ACCESS_REQUIRED');
+
+const zeroFreeQuota = classifyVisualGenerationError(Object.assign(new Error('RESOURCE_EXHAUSTED: generate_content_free_tier_requests limit: 0'), { status: 429 }), 1_000);
+assert.equal(zeroFreeQuota.code, 'IMAGE_ACCESS_REQUIRED', 'a zero free-tier image quota is an access requirement, not a temporary rate limit');
 
 const medicine = resolveLocalVisualConcept("Get my son's medicine from the chemist", 'Family');
 assert.equal(medicine.primary, 'medicine', 'medicine tasks must never fall back to a generic person/star icon');

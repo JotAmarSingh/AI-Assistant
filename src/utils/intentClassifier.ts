@@ -2,6 +2,7 @@ import { DailyState, Automation, TaskItem, ReminderItem, TimelineEvent, Timetabl
 import { contextTriggerLabel, resolveLocationName } from './localAutomationParser';
 import { extractExplicitTime } from './offlineParser';
 import { selectNextBestAction } from './accountabilityEngine';
+import { isDirectActivityCheckInStatement } from './activityIntent';
 
 export type UserIntentType =
   | 'QUERY'
@@ -201,7 +202,7 @@ export function classifyUserIntent(
   if (
     /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*to\b/i.test(lower) ||
     /\bfor the last\s+\d+/i.test(lower) ||
-    /^(i was|i've been|i have been|i'm working on|i am working on|working on|just|driving to|drove to|i reached|i arrived)\b/i.test(lower)
+    isDirectActivityCheckInStatement(cleaned)
   ) {
     return {
       type: 'LOG_ACTIVITY',

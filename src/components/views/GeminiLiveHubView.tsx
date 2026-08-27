@@ -21,7 +21,7 @@ import { speechService } from '../../services/speechRecognition';
 import { getCurrentCoordinates, getDeviceCapabilityContext, openRelevantExternalApp, parseReminderTriggerTime, requestNativeGeofencePermissions } from '../../services/nativeBridge';
 import { calculateDistanceMeters } from '../../services/locationService';
 import { SmartAICard } from '../../types';
-import { classifyAIAgentRoute, requiresLiveGrounding, shouldUseCloudActionPlanner } from '../../utils/aiRouting';
+import { classifyAIAgentRoute, requiresLiveGrounding } from '../../utils/aiRouting';
 import { extractExplicitTime } from '../../utils/offlineParser';
 import { parseVoiceAutomations } from '../../utils/localAutomationParser';
 
@@ -47,6 +47,7 @@ export const GeminiLiveHubView: React.FC = () => {
     processUserInput,
     mode,
     setMode,
+    isViewingToday,
   } = useDay();
 
   const [inputText, setInputText] = useState('');
@@ -75,11 +76,14 @@ export const GeminiLiveHubView: React.FC = () => {
   const pendingGymSkipReasonRef = useRef<{ override: boolean } | null>(null);
   const pendingOfficeExitTaskRef = useRef<{ title: string; suggestedTime: string } | null>(null);
   const lastShoppingTaskIdRef = useRef<string | null>(null);
-  const pendingMemoryByCardRef = useRef(new Map<string, string>());
+  const offlineInboxByCardRef = useRef(new Map<string, { memoryId: string; fact: string }>());
   const managedMemoryByCardRef = useRef(new Map<string, string>());
   const sourceQueryByCardRef = useRef(new Map<string, string>());
   const pendingModeActionByCardRef = useRef(new Map<string, string>());
   const pendingOnlineQueryRef = useRef<string | null>(null);
+  const lastSubmissionRef = useRef<{ normalized: string; at: number }>({ normalized: '', at: 0 });
+  const reconciliationRunningRef = useRef(false);
+  const reconciliationRetryAfterRef = useRef(0);
   const stats = calculateGamificationStats(state.gamification?.points || 0, state.gamification?.currentStreakDays || 0);
   const learnedPromptFrequency = (state.conversationHistory || [])
     .filter((entry) => entry.sender === 'user' && entry.text.trim().length > 3)
@@ -99,7 +103,10 @@ export const GeminiLiveHubView: React.FC = () => {
 
   // Network & lifecycle listeners
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      reconciliationRetryAfterRef.current = 0;
+      setIsOnline(true);
+    };
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -191,7 +198,10 @@ export const GeminiLiveHubView: React.FC = () => {
       .sort((left, right) => right.score - left.score)[0]?.task;
   };
 
-  const executeCloudActionPlan = async (plan: DayTraceActionPlan): Promise<{
+  const executeCloudActionPlan = async (
+    plan: DayTraceActionPlan,
+    executionContext: { capturedAt?: Date; delayed?: boolean } = {},
+  ): Promise<{
     confirmation: string;
     followUps: string[];
     completedCount: number;
@@ -214,7 +224,23 @@ export const GeminiLiveHubView: React.FC = () => {
           continue;
         }
         if (action.type === 'LOG_ACTIVITY' && action.description) {
-          results.push(logActivity(action.description, { location: plannedLocation }));
+          if (executionContext.delayed && executionContext.capturedAt) {
+            const capturedAt = executionContext.capturedAt;
+            const capturedTime = capturedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            addTimelineEvent({
+              date: localDateKey(capturedAt),
+              time: capturedTime,
+              type: 'EVENT',
+              description: action.description,
+              location: plannedLocation || state.current.location,
+              source: 'CHECK_IN',
+              syncStatus: 'PENDING',
+              createdAt: capturedAt.toISOString(),
+            });
+            results.push(`✓ Added to Timeline at the original offline time (${capturedTime}): ${action.description}`);
+          } else {
+            results.push(logActivity(action.description, { location: plannedLocation }));
+          }
           completedCount += 1;
           continue;
         }
@@ -565,6 +591,17 @@ export const GeminiLiveHubView: React.FC = () => {
     const query = queryText.trim();
     if (!query || isProcessing) return;
 
+    // Android speech recognition can emit the same final transcript through
+    // both its final-result callback and the manual/silence stop callback.
+    // Guard that short race synchronously so one utterance creates one record.
+    const normalizedSubmission = query.toLocaleLowerCase().replace(/\s+/g, ' ').replace(/[.!?,;:]+$/g, '').trim();
+    const submittedAt = Date.now();
+    if (
+      normalizedSubmission === lastSubmissionRef.current.normalized
+      && submittedAt - lastSubmissionRef.current.at < 2_000
+    ) return;
+    lastSubmissionRef.current = { normalized: normalizedSubmission, at: submittedAt };
+
     // Immediately clear input box
     setInputText('');
     setInterimText('');
@@ -876,127 +913,26 @@ export const GeminiLiveHubView: React.FC = () => {
       forcedOnlineFollowUp: options.forceOnlineFollowUp,
     });
 
-    // Location reminders are executable DayTrace commands, not medical or
-    // general-knowledge questions. Resolve them before any Gemini answer path
-    // so words inside the reminder message (for example “medicine”) cannot
-    // hijack routing.
-    if (route === 'LOCAL_ACTION' && !shouldUseCloudActionPlanner(query) && /\b(?:remind|reminder|notify|alert)\b/i.test(query)
-      && /\b(?:leave|leaving|depart|departing|exit|exiting|arrive|arriving|reach|reaching|enter|entering)\b/i.test(query)) {
-      const parsed = parseVoiceAutomations(
-        query,
-        state,
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-      );
-      const locationAutomations = parsed.automations.filter((automation) =>
-        automation.triggerType === 'GEOFENCE_EXIT' || automation.triggerType === 'GEOFENCE_ENTER');
-      if (locationAutomations.length > 0) {
-        const unresolved = locationAutomations.find((automation) => {
-          if (!automation.locationName) return true;
-          return !(state.geofenceLocations || []).some((location) =>
-            location.id === automation.locationId
-            || location.name.toLowerCase() === automation.locationName?.toLowerCase());
-        });
-        if (unresolved) {
-          const followUps = ['Save this location', 'Open saved places'];
-          setSmartCards((prev) => [{
-            id: `card-${Date.now()}`,
-            type: 'EXPERT_ADVICE',
-            title: 'Location name needed',
-            subtitle: 'No reminder created yet',
-            engineMode: 'OFFLINE_LOCAL',
-            followUpQuestions: followUps,
-            createdAt: Date.now(),
-            data: {
-              safetyWarning: 'I can create this exit reminder, but this GPS place is not saved yet. Tell me “Save this location as [name]”, then repeat the reminder.',
-              followUpQuestions: followUps,
-            },
-          }, ...prev]);
-          setIsProcessing(false);
-          setAvatarMode('talking');
-          setStatusText('Save this place first');
-          return;
-        }
-
-        let permissions: { foregroundGranted: boolean; backgroundGranted: boolean };
-        try {
-          permissions = await requestNativeGeofencePermissions();
-        } catch (error) {
-          console.warn('Could not request geofence permissions', error);
-          permissions = { foregroundGranted: false, backgroundGranted: false };
-        }
-        if (!permissions.foregroundGranted || !permissions.backgroundGranted) {
-          setSmartCards((prev) => [{
-            id: `card-${Date.now()}`,
-            type: 'EXPERT_ADVICE',
-            title: 'Background location needed',
-            subtitle: 'No reminder created yet',
-            engineMode: 'OFFLINE_LOCAL',
-            createdAt: Date.now(),
-            data: {
-              safetyWarning: 'Allow DayTrace location access “All the time” so it can detect leaving this place while the app is closed. Then repeat the command.',
-            },
-          }, ...prev]);
-          setIsProcessing(false);
-          setAvatarMode('talking');
-          setStatusText('Background location permission needed');
-          return;
-        }
-
-        updateUserSettings({ geofenceEnabled: true });
-        locationAutomations.forEach((automation) => addAutomation({
-          title: automation.title,
-          originalVoiceText: automation.originalVoiceText || query,
-          triggerType: automation.triggerType,
-          locationId: automation.locationId,
-          locationName: automation.locationName,
-          reminderText: automation.reminderText,
-          status: 'PENDING',
-          relatedContext: automation.relatedContext,
-        }));
-        const confirmation = locationAutomations.map((automation) =>
-          `✓ ${automation.triggerType === 'GEOFENCE_EXIT' ? 'Leaving' : 'Arriving at'} ${automation.locationName} → ${automation.reminderText}`,
-        ).join('\n');
-        setSmartCards((prev) => [{
-          id: `card-${Date.now()}`,
-          type: 'EXPERT_ADVICE',
-          title: 'Location reminder created',
-          subtitle: 'Native geofence • works in background',
-          engineMode: 'OFFLINE_LOCAL',
-          createdAt: Date.now(),
-          data: { safetyWarning: confirmation },
-        }, ...prev]);
-        rememberLocalAction();
-        setIsProcessing(false);
-        setAvatarMode('talking');
-        setStatusText('Location reminder is active');
-        setTimeout(() => setAvatarMode('idle'), 3000);
-        return;
-      }
-    }
-
-    if (route === 'PENDING_MEMORY') {
-      const cardId = `card-${Date.now()}`;
-      saveMemory(query, { status: 'PENDING', source: 'AI_AGENT_PENDING' });
-      pendingMemoryByCardRef.current.set(cardId, query);
-      const followUps = ['Continue this message', 'Save as a preference or rule', 'Turn it into a task or reminder'];
+    // Accountability statements and commands use Gemini's structured planner
+    // when it is available. Offline, preserve the exact utterance and capture
+    // time in a local inbox; do not guess a task/memory/timeline mutation.
+    if (!cloudReady && (route === 'LOCAL_ACTION' || route === 'PENDING_MEMORY')) {
+      const memoryId = saveMemory(query, { status: 'PENDING', source: 'OFFLINE_AI_INBOX' });
+      const capturedAt = new Date();
       setSmartCards((prev) => [{
-        id: cardId,
-        type: 'PERSISTENT_MEMORY',
-        title: 'Saved to Pending Memory',
-        subtitle: 'Incomplete information is saved but not active',
+        id: `card-${capturedAt.getTime()}`,
+        type: 'EXPERT_ADVICE',
+        title: 'Saved for Online Review',
+        subtitle: `Pending AI Inbox • ${capturedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
         engineMode: 'OFFLINE_LOCAL',
-        followUpQuestions: followUps,
-        createdAt: Date.now(),
+        createdAt: capturedAt.getTime(),
         data: {
-          memoryFact: query,
-          memoryCategory: 'PENDING',
-          safetyWarning: `I saved this locally so it is not lost. What should I do with it?\n\n“${query}”`,
-          followUpQuestions: followUps,
+          safetyWarning: `No action has been guessed yet. When Gemini reconnects, DayTrace will classify this message and execute the validated local action using the original timestamp.\n\n“${query}”`,
         },
       }, ...prev]);
       setIsProcessing(false);
       setAvatarMode('talking');
-      setStatusText('Pending message saved');
+      setStatusText(memoryId ? 'Saved for automatic online review' : 'Could not save the offline message');
       setTimeout(() => setAvatarMode('idle'), 3000);
       return;
     }
@@ -1121,7 +1057,9 @@ export const GeminiLiveHubView: React.FC = () => {
         savedPlace,
         locationPermission,
         activeFocusTask: state.tasks.find(t => t.id === state.current.focusTaskId || t.status === 'ACTIVE')?.title,
-        memories: state.memories?.map(m => ({ category: m.category, fact: m.fact })),
+        memories: state.memories
+          ?.filter((memory) => (memory.status || 'ACTIVE') === 'ACTIVE')
+          .map((memory) => ({ category: memory.category, fact: memory.fact })),
         pendingTasks: state.tasks.filter(t => t.status === 'NEXT' || t.status === 'ACTIVE').slice(0, 3).map(t => ({
           title: t.title,
           category: t.category,
@@ -1260,7 +1198,7 @@ export const GeminiLiveHubView: React.FC = () => {
     // Compound commands use Gemini as a semantic planner, then execute only
     // allowlisted operations on-device. If planning fails, the offline parser
     // remains available below and the user's command is not discarded.
-    if (cloudReady && shouldUseCloudActionPlanner(query)) {
+    if (cloudReady && (route === 'LOCAL_ACTION' || route === 'PENDING_MEMORY')) {
       try {
         const capabilityContext = await getDeviceCapabilityContext();
         const mentionsLocation = /\b(location|place|spot|here|arriv|reach|desk|home|office|gym)\b/i.test(query);
@@ -1306,8 +1244,21 @@ export const GeminiLiveHubView: React.FC = () => {
         setTimeout(() => setAvatarMode('idle'), 3500);
         return;
       } catch (plannerError) {
-        console.warn('Cloud action planning failed; using the on-device parser:', plannerError);
-        setStatusText('Using on-device action parser');
+        console.warn('Cloud action planning failed; preserving the message for automatic retry:', plannerError);
+        saveMemory(query, { status: 'PENDING', source: 'OFFLINE_AI_INBOX' });
+        setSmartCards((prev) => [{
+          id: `card-${Date.now()}`,
+          type: 'EXPERT_ADVICE',
+          title: 'Saved for AI Retry',
+          subtitle: 'No local action was guessed',
+          engineMode: 'OFFLINE_LOCAL',
+          createdAt: Date.now(),
+          data: { safetyWarning: 'Gemini could not return a valid action plan. This message remains in the Pending AI Inbox and will be retried after the next reconnection.' },
+        }, ...prev]);
+        setIsProcessing(false);
+        setAvatarMode('idle');
+        setStatusText('Saved for automatic AI retry');
+        return;
       }
     }
 
@@ -1666,6 +1617,15 @@ export const GeminiLiveHubView: React.FC = () => {
   };
 
   const handleCardFollowUp = async (card: SmartAICard, choice: string) => {
+    const offlineInboxItem = offlineInboxByCardRef.current.get(card.id);
+    if (offlineInboxItem) {
+      offlineInboxByCardRef.current.delete(card.id);
+      deleteMemory(offlineInboxItem.memoryId);
+      setSmartCards((prev) => prev.filter((item) => item.id !== card.id));
+      void submitQuery(`${offlineInboxItem.fact}\nClarification: ${choice}`);
+      return;
+    }
+
     const pendingModeAction = pendingModeActionByCardRef.current.get(card.id);
     if (pendingModeAction) {
       if (/^switch to accountability/i.test(choice)) {
@@ -1771,37 +1731,6 @@ export const GeminiLiveHubView: React.FC = () => {
       return;
     }
 
-    const pendingFact = pendingMemoryByCardRef.current.get(card.id);
-    if (pendingFact) {
-      if (/^continue/i.test(choice)) {
-        setInputText(`${pendingFact} `);
-        setStatusText('Continue the saved message in the typing bar');
-        return;
-      }
-      if (/preference|rule/i.test(choice)) {
-        saveMemory(pendingFact, { status: 'ACTIVE', category: 'PREFERENCE', source: 'USER_CLASSIFIED' });
-        pendingMemoryByCardRef.current.delete(card.id);
-        setSmartCards((prev) => prev.map((item) => item.id === card.id ? {
-          ...item,
-          subtitle: 'Active local preference/rule',
-          followUpQuestions: [],
-          data: {
-            ...item.data,
-            memoryCategory: 'PREFERENCE',
-            safetyWarning: `✓ Saved as an active local preference/rule:\n${pendingFact}`,
-            followUpQuestions: [],
-          },
-        } : item));
-        setStatusText('Memory rule activated');
-        return;
-      }
-      if (/task|reminder/i.test(choice)) {
-        setInputText(`Create a task from this: ${pendingFact}. `);
-        setStatusText('Add the date and reminder time');
-        return;
-      }
-    }
-
     const sourceQuery = sourceQueryByCardRef.current.get(card.id);
     if (/fetch when online/i.test(choice) && sourceQuery) {
       if (navigator.onLine) {
@@ -1840,6 +1769,82 @@ export const GeminiLiveHubView: React.FC = () => {
 
     void submitQuery(choice, { forceOnlineFollowUp: card.engineMode === 'ONLINE_CLOUD' });
   };
+
+  useEffect(() => {
+    if (
+      !cloudReady
+      || !isViewingToday
+      || isProcessing
+      || reconciliationRunningRef.current
+      || Date.now() < reconciliationRetryAfterRef.current
+    ) return;
+    const pendingItems = (state.memories || [])
+      .filter((memory) => memory.status === 'PENDING' && ['OFFLINE_AI_INBOX', 'AI_AGENT_PENDING'].includes(memory.source || ''))
+      .sort((left, right) => left.createdAt - right.createdAt);
+    if (pendingItems.length === 0) return;
+
+    reconciliationRunningRef.current = true;
+    setIsProcessing(true);
+    setAvatarMode('processing_task');
+    setStatusText(`Reviewing ${pendingItems.length} offline message${pendingItems.length === 1 ? '' : 's'} with Gemini…`);
+
+    void (async () => {
+      for (const memory of pendingItems) {
+        try {
+          const capturedAt = new Date(memory.createdAt);
+          const capabilityContext = await getDeviceCapabilityContext();
+          const plan = await planDayTraceActions(memory.fact, {
+            now: Number.isFinite(capturedAt.getTime()) ? capturedAt : new Date(),
+            currentLocation: state.current.location,
+            savedLocationNames: (state.geofenceLocations || []).map((location) => location.name),
+            pendingTaskTitles: state.tasks
+              .filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED')
+              .slice(0, 12)
+              .map((task) => task.title),
+            features: capabilityContext.features,
+            permissions: capabilityContext.permissions,
+          });
+          const execution = await executeCloudActionPlan(plan, { capturedAt, delayed: true });
+          const cardId = `card-reconciled-${memory.id}`;
+
+          if (execution.needsClarification || execution.completedCount === 0) {
+            updateMemory(memory.id, { status: 'PAUSED' });
+            offlineInboxByCardRef.current.set(cardId, { memoryId: memory.id, fact: memory.fact });
+          } else {
+            const promotedOriginalMemory = plan.actions.some((action) =>
+              action.type === 'SAVE_MEMORY'
+              && action.fact?.trim().toLowerCase() === memory.fact.trim().toLowerCase());
+            if (!promotedOriginalMemory) deleteMemory(memory.id);
+          }
+
+          setSmartCards((prev) => [{
+            id: cardId,
+            type: 'EXPERT_ADVICE',
+            title: execution.needsClarification || execution.completedCount === 0
+              ? 'Offline message needs clarification'
+              : 'Offline message processed',
+            subtitle: `Original capture • ${capturedAt.toLocaleString()}`,
+            engineMode: 'ONLINE_CLOUD',
+            followUpQuestions: execution.followUps,
+            createdAt: Date.now(),
+            data: {
+              safetyWarning: execution.confirmation,
+              followUpQuestions: execution.followUps,
+            },
+          }, ...prev]);
+        } catch (error) {
+          console.warn('Pending AI Inbox reconciliation paused:', error);
+          reconciliationRetryAfterRef.current = Date.now() + 60_000;
+          break;
+        }
+      }
+    })().finally(() => {
+      reconciliationRunningRef.current = false;
+      setIsProcessing(false);
+      setAvatarMode('idle');
+      setStatusText('Pending AI Inbox review complete');
+    });
+  }, [cloudReady, isProcessing, isViewingToday, state.memories]);
 
   useEffect(() => {
     if (!isOnline || isProcessing || !pendingOnlineQueryRef.current || !getStoredGeminiApiKey()) return;

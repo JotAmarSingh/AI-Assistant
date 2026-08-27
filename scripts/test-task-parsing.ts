@@ -86,6 +86,23 @@ const workingLog = parseVoiceAutomations(workingInput, state1, '18:25');
 assert.equal(workingLog.timelineLogs.length, 1);
 assert.equal(workingLog.timelineLogs[0].description, 'Working on app development');
 
+const reachedOfficeLog = parseVoiceAutomations('Just reached office', state1, '09:06');
+assert.equal(reachedOfficeLog.timelineLogs.length, 1, 'A concise arrival belongs in Timeline');
+assert.equal(reachedOfficeLog.timelineLogs[0].description, 'Reached office');
+
+const temporalNarrative = 'Last night I slept over the desk now I am ready I am leaving for my house and then from there I will have some food and leave for my office';
+const temporalNarrativeLog = parseVoiceAutomations(temporalNarrative, state1, '09:06');
+assert.equal(temporalNarrativeLog.timelineLogs.length, 1, 'A time-prefixed personal update belongs in Timeline');
+assert.equal(temporalNarrativeLog.automations.length, 0, 'A check-in without an explicit reminder must not create an automation');
+
+const bedStatusInput = 'I am still on the bed';
+assert.equal(classifyUserIntent(bedStatusInput, state1).type, 'LOG_ACTIVITY');
+const bedStatusLog = parseVoiceAutomations(bedStatusInput, state1, '08:15');
+assert.equal(bedStatusLog.timelineLogs.length, 1, 'A passive personal status belongs in Timeline');
+assert.equal(bedStatusLog.timelineLogs[0].description, 'Still on the bed');
+const bedStatusOfflineResult = parseOfflineUserInput(bedStatusInput, state1, '08:15');
+assert.equal(bedStatusOfflineResult.extractedStateUpdate.newTasks?.length || 0, 0, 'A passive status must never create a task');
+
 const compoundDeskCheckIn = 'I am at my desk. Please mark this location as desk. And I am currently working on a product prototype and demo project.';
 assert.equal(classifyUserIntent(compoundDeskCheckIn, state1).type, 'SAVE_CURRENT_LOCATION');
 assert.equal(extractSaveCurrentLocationIntent(compoundDeskCheckIn)?.label, 'desk');
@@ -97,5 +114,34 @@ const compoundDeskLog = parseVoiceAutomations(compoundDeskCheckIn, state1, '19:1
 assert.equal(compoundDeskLog.timelineLogs.length, 1);
 assert.equal(compoundDeskLog.timelineLogs[0].time, '19:12');
 assert.equal(compoundDeskLog.timelineLogs[0].description, 'Working on a product prototype and demo project');
+
+const currentPlaceState = createFreshDailyState();
+currentPlaceState.current.location = 'Editing Desk';
+currentPlaceState.geofenceLocations = [{
+  id: 'editing-desk-location',
+  name: 'Editing Desk',
+  latitude: 30.901,
+  longitude: 75.857,
+  radiusMeters: 200,
+}];
+const exitMedicineReminder = parseVoiceAutomations(
+  "Make a reminder for me whenever I leave my current location to get my son's medicine",
+  currentPlaceState,
+  '19:30',
+);
+assert.equal(exitMedicineReminder.isAutomation, true);
+assert.equal(exitMedicineReminder.automations.length, 1);
+assert.equal(exitMedicineReminder.automations[0].triggerType, 'GEOFENCE_EXIT');
+assert.equal(exitMedicineReminder.automations[0].locationId, 'editing-desk-location');
+assert.equal(exitMedicineReminder.automations[0].locationName, 'Editing Desk');
+assert.equal(exitMedicineReminder.automations[0].reminderText, "Get my son's medicine");
+
+const leaveHereReminder = parseVoiceAutomations(
+  'Notify me when I leave here to collect the prescription',
+  currentPlaceState,
+  '19:31',
+);
+assert.equal(leaveHereReminder.automations[0].locationName, 'Editing Desk');
+assert.equal(leaveHereReminder.automations[0].reminderText, 'Collect the prescription');
 
 console.log('Task parsing tests passed successfully!');

@@ -86,7 +86,7 @@ const MainScreen: React.FC = () => {
   const renderActiveView = () => {
     switch (activeTab) {
       case 'hub':
-        return <GeminiLiveHubView />;
+        return null;
       case 'timetable':
         return <TimetableView />;
       case 'board':
@@ -155,9 +155,16 @@ const MainScreen: React.FC = () => {
             Viewing {selectedDate} • read-only history{historicalDateMessage ? ` • ${historicalDateMessage}` : ''}
           </div>
         )}
-        <ViewErrorBoundary key={activeTab} onReturnHome={() => setActiveTab('hub')}>
-          {renderActiveView()}
-        </ViewErrorBoundary>
+        <div className={activeTab === 'hub' ? 'contents' : 'hidden'}>
+          <ViewErrorBoundary onReturnHome={() => setActiveTab('hub')}>
+            <GeminiLiveHubView />
+          </ViewErrorBoundary>
+        </div>
+        {activeTab !== 'hub' && (
+          <ViewErrorBoundary key={activeTab} onReturnHome={() => setActiveTab('hub')}>
+            {renderActiveView()}
+          </ViewErrorBoundary>
+        )}
       </main>
 
       {/* Floating Focus Countdown HUD (visible when focus session is running) */}

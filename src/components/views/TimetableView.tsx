@@ -2,9 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Clock3, Edit3, MapPin, Play, Plus, Trash2, X } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { RoutineRecurrence, TimetableSlot } from '../../types';
-import { resolveContextualIcon } from '../../services/geminiService';
 import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
 import { UNCATEGORISED_CATEGORY_ID } from '../../utils/initialState';
+import { TaskVisualFallback } from '../common/TaskVisualFallback';
 
 const durationMinutes = (start: string, end: string) => {
   const [startHour, startMinute] = start.split(':').map(Number);
@@ -15,8 +15,8 @@ const durationMinutes = (start: string, end: string) => {
 const formatDuration = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ''}`.trim() : `${minutes}m`;
 
 const SlotVisual: React.FC<{ slot: TimetableSlot; categoryLabel: string }> = ({ slot, categoryLabel }) => {
-  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', slot.title, [categoryLabel]);
-  return <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-slate-950">{imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={isGenerating ? 'animate-pulse' : ''}>{resolveContextualIcon(slot.title, categoryLabel)}</span>}</div>;
+  const { imageUrl, isGenerating, visualStatus } = useGeneratedVisual('TASK_STICKER', slot.title, [categoryLabel]);
+  return <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-slate-950">{imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <TaskVisualFallback subject={slot.title} context={categoryLabel} generationState={isGenerating ? 'GENERATING' : visualStatus.state} />}</div>;
 };
 
 export const TimetableView: React.FC = () => {

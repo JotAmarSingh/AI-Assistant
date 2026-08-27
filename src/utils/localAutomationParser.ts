@@ -2,6 +2,9 @@ import { Automation, DailyState, GeofenceLocation, TimelineEvent, EventSource } 
 import { extractExplicitTime } from './offlineParser';
 import { classifyUserIntent, extractCompoundCheckInIntent } from './intentClassifier';
 import { detectContextEvent } from './accountabilityEngine';
+import { isDirectActivityCheckInStatement } from './activityIntent';
+
+export { isDirectActivityCheckInStatement } from './activityIntent';
 
 export interface ParsedAutomationResult {
   isAutomation: boolean;
@@ -90,6 +93,24 @@ export function parseVoiceAutomations(
     };
   }
 
+  // A check-in can contain trigger-like words such as “after lunch” without
+  // requesting an automation. Resolve explicit past/present activity before
+  // interpreting contextual trigger phrases, unless the user actually asks
+  // to remind, notify, alert, schedule, or set an alarm.
+  const hasAutomationDirective = /\b(?:remind|notify|alert|schedule|set\s+(?:an?\s+)?alarm)\b/i.test(rawInput);
+  if (!hasAutomationDirective && isDirectActivityCheckInStatement(rawInput)) {
+    const directTimelineLogs = parseActivityLogUtterance(rawInput, now);
+    if (directTimelineLogs.length > 0) {
+      const summaryItems = directTimelineLogs.map((log) => `${log.time}: ${log.description}`).join('. ');
+      return {
+        isAutomation: false,
+        automations: [],
+        timelineLogs: directTimelineLogs,
+        summaryText: `Added to timeline: ${summaryItems}`,
+      };
+    }
+  }
+
   // Split compound commands by connectors
   // E.g.: "Remind me when I leave office to get medicines and on reaching home I have to hand over the medicines to my wife."
   // Connectors: "and on reaching", "and when", "and then", "and after", "and", "then", "also", "after that"
@@ -112,7 +133,7 @@ export function parseVoiceAutomations(
       const clause = rawClauses[i].trim();
       if (!clause) continue;
 
-      const parsedClause = parseSingleAutomationClause(clause, lastSeenLocation, savedLocations, now, rawInput);
+      const parsedClause = parseSingleAutomationClause(clause, lastSeenLocation, savedLocations, now, rawInput, currentState);
       if (parsedClause) {
         if (parsedClause.locationName) {
           lastSeenLocation = { name: parsedClause.locationName, id: parsedClause.locationId };
@@ -340,13 +361,14 @@ function parseSingleAutomationClause(
   lastSeenLocation: { name: string; id?: string } | null,
   savedLocations?: GeofenceLocation[],
   now?: string,
-  fullOriginalText?: string
+  fullOriginalText?: string,
+  currentState?: DailyState,
 ): Omit<Automation, 'id'> | null {
   const lower = clause.toLowerCase().trim();
 
   // 1. Check GEOFENCE EXIT
   // e.g. "when I leave office to get medicines", "After I leave work remind me to buy milk", "when I leave the gym", "when I leave"
-  const isExit = /\b(when I leave|after I leave|on leaving|upon leaving|leaving|leave|exit|exiting|after leaving|departing from|departing)\b/i.test(lower);
+  const isExit = /\b(when(?:ever)? I leave|after I leave|on leaving|upon leaving|leaving|leave|exit|exiting|after leaving|departing from|departing)\b/i.test(lower);
   
   // 2. Check GEOFENCE ENTER
   // e.g. "on reaching home I have to hand over medicines", "when I reach home", "when I arrive at gym", "when I get to the supermarket", "on reaching", "reaching", "arrive at", "get to", "enter"
@@ -369,13 +391,24 @@ function parseSingleAutomationClause(
     triggerType = 'CONTEXT_EVENT';
   } else if (isExit) {
     triggerType = 'GEOFENCE_EXIT';
-    const locMatch = clause.match(/\b(?:leave|leaving|exit|exiting|departing)\s+(?:the\s+)?([a-zA-Z]+)\b/i);
-    if (locMatch && !['to', 'and', 'remind', 'my', 'it'].includes(locMatch[1].toLowerCase())) {
+    const currentReference = /\b(?:(?:my|the|this)\s+)?current\s+(?:location|place|spot)\b|\b(?:from\s+)?here\b/i.test(clause);
+    const currentLabel = currentState?.current?.location?.trim();
+    const currentSavedPlace = currentLabel && !/^(unknown|current location)$/i.test(currentLabel)
+      ? savedLocations?.find((location) => location.name.toLowerCase() === currentLabel.toLowerCase())
+      : undefined;
+    const locMatch = clause.match(/\b(?:leave|leaving|exit|exiting|departing(?:\s+from)?)\s+(?:the\s+)?([a-zA-Z][a-zA-Z'-]*(?:\s+[a-zA-Z][a-zA-Z'-]*)?)\b/i);
+    if (currentReference && currentLabel && !/^(unknown|current location)$/i.test(currentLabel)) {
+      resolvedLocation = currentSavedPlace
+        ? { name: currentSavedPlace.name, id: currentSavedPlace.id }
+        : { name: currentLabel };
+    } else if (locMatch && !['to', 'and', 'remind', 'my', 'it', 'current location', 'current place', 'current spot'].includes(locMatch[1].toLowerCase())) {
       resolvedLocation = resolveLocationName(locMatch[1], savedLocations);
     } else if (lastSeenLocation) {
       resolvedLocation = lastSeenLocation;
     } else {
-      resolvedLocation = resolveLocationName('Office', savedLocations);
+      resolvedLocation = currentSavedPlace
+        ? { name: currentSavedPlace.name, id: currentSavedPlace.id }
+        : currentLabel && !/^unknown$/i.test(currentLabel) ? { name: currentLabel } : null;
     }
   } else if (isEnter) {
     triggerType = 'GEOFENCE_ENTER';
@@ -418,9 +451,17 @@ function parseSingleAutomationClause(
  * Extracts and cleans the core action from a voice clause
  */
 export function extractCleanReminderText(clause: string): string {
+  const triggeredAction = clause.match(
+    /\b(?:when(?:ever)?\s+i\s+(?:leave|exit|depart(?:\s+from)?)|after\s+i\s+leave|on\s+leaving|upon\s+leaving|when(?:ever)?\s+i\s+(?:reach|arrive|enter)|on\s+reaching|upon\s+reaching)\b[\s\S]*?\b(?:remind\s+me\s+to|i\s+(?:have|need)\s+to|to)\s+(.+?)\s*[.!?]*$/i,
+  );
+  if (triggeredAction?.[1]?.trim()) {
+    const action = triggeredAction[1].trim();
+    return action.charAt(0).toUpperCase() + action.slice(1);
+  }
   let cleaned = clause
     // Remove prefixes like "remind me when I leave office to", "on reaching home I have to", "after I leave work remind me to"
     .replace(/^.*?\b(?:remind me to|remind me that|remind me|set a reminder to|don't forget to|i have to|i need to|have to|need to|must)\s+/i, '')
+    .replace(/^(?:please\s+)?(?:make|create|set)\s+(?:me\s+)?(?:a\s+)?reminder(?:\s+for\s+me)?\s*/i, '')
     // Remove "when I leave [location] to" or "on reaching [location]"
     .replace(/^.*?\b(?:when I leave|after I leave|on reaching|when I reach|when I arrive at|arriving at|when I get to)\s+(?:the\s+)?[a-zA-Z]+\s+(?:to|i have to|i need to|remind me to)?\s*/i, '')
     .replace(/^.*?\b(?:when|after|once)\s+(?:the\s+)?(?:render|rendering|export|work)\s+(?:starts?|finishes?|is done|completes?)\s+(?:to|remind me to)?\s*/i, '')
@@ -590,19 +631,12 @@ export function parseActivityLogUtterance(
     return results;
   }
 
-  // Pattern 3: Direct activity statement e.g. "I was driving home." or
-  // "I'm working on app development". These phrases are activity check-ins,
-  // not chat, so Accountability mode must surface them in the real timeline.
-  if (
-    lower.startsWith('i was') ||
-    lower.startsWith("i've been") ||
-    lower.startsWith('i have been') ||
-    lower.startsWith("i'm working on") ||
-    lower.startsWith('i am working on') ||
-    lower.startsWith('just') ||
-    lower.startsWith('working on') ||
-    lower.startsWith('driving')
-  ) {
+  // Pattern 3: Direct activity/status statement e.g. "I was driving home",
+  // "I'm working on app development", or "I am still on the bed". In
+  // Accountability mode these are check-ins, never future tasks. Resolving this
+  // deterministically also prevents an available on-device model from turning
+  // a passive status into a commitment the user never made.
+  if (isDirectActivityCheckInStatement(text)) {
     let act = text
       .replace(/^(i was|i've been|i have been|i'm|i am|just)\s+/i, '')
       .replace(/[.!?]+$/, '')

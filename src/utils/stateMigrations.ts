@@ -12,7 +12,8 @@ import {
   DEFAULT_USER_SETTINGS,
   UNCATEGORISED_CATEGORY_ID,
 } from './initialState';
-import { normalizeDailyStateDates } from './dailyHistory';
+import { normalizeDailyStateDates, toLocalDateKey } from './dailyHistory';
+import { isDirectActivityCheckInStatement } from './activityIntent';
 
 const SAMPLE_LOCATION_SIGNATURES: Record<string, { latitude: number; longitude: number }> = {
   'geo-office': { latitude: 37.7899, longitude: -122.4008 },
@@ -143,7 +144,32 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
   const originalLocations = raw.geofenceLocations || [];
   const locations = originalLocations.filter((location) => !isSeedLocation(location));
   const tasks = (raw.tasks || []).filter((task) => !(legacySampleLoaded && isSeedTask(task)));
-  const timeline = (raw.timeline || []).filter((event) => !(legacySampleLoaded && isSeedTimeline(event)));
+  const baseTimeline = (raw.timeline || []).filter((event) => !(legacySampleLoaded && isSeedTimeline(event)));
+  const recoverablePendingCheckIns = fromVersion < 10
+    ? (raw.memories || []).filter((memory) =>
+        memory.status === 'PENDING'
+        && memory.source === 'AI_AGENT_PENDING'
+        && isDirectActivityCheckInStatement(memory.fact))
+    : [];
+  const existingTimelineDescriptions = new Set(baseTimeline.map((event) => event.description.trim().toLowerCase()));
+  const recoveredTimeline = recoverablePendingCheckIns
+    .filter((memory) => !existingTimelineDescriptions.has(memory.fact.trim().toLowerCase()))
+    .map((memory): TimelineEvent => {
+      const timestamp = Number.isFinite(memory.createdAt) ? new Date(memory.createdAt) : new Date();
+      return {
+        id: `time-recovered-${memory.id}`,
+        date: toLocalDateKey(timestamp),
+        time: timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+        type: 'EVENT',
+        description: memory.fact.trim(),
+        source: 'CHECK_IN',
+        syncStatus: 'PENDING',
+        createdAt: timestamp.toISOString(),
+      };
+    });
+  const timeline = [...baseTimeline, ...recoveredTimeline];
+  const memories = (raw.memories || []).filter((memory) =>
+    !recoverablePendingCheckIns.some((candidate) => candidate.id === memory.id));
   const fixedEvents = legacySampleLoaded
     ? (raw.fixedEvents || []).filter((event) => !['fix-1', 'fix-2'].includes(event.id))
     : (raw.fixedEvents || []);
@@ -213,7 +239,7 @@ export const migrateDailyState = (input: unknown): MigrationResult => {
     ignoredLocationClusters: raw.ignoredLocationClusters || [],
     taskCategories: normalizeCategories({ ...raw, tasks }),
     meetings: raw.meetings || [],
-    memories: raw.memories || [],
+    memories,
     accountability: {
       corrections: raw.accountability?.corrections || [],
       carryForwardHistory: raw.accountability?.carryForwardHistory || [],

@@ -45,11 +45,15 @@ import {
   createEmptyHistoricalState,
   createNextDailyState,
   getDailySnapshot,
+  mergeImportedDailyHistory,
   normalizeDailyStateDates,
+  readDailyHistory,
+  recoverHistoricalState,
   saveDailySnapshot,
   toLocalDateKey,
 } from '../utils/dailyHistory';
 import { migrateDailyState } from '../utils/stateMigrations';
+import { GeneratedVisualRequest, queueGeneratedVisuals } from '../services/visualAssetService';
 
 export interface DestructiveConfirmationRequest {
   id: string;
@@ -162,7 +166,7 @@ interface DayContextType {
   recordCustomRoutine: (id: string, label: string, prompt: string) => void;
   resetLearnedShortcuts: () => void;
   taskCategories: TaskCategoryDefinition[];
-  createTaskCategory: (label: string, color: string, icon: string) => void;
+  createTaskCategory: (label: string, color: string, icon: string) => string | null;
   updateTaskCategory: (id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => void;
   deleteTaskCategory: (id: string, reassignToId: string) => void;
   saveCurrentLocation: (label: string, duplicateMode?: 'UPDATE' | 'CREATE') => Promise<string>;
@@ -352,13 +356,10 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedDate(normalizedDate);
     setHistoricalDateMessage(null);
     const localSnapshot = getDailySnapshot(normalizedDate);
-    if (localSnapshot) {
-      setHistoricalState(localSnapshot);
-      return;
-    }
-
-    setHistoricalState(createEmptyHistoricalState(normalizedDate, stateRef.current));
-    setHistoricalDateMessage((current) => current || 'No saved records found for this date');
+    const recovered = recoverHistoricalState(normalizedDate, stateRef.current, localSnapshot);
+    setHistoricalState(recovered.state);
+    if (recovered.recoveredFromLiveState) saveDailySnapshot(recovered.state);
+    setHistoricalDateMessage(recovered.hasRecords ? null : 'No saved records found for this date');
   }, []);
 
   const isViewingToday = selectedDate === state.date;
@@ -547,6 +548,41 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Failed to save DayTrace state to localStorage', e);
     }
   }, [state]);
+
+  // Visuals are derived data, but their requests must be durable. Queue every
+  // real task/timeline/timetable concept here so records created while the Home
+  // screen is open and the phone is offline are reconciled after connectivity
+  // returns without requiring the user to revisit each tab.
+  useEffect(() => {
+    const categories = new Map<string, string>((state.taskCategories || []).map((category) => [category.id, category.label]));
+    const taskById = new Map<string, TaskItem>((state.tasks || []).map((task) => [task.id, task]));
+    const categoryTasks = new Map<string, string[]>();
+    const requests: GeneratedVisualRequest[] = [];
+
+    (state.tasks || []).forEach((task) => {
+      const categoryLabel = categories.get(task.category) || task.category || 'Uncategorised';
+      requests.push({ kind: 'TASK_STICKER', subject: task.title, details: [categoryLabel] });
+      categoryTasks.set(categoryLabel, [...(categoryTasks.get(categoryLabel) || []), task.title]);
+    });
+    (state.timeline || []).forEach((event) => {
+      const relatedTask = event.relatedTaskId ? taskById.get(event.relatedTaskId) : undefined;
+      const subject = relatedTask?.title || event.description;
+      const categoryLabel = relatedTask
+        ? categories.get(relatedTask.category) || relatedTask.category
+        : event.category || event.type;
+      requests.push({ kind: 'TASK_STICKER', subject, details: [categoryLabel] });
+    });
+    (state.timetable || []).forEach((slot) => {
+      requests.push({ kind: 'TASK_STICKER', subject: slot.title, details: [slot.category || 'Schedule'] });
+    });
+    categoryTasks.forEach((titles, label) => {
+      if (label.toLowerCase() !== 'uncategorised') {
+        requests.push({ kind: 'CATEGORY_ISLAND', subject: label, details: titles });
+      }
+    });
+
+    queueGeneratedVisuals(requests);
+  }, [state.tasks, state.timeline, state.timetable, state.taskCategories]);
 
   // Persist active automations for dead-process geofence matching.
   useEffect(() => {
@@ -2304,9 +2340,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const id = `memory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
     setState((prev) => {
-      const existing = (prev.memories || []).find(
-        (item) => item.fact.trim().toLowerCase() === normalized.toLowerCase(),
-      );
+      // Offline inbox entries are events, not durable facts. The same sentence
+      // may be valid on different days, so only normal memories are de-duplicated.
+      const existing = options.source === 'OFFLINE_AI_INBOX'
+        ? undefined
+        : (prev.memories || []).find(
+            (item) => item.fact.trim().toLowerCase() === normalized.toLowerCase(),
+          );
       if (existing) {
         return {
           ...prev,
@@ -2960,13 +3000,13 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createTaskCategory = useCallback((label: string, color: string, icon: string) => {
     const cleanLabel = label.trim();
-    if (!cleanLabel) return;
+    if (!cleanLabel) return null;
     const exists = (stateRef.current.taskCategories || []).some(
       (item) => item.label.toLowerCase() === cleanLabel.toLowerCase(),
     );
     if (exists) {
       setNotificationToast(`A category named “${cleanLabel}” already exists.`);
-      return;
+      return null;
     }
     const now = new Date().toISOString();
     const item: TaskCategoryDefinition = {
@@ -2979,6 +3019,7 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setState((prev) => ({ ...prev, taskCategories: [...(prev.taskCategories || []), item] }));
     setNotificationToast(`Created category “${cleanLabel}”.`);
+    return item.id;
   }, []);
 
   const updateTaskCategory = useCallback((id: string, updates: Partial<Pick<TaskCategoryDefinition, 'label' | 'color' | 'icon'>>) => {
@@ -3194,16 +3235,21 @@ export const DayProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const exportDataJSON = useCallback(() => {
-    return JSON.stringify(state, null, 2);
+    return JSON.stringify({
+      ...state,
+      dailyHistory: readDailyHistory(),
+    }, null, 2);
   }, [state]);
 
   const importDataJSON = useCallback((jsonStr: string): boolean => {
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed && Array.isArray(parsed.tasks)) {
+        mergeImportedDailyHistory(parsed.dailyHistory);
+        const { dailyHistory: _archivedDays, ...parsedState } = parsed;
         const imported = migrateDailyState({
           ...createFreshDailyState(),
-          ...parsed,
+          ...parsedState,
         }).state;
         setState((current) => migrateDailyState({
           ...imported,

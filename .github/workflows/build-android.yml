@@ -84,6 +84,7 @@ jobs:
           npm run test:task-parsing
           npm run test:ai-context
           npm run test:ai-routing
+          npm run test:visual-queue
           npm run test:accountability
           npm run test:release-ui
           npm run test:view-runtime

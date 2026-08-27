@@ -54,6 +54,7 @@ export type DayTraceActionType =
   | 'LOG_ACTIVITY'
   | 'CREATE_TASK'
   | 'CREATE_REMINDER'
+  | 'CREATE_LOCATION_REMINDER'
   | 'COMPLETE_TASK'
   | 'SAVE_MEMORY';
 
@@ -66,6 +67,9 @@ export interface DayTracePlannedAction {
   priority?: number;
   scheduledAt?: string;
   reminderMessage?: string;
+  triggerType?: 'GEOFENCE_ENTER' | 'GEOFENCE_EXIT';
+  locationReference?: 'CURRENT' | 'SAVED_PLACE';
+  locationName?: string;
   taskReference?: string;
   fact?: string;
   memoryCategory?: 'FAMILY' | 'HEALTH' | 'WORK' | 'PREFERENCE' | 'VEHICLE' | 'FINANCE' | 'GENERAL';
@@ -99,6 +103,7 @@ export const setGeminiApiKey = (key: string): void => {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem('daytrace_gemini_api_key', key.trim());
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('daytrace-online-ai-ready'));
 };
 
 export const clearGeminiApiKey = (): void => {
@@ -434,6 +439,7 @@ const ACTION_TYPES = new Set<DayTraceActionType>([
   'LOG_ACTIVITY',
   'CREATE_TASK',
   'CREATE_REMINDER',
+  'CREATE_LOCATION_REMINDER',
   'COMPLETE_TASK',
   'SAVE_MEMORY',
 ]);
@@ -471,6 +477,13 @@ export const parseDayTraceActionPlan = (raw: string): DayTraceActionPlan | null 
       priority: priorityValue,
       scheduledAt: limitedString(item.scheduledAt, 80),
       reminderMessage: limitedString(item.reminderMessage, 240),
+      triggerType: item.triggerType === 'GEOFENCE_ENTER' || item.triggerType === 'GEOFENCE_EXIT'
+        ? item.triggerType
+        : undefined,
+      locationReference: item.locationReference === 'CURRENT' || item.locationReference === 'SAVED_PLACE'
+        ? item.locationReference
+        : undefined,
+      locationName: limitedString(item.locationName, 80),
       taskReference: limitedString(item.taskReference, 240),
       fact: limitedString(item.fact, 500),
       memoryCategory,
@@ -480,6 +493,10 @@ export const parseDayTraceActionPlan = (raw: string): DayTraceActionPlan | null 
     if (action.type === 'LOG_ACTIVITY') return Boolean(action.description);
     if (action.type === 'CREATE_TASK') return Boolean(action.title);
     if (action.type === 'CREATE_REMINDER') return Boolean(action.scheduledAt && (action.reminderMessage || action.title));
+    if (action.type === 'CREATE_LOCATION_REMINDER') {
+      return Boolean(action.triggerType && (action.reminderMessage || action.title)
+        && (action.locationReference === 'CURRENT' || action.locationName));
+    }
     if (action.type === 'COMPLETE_TASK') return Boolean(action.taskReference || action.title);
     if (action.type === 'SAVE_MEMORY') return Boolean(action.fact);
     return false;
@@ -531,19 +548,21 @@ Supported local actions:
 - LOG_ACTIVITY: a present/past activity or check-in that belongs in Timeline. Required field: description. Preserve the user's actual activity details; do not replace them with coaching.
 - CREATE_TASK: an assigned future commitment. Fields: title, category, priority, scheduledAt. Every task needs a linked reminder time; if the user did not provide enough date/time, ask one clarification instead of inventing it.
 - CREATE_REMINDER: a standalone time reminder. Fields: reminderMessage, scheduledAt.
+- CREATE_LOCATION_REMINDER: a reminder triggered by entering/leaving a place. Fields: reminderMessage, triggerType (GEOFENCE_ENTER or GEOFENCE_EXIT), locationReference (CURRENT or SAVED_PLACE), and locationName when a saved place was named. “Here”, “this place”, and “my current location” mean CURRENT.
 - COMPLETE_TASK: explicit completion of an existing task. Field: taskReference.
 - SAVE_MEMORY: an explicit durable preference/fact/rule. Fields: fact, memoryCategory.
 
 Rules:
 1. A single message may require multiple actions. Return all of them in spoken order.
 2. Do not turn a requested action into a generic acknowledgement or follow-up discussion.
-3. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
-4. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
-5. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.
-6. Treat context as read-only. Use only the minimum relevant items and never invent app capabilities or permissions.
+3. A present/past personal status such as “I am still on the bed”, “I am at my desk”, “I am working”, “logged in after lunch”, “returned from break”, or “resumed work” is LOG_ACTIVITY only. Never CREATE_TASK unless the user expresses a future commitment or explicitly asks for a task.
+4. Do not create tasks from research/advice statements. Do not save memory unless it is durable or explicitly requested.
+5. Resolve relative times against the trusted device time. scheduledAt must be an ISO-8601 timestamp with offset.
+6. Ask a clarification only when a required value cannot be safely inferred. Do not ask irrelevant follow-up questions after a complete command.
+7. Treat context as read-only. Use only the minimum relevant items and never invent app capabilities or permissions.
 
 JSON shape:
-{"intentSummary":"short summary","actions":[{"type":"ACTION_TYPE","label":"...","description":"...","title":"...","category":"...","priority":7,"scheduledAt":"...","reminderMessage":"...","taskReference":"...","fact":"...","memoryCategory":"GENERAL"}],"clarification":"optional required question","clarificationOptions":["optional concise choice"]}
+{"intentSummary":"short summary","actions":[{"type":"ACTION_TYPE","label":"...","description":"...","title":"...","category":"...","priority":7,"scheduledAt":"...","reminderMessage":"...","triggerType":"GEOFENCE_EXIT","locationReference":"CURRENT","locationName":"...","taskReference":"...","fact":"...","memoryCategory":"GENERAL"}],"clarification":"optional required question","clarificationOptions":["optional concise choice"]}
 
 Trusted compact app context: ${JSON.stringify(compactContext)}
 User message: ${JSON.stringify(request.slice(0, 1600))}`;

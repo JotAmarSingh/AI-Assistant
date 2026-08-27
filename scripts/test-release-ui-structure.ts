@@ -5,7 +5,9 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 
 const navigation = read('src/components/android/AndroidNavigationBar.tsx');
 const topBar = read('src/components/android/AndroidTopAppBar.tsx');
+const compactDateBrowser = read('src/components/android/CompactDateBrowser.tsx');
 const app = read('src/App.tsx');
+const periodicPrompt = read('src/components/android/PeriodicPromptModal.tsx');
 const settings = read('src/components/views/SettingsView.tsx');
 const anchors = read('src/components/views/RemindersAnchorsView.tsx');
 const hub = read('src/components/views/GeminiLiveHubView.tsx');
@@ -18,6 +20,7 @@ const initialState = read('src/utils/initialState.ts');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const nativePlugin = read('android/app/src/main/java/com/amarsingh/daytrace/DayTraceNativePlugin.java');
 const dayContext = read('src/context/DayContext.tsx');
+const androidStyles = read('android/app/src/main/res/values/styles.xml');
 
 assert(!navigation.includes("label: 'AI Agent'"), 'AI Agent must not appear in bottom navigation');
 assert(!navigation.includes("id: 'review'"), 'review must not be a bottom tab');
@@ -28,14 +31,22 @@ assert(topBar.includes('id="settings-top-btn"'), 'top-left Settings entry is req
 assert(!topBar.includes('voice-capture-top-btn'), 'meeting microphone must not be in the top bar');
 assert(!topBar.includes('json-backup-btn'), 'backup must live in Settings, not the top bar');
 assert(!topBar.includes('MiniCyberneticFaceIcon'), 'top-left app face must be removed');
+assert(topBar.includes('<CompactDateBrowser'), 'the top bar must use the compact in-app date browser');
+assert(!topBar.includes('type="date"'), 'the top bar must not open the oversized native date dialog');
+assert(compactDateBrowser.includes('Yesterday') && compactDateBrowser.includes('Today'), 'date browser needs quick day controls');
+assert(!androidStyles.includes('<item name="android:background">@drawable/splash</item>'), 'the splash artwork must not leak into native dialogs');
 
-assert(app.includes("case 'hub'") && app.includes('<GeminiLiveHubView />'), 'Home must retain the full-screen AI hub');
+assert(app.includes("case 'hub'") && app.includes("activeTab === 'hub' ? 'contents' : 'hidden'") && app.includes('<GeminiLiveHubView />'), 'Home AI must stay mounted so the Pending AI Inbox can reconcile from every tab');
 assert(app.includes("case 'settings'") && app.includes('<SettingsView'), 'Settings route is required');
 assert(!app.includes("case 'review'"), 'standalone AI Agent route must be removed');
 assert(hub.includes('sticky bottom-0'), 'Home composer must remain attached to the bottom of the resized viewport');
+assert(hub.includes("source: 'OFFLINE_AI_INBOX'") && hub.includes('Saved for Online Review'), 'offline accountability messages must enter the timestamped Pending AI Inbox');
+assert(hub.includes("route === 'LOCAL_ACTION' || route === 'PENDING_MEMORY'") && hub.includes('planDayTraceActions(memory.fact'), 'online Gemini must classify both new and queued accountability messages');
+assert(hub.includes('original offline time') && hub.includes('deleteMemory(memory.id)'), 'reconciled messages must preserve capture time and leave the inbox only after processing');
+assert(!hub.includes("title: 'Saved to Pending Memory'"), 'offline inbox items must not masquerade as durable personal memory');
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'), 'Android keyboard must resize the app around the composer');
 assert(app.includes("const swipeTabs: AndroidTab[] = ['hub', 'timetable', 'board', 'timeline', 'meetings', 'reminders']"), 'all six production tabs must support ordered horizontal swipe navigation');
-assert(app.includes('<ViewErrorBoundary key={activeTab}'), 'each tab must be isolated by the runtime recovery boundary');
+assert(app.includes('<ViewErrorBoundary key={activeTab}') && app.includes('<ViewErrorBoundary onReturnHome'), 'the persistent Home AI and each active tab must retain runtime recovery boundaries');
 
 for (const label of ['Permission Settings', 'Saved Times', 'Check-In Prompt Frequency', 'Gaming Mode', 'Alarm Audio Ringtone', 'Data Backup & Restore']) {
   assert(settings.includes(label), `Settings is missing ${label}`);
@@ -51,6 +62,8 @@ for (const label of ['Fixed-Time Planning Anchors', 'Voice Automations & Trigger
 }
 
 assert(app.includes('<FirstRunPermissionsModal />'), 'first-run permission setup must be mounted');
+assert(periodicPrompt.includes('await processUserInput(text)') && periodicPrompt.includes('recordPeriodicPromptCompletion()'), 'free-text accountability replies must use intent parsing and complete the prompt');
+assert(!periodicPrompt.includes('startAccountabilityTask({ title: logText.trim() })'), 'free-text accountability replies must never be forced into tasks');
 for (const permission of ['POST_NOTIFICATIONS', 'SCHEDULE_EXACT_ALARM', 'RECEIVE_BOOT_COMPLETED', 'ACCESS_BACKGROUND_LOCATION', 'RECORD_AUDIO']) {
   assert(manifest.includes(permission), `Android manifest is missing ${permission}`);
 }
@@ -63,8 +76,10 @@ for (const legacyExample of ['Video Editing', 'Growth Strategy', 'Client Feedbac
   assert(!taskBoard.includes(legacyExample), `Tasks must not render legacy example ${legacyExample}`);
 }
 assert(taskBoard.includes('category-island-') && taskBoard.includes('task-card-'), 'category islands and task cards must be tappable');
+assert(taskBoard.includes('>Categories</span>') && taskBoard.includes('>New</button>'), 'category creation must be visible from the Tasks screen and add-task form');
 assert(taskBoard.includes('Map as MapIcon'), 'the map icon must not shadow the built-in Map collection');
 assert(dayContext.includes('automations: displayedState.automations || []'), 'Anchors must receive persisted automations from context');
+assert(dayContext.includes('dailyHistory: readDailyHistory()') && dayContext.includes('mergeImportedDailyHistory(parsed.dailyHistory)'), 'JSON backup must preserve calendar history');
 for (const action of ['Start', 'Complete', 'Edit', 'Delete']) assert(taskBoard.includes(action), `task details must expose ${action}`);
 assert(taskBoard.includes("useGeneratedVisual('CATEGORY_ISLAND'") && taskBoard.includes("useGeneratedVisual('TASK_STICKER'"), 'task and category artwork must use generated, cached visual assets');
 assert(timetable.includes('No plans for this day') && timeline.includes('Nothing logged yet'), 'new timetable and timeline must have honest empty states');

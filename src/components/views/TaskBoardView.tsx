@@ -5,10 +5,11 @@ import {
 } from 'lucide-react';
 import { useDay } from '../../context/DayContext';
 import { TaskCategoryDefinition, TaskItem } from '../../types';
-import { resolveCategoryIslandIcon, resolveContextualIcon } from '../../services/geminiService';
+import { resolveCategoryIslandIcon } from '../../services/geminiService';
 import { useGeneratedVisual } from '../../hooks/useGeneratedVisual';
 import { ManageCategoriesModal } from '../tasks/ManageCategoriesModal';
 import { UNCATEGORISED_CATEGORY_ID } from '../../utils/initialState';
+import { TaskVisualFallback } from '../common/TaskVisualFallback';
 
 interface IslandData {
   category: TaskCategoryDefinition;
@@ -36,10 +37,12 @@ const IslandArtwork: React.FC<{ island: IslandData; large?: boolean }> = ({ isla
 };
 
 const TaskSticker: React.FC<{ task: TaskItem; categoryLabel: string }> = ({ task, categoryLabel }) => {
-  const { imageUrl, isGenerating } = useGeneratedVisual('TASK_STICKER', task.title, [categoryLabel]);
+  const { imageUrl, isGenerating, visualStatus } = useGeneratedVisual('TASK_STICKER', task.title, [categoryLabel]);
   return (
     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/25 bg-[#060b18]">
-      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" /> : <span className={`text-xl ${isGenerating ? 'animate-pulse' : ''}`}>{resolveContextualIcon(task.title, categoryLabel)}</span>}
+      {imageUrl
+        ? <img src={imageUrl} alt="" className="h-full w-full object-contain p-1" />
+        : <TaskVisualFallback subject={task.title} context={categoryLabel} generationState={isGenerating ? 'GENERATING' : visualStatus.state} />}
     </div>
   );
 };
@@ -112,7 +115,10 @@ export const TaskBoardView: React.FC = () => {
     <div id="task-board-view" className="daytrace-scene flex h-full flex-1 flex-col overflow-hidden text-slate-100">
       <header className="z-20 flex shrink-0 items-center justify-between border-b border-cyan-300/20 bg-[#050918]/90 px-4 py-3 backdrop-blur-xl">
         {activeIsland ? <button id="island-back-btn" type="button" onClick={() => setActiveIslandId(null)} className="flex min-w-0 items-center gap-2 text-left"><ArrowLeft className="h-5 w-5 text-cyan-300" /><div className="min-w-0"><h2 className="truncate text-sm font-black">{activeIsland.category.label}</h2><p className="text-[10px] text-slate-400">Category Island</p></div></button> : <div><h2 className="text-base font-black">Task Islands</h2><p className="text-[10px] text-slate-400">Your categories grow from real tasks</p></div>}
-        <div className="flex gap-2"><button id="manage-categories-btn" type="button" onClick={() => setIsManageOpen(true)} className="rounded-xl border border-cyan-300/25 bg-slate-900/70 p-2 text-cyan-200" aria-label="Manage categories"><Settings2 className="h-4 w-4" /></button><button id="add-task-btn" type="button" onClick={() => setIsAddOpen(true)} className="rounded-xl bg-cyan-300 p-2 text-slate-950 shadow-[0_0_18px_rgba(34,211,238,.45)]" aria-label="Add task"><Plus className="h-4 w-4" /></button></div>
+        <div className="flex gap-2">
+          <button id="manage-categories-btn" type="button" onClick={() => setIsManageOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-cyan-300/25 bg-slate-900/70 px-3 py-2 text-[10px] font-bold text-cyan-200" aria-label="Add or manage categories"><Settings2 className="h-4 w-4" /><span>Categories</span></button>
+          <button id="add-task-btn" type="button" onClick={() => setIsAddOpen(true)} className="rounded-xl bg-cyan-300 p-2 text-slate-950 shadow-[0_0_18px_rgba(34,211,238,.45)]" aria-label="Add task"><Plus className="h-4 w-4" /></button>
+        </div>
       </header>
 
       <div className="relative flex-1 overflow-y-auto overscroll-contain px-4 pb-8 pt-4">
@@ -144,7 +150,7 @@ export const TaskBoardView: React.FC = () => {
         )}
       </div>
 
-      {isAddOpen && <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 p-3 sm:items-center" onClick={() => setIsAddOpen(false)}><form onSubmit={createTask} onClick={(event) => event.stopPropagation()} className="w-full max-w-md space-y-4 rounded-[30px] border border-cyan-300/25 bg-[#090e1d] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Add task</h3><p className="text-[10px] text-slate-400">Artwork generates in the background when online.</p></div><button type="button" onClick={() => setIsAddOpen(false)}><X className="h-5 w-5" /></button></div><label className="form-label">Task name<input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Task name" className="form-control" /></label><label className="form-label">Category<select value={newCategory} onChange={(event) => setNewCategory(event.target.value)} className="form-control">{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="grid grid-cols-2 gap-3"><label className="form-label">Priority<select value={newPriority} onChange={(event) => setNewPriority(Number(event.target.value))} className="form-control"><option value={3}>Low</option><option value={5}>Normal</option><option value={9}>High</option></select></label><label className="form-label">Due and reminder<input type="datetime-local" value={newDueAt} onChange={(event) => setNewDueAt(event.target.value)} className="form-control text-xs" /></label></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setIsAddOpen(false)} className="rounded-2xl bg-slate-800 py-3 text-xs font-bold">Cancel</button><button type="submit" disabled={!newTitle.trim()} className="rounded-2xl bg-cyan-300 py-3 text-xs font-black text-slate-950 disabled:opacity-40">Create task</button></div></form></div>}
+      {isAddOpen && <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 p-3 sm:items-center" onClick={() => setIsAddOpen(false)}><form onSubmit={createTask} onClick={(event) => event.stopPropagation()} className="w-full max-w-md space-y-4 rounded-[30px] border border-cyan-300/25 bg-[#090e1d] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Add task</h3><p className="text-[10px] text-slate-400">Artwork generates in the background when online.</p></div><button type="button" onClick={() => setIsAddOpen(false)}><X className="h-5 w-5" /></button></div><label className="form-label">Task name<input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Task name" className="form-control" /></label><label className="form-label">Category<div className="mt-1 flex gap-2"><select value={newCategory} onChange={(event) => setNewCategory(event.target.value)} className="form-control min-w-0 flex-1">{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><button type="button" onClick={() => setIsManageOpen(true)} className="shrink-0 rounded-xl border border-cyan-300/35 bg-cyan-300/10 px-3 text-[10px] font-black text-cyan-200"><Plus className="mx-auto h-4 w-4" />New</button></div></label><div className="grid grid-cols-2 gap-3"><label className="form-label">Priority<select value={newPriority} onChange={(event) => setNewPriority(Number(event.target.value))} className="form-control"><option value={3}>Low</option><option value={5}>Normal</option><option value={9}>High</option></select></label><label className="form-label">Due and reminder<input type="datetime-local" value={newDueAt} onChange={(event) => setNewDueAt(event.target.value)} className="form-control text-xs" /></label></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setIsAddOpen(false)} className="rounded-2xl bg-slate-800 py-3 text-xs font-bold">Cancel</button><button type="submit" disabled={!newTitle.trim()} className="rounded-2xl bg-cyan-300 py-3 text-xs font-black text-slate-950 disabled:opacity-40">Create task</button></div></form></div>}
       {editingTask && <TaskEditSheet task={editingTask} categories={categories} onClose={() => setEditingTask(null)} onSave={(updates) => { editTask(editingTask.id, updates); setEditingTask(null); }} />}
       <ManageCategoriesModal isOpen={isManageOpen} onClose={() => setIsManageOpen(false)} />
     </div>
